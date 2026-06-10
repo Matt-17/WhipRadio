@@ -85,7 +85,11 @@ public class PlayoutService(
             }
 
             await reporter.ReportStartedAsync(item, ct);
-            await PlayItemAsync(item, encoderInput, ct);
+            if (!await PlayItemAsync(item, encoderInput, ct))
+            {
+                logger.LogInformation("Playout disabled from admin — going off air");
+                return; // closes the encoder; the outer loop reports idle and waits
+            }
         }
     }
 
@@ -121,25 +125,50 @@ public class PlayoutService(
         }
     }
 
-    private async Task PlayItemAsync(PlayoutItem item, Stream encoderInput, CancellationToken ct)
+    /// <returns>false when playback was aborted because the station went off air.</returns>
+    private async Task<bool> PlayItemAsync(PlayoutItem item, Stream encoderInput, CancellationToken ct)
     {
         var absolutePath = Path.Combine(radioOptions.Value.DataRoot, item.FilePath);
         if (!File.Exists(absolutePath))
         {
             logger.LogWarning("Skipping missing file {Path}", absolutePath);
-            return;
+            return true;
         }
 
         using var decoder = StartDecoder(absolutePath);
         try
         {
-            await decoder.StandardOutput.BaseStream.CopyToAsync(encoderInput, ct);
+            // Manual pump instead of CopyToAsync so the off-air switch is honored
+            // mid-item: the admin expects the station to fall silent within seconds,
+            // not after the current track finishes. -re backpressure paces the loop.
+            var buffer = new byte[32 * 1024];
+            var decoderOutput = decoder.StandardOutput.BaseStream;
+            var lastEnabledCheck = DateTime.UtcNow;
+            int bytesRead;
+
+            while ((bytesRead = await decoderOutput.ReadAsync(buffer, ct)) > 0)
+            {
+                await encoderInput.WriteAsync(buffer.AsMemory(0, bytesRead), ct);
+
+                if (DateTime.UtcNow - lastEnabledCheck >= TimeSpan.FromSeconds(2))
+                {
+                    lastEnabledCheck = DateTime.UtcNow;
+                    if (!await IsPlayoutEnabledAsync(ct))
+                    {
+                        logger.LogInformation("Off-air switch flipped — aborting \"{Title}\" mid-item", item.Title);
+                        return false;
+                    }
+                }
+            }
+
             await encoderInput.FlushAsync(ct);
             await decoder.WaitForExitAsync(ct);
             if (decoder.ExitCode != 0)
             {
                 logger.LogWarning("Decoder exited with code {Code} for {Path}", decoder.ExitCode, absolutePath);
             }
+
+            return true;
         }
         finally
         {
