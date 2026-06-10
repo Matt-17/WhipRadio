@@ -25,6 +25,10 @@ public class IcecastOptions
     public string SourceUser { get; set; } = "source";
 
     public string SourcePassword { get; set; } = "hackme-dev";
+
+    public string AdminUser { get; set; } = "admin";
+
+    public string AdminPassword { get; set; } = "hackme-admin";
 }
 
 public class StreamOptions

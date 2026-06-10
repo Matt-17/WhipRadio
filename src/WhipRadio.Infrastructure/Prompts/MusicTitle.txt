@@ -1,1 +1,6 @@
-Invent a {Genre} song title. Output ONLY the title — no quotes, no explanation, max 6 words.
+Invent a song title for the {Subgenre} artist "{ArtistName}" (signature sound: {ArtistStyle}).
+Hard rules:
+- Do NOT use any of these overused words: {ForbiddenWords}
+- It must be clearly different from these existing titles: {AvoidTitles}
+- Surprise me: draw from unexpected everyday things, places, feelings or objects.
+Output ONLY the title - no quotes, no explanation, max 6 words.

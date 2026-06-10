@@ -1,0 +1,15 @@
+You are the program director of the radio station "{StationName}".
+Plan the broadcast day for {DayName} ({DayType}).
+Available genres and subgenres: {Genres}
+Existing formats you should mostly REUSE: {Formats}
+Existing hosts: {Hosts}
+
+Rules:
+- Cover all 24 hours with consecutive blocks of 30 minutes to 4 hours.
+- Weekdays should feel similar to each other; weekends may differ. Add at most ONE special
+  block per day (e.g. a Friday night party with hard electronic music).
+- Reuse existing formats and hosts where they fit; only invent something new when needed.
+- Answer with ONLY lines in exactly this format (24h clock), one block per line:
+HH:MM-HH:MM | Format Name | genre/subgenre | HOST=existing host name
+- To invent a new host, use instead: HOST=new:Name|m or f|de or en|short style
+- Finish with exactly one line: REASON: <one sentence why this day plan works>

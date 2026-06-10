@@ -6,8 +6,9 @@ using WhipRadio.Infrastructure.Persistence;
 namespace WhipRadio.Orchestrator.Services;
 
 /// <summary>
-/// Keeps a small announcement pool warm: produces a SongIntro for the next
-/// planned track; every 4th cycle produces a Weather announcement instead.
+/// Keeps a small, varied announcement pool warm for the current host:
+/// song intros for upcoming tracks, a weather report every 4th cycle, and the
+/// occasional personal note so the show doesn't sound like a jukebox.
 /// </summary>
 public class AnnouncementProductionService(
     IServiceScopeFactory scopeFactory,
@@ -48,7 +49,8 @@ public class AnnouncementProductionService(
         var selector = scope.ServiceProvider.GetRequiredService<ITrackSelector>();
         var weatherSource = scope.ServiceProvider.GetRequiredService<IAnnouncementDataSource>();
 
-        var (slot, moderator) = await schedule.GetCurrentAsync(ct);
+        var context = await schedule.GetCurrentAsync(ct);
+        var moderator = context.Moderator;
 
         string stationName;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
@@ -56,21 +58,33 @@ public class AnnouncementProductionService(
             stationName = (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.StationName ?? "WhipRadio";
         }
 
-        // Every 4th announcement cycle: weather instead of a song intro.
-        if (Interlocked.Increment(ref _cycleCounter) % 4 == 0)
+        var cycle = Interlocked.Increment(ref _cycleCounter);
+
+        // Every 4th cycle: weather instead of a song intro.
+        if (cycle % 4 == 0)
         {
-            if (await HasUnplayedAnnouncementAsync(AnnouncementKind.Weather, ct))
+            if (!await HasUnplayedAsync(AnnouncementKind.Weather, moderator.Id, ct))
             {
-                return;
+                var facts = await weatherSource.GetSummaryAsync(moderator.Language, ct);
+                await factory.ProduceAsync(AnnouncementKind.Weather, moderator, null, facts, stationName, ct);
             }
 
-            var facts = await weatherSource.GetSummaryAsync(moderator.Language, ct);
-            await factory.ProduceAsync(AnnouncementKind.Weather, moderator, null, facts, stationName, ct);
             return;
         }
 
-        // Peek the next planned track and make sure it has an unplayed intro.
-        var nextTrack = await selector.PickNextAsync(slot, moderator, ct);
+        // Every 7th cycle: a personal note drawing on the host's day memory.
+        if (cycle % 7 == 0)
+        {
+            if (!await HasUnplayedAsync(AnnouncementKind.PersonalNote, moderator.Id, ct))
+            {
+                await factory.ProduceAsync(AnnouncementKind.PersonalNote, moderator, null, null, stationName, ct);
+            }
+
+            return;
+        }
+
+        // Default: make sure the next planned track has an unplayed intro.
+        var nextTrack = await selector.PickNextAsync(context, ct);
         if (nextTrack is null)
         {
             return; // cold start: ShowRunner produces filler talk on its own
@@ -84,14 +98,20 @@ public class AnnouncementProductionService(
             {
                 return;
             }
+
+            // Load the artist for the intro prompt.
+            nextTrack = await db.Tracks.AsNoTracking()
+                .Include(t => t.Artist)
+                .FirstAsync(t => t.Id == nextTrack.Id, ct);
         }
 
         await factory.ProduceAsync(AnnouncementKind.SongIntro, moderator, nextTrack, null, stationName, ct);
     }
 
-    private async Task<bool> HasUnplayedAnnouncementAsync(AnnouncementKind kind, CancellationToken ct)
+    private async Task<bool> HasUnplayedAsync(AnnouncementKind kind, int moderatorId, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.Announcements.AnyAsync(a => a.Kind == kind && !a.WasPlayed, ct);
+        return await db.Announcements.AnyAsync(
+            a => a.Kind == kind && a.ModeratorId == moderatorId && !a.WasPlayed, ct);
     }
 }

@@ -7,6 +7,8 @@ namespace WhipRadio.Web.Services;
 /// <summary>Typed client for the Orchestrator's /api endpoints (via service discovery).</summary>
 public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
 {
+    public Uri? BaseAddress => http.BaseAddress;
+
     public async Task<NowPlayingDto?> GetNowPlayingAsync(CancellationToken ct = default)
     {
         try
@@ -19,15 +21,35 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
 
             return await response.Content.ReadFromJsonAsync<NowPlayingDto>(ct);
         }
-        catch (HttpRequestException ex)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
             logger.LogDebug(ex, "Orchestrator not reachable yet");
             return null;
         }
     }
 
-    public async Task<List<TrackDto>> GetLibraryAsync(string? sort = null, CancellationToken ct = default)
-        => await SafeGetAsync<List<TrackDto>>($"/api/library?sort={sort}", ct) ?? [];
+    public async Task<List<QueueItemDto>> GetQueueAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<QueueItemDto>>("/api/queue", ct) ?? [];
+
+    public async Task<List<TrackDto>> GetLibraryAsync(
+        string? sort = null, string? genre = null, Guid? artistId = null, CancellationToken ct = default)
+    {
+        var url = $"/api/library?sort={sort}";
+        if (!string.IsNullOrEmpty(genre))
+        {
+            url += $"&genre={Uri.EscapeDataString(genre)}";
+        }
+
+        if (artistId is not null)
+        {
+            url += $"&artistId={artistId}";
+        }
+
+        return await SafeGetAsync<List<TrackDto>>(url, ct) ?? [];
+    }
+
+    public async Task<List<ArtistDto>> GetArtistsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ArtistDto>>("/api/artists", ct) ?? [];
 
     public async Task<List<PlayLogEntryDto>> GetPlayLogAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<PlayLogEntryDto>>("/api/playlog", ct) ?? [];
@@ -35,11 +57,24 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task<List<ModeratorDto>> GetModeratorsAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ModeratorDto>>("/api/moderators", ct) ?? [];
 
+    public async Task<ModeratorDto?> CreateModeratorAsync(CreateModeratorDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/moderators", request, ct);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<ModeratorDto>(ct)
+            : null;
+    }
+
     public async Task ToggleModeratorAsync(int id, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"/api/moderators/{id}/toggle", content: null, ct);
         response.EnsureSuccessStatusCode();
     }
+
+    public async Task<List<PlayLogEntryDto>> GetModeratorTalksAsync(int id, CancellationToken ct = default)
+        => await SafeGetAsync<List<PlayLogEntryDto>>($"/api/moderators/{id}/talks", ct) ?? [];
+
+    public string AnnouncementAudioUrl(Guid id) => $"{BaseAddress?.ToString().TrimEnd('/')}/api/announcements/{id}/audio";
 
     public async Task<StationSettingsDto?> GetSettingsAsync(CancellationToken ct = default)
         => await SafeGetAsync<StationSettingsDto>("/api/settings", ct);
@@ -59,13 +94,37 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
             : null;
     }
 
+    public async Task<List<FormatDto>> GetFormatsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<FormatDto>>("/api/formats", ct) ?? [];
+
+    public async Task ToggleFormatAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/formats/{id}/toggle", content: null, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task VoteFormatAsync(Guid id, int direction, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/formats/{id}/vote?direction={direction}", content: null, ct);
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<ProgramSlotDto>> GetScheduleAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ProgramSlotDto>>("/api/schedule", ct) ?? [];
+
+    public async Task<StatsDto?> GetStatsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<StatsDto>("/api/stats", ct);
+
+    public async Task<List<ConsoleLineDto>> GetConsoleAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ConsoleLineDto>>("/api/console", ct) ?? [];
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try
         {
             return await http.GetFromJsonAsync<T>(url, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or NotSupportedException)
         {
             logger.LogDebug(ex, "GET {Url} failed (orchestrator starting?)", url);
             return null;

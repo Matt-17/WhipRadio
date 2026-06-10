@@ -33,6 +33,14 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         {
             ["Facts"] = request.Facts ?? "everyday radio life",
         }),
+        AnnouncementKind.PersonalNote => PromptTemplates.Render("ScriptWriter.PersonalNote", new Dictionary<string, string>
+        {
+            ["Facts"] = string.IsNullOrWhiteSpace(request.Facts) ? "nothing yet" : request.Facts,
+        }),
+        AnnouncementKind.HostChange => PromptTemplates.Render("ScriptWriter.HostChange", new Dictionary<string, string>
+        {
+            ["Facts"] = request.Facts ?? "a new show begins",
+        }),
         AnnouncementKind.StationId => PromptTemplates.Render("ScriptWriter.StationId", new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
@@ -44,7 +52,8 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
     private static Dictionary<string, string> TrackValues(AnnouncementRequest request) => new()
     {
         ["Title"] = request.Track?.Title ?? "an untitled tune",
-        ["Genre"] = request.Track?.Genre ?? "unknown",
+        ["Artist"] = request.Track?.Artist?.Name ?? "one of our studio artists",
+        ["Genre"] = string.IsNullOrEmpty(request.Track?.Subgenre) ? request.Track?.Genre ?? "unknown" : request.Track.Subgenre,
         ["Style"] = request.Track?.Style ?? "easygoing",
     };
 }

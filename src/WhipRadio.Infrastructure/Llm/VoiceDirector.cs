@@ -13,6 +13,7 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
         {
             ["PersonaPrompt"] = moderator.PersonaPrompt,
             ["Style"] = moderator.Style,
+            ["Language"] = moderator.Language,
         });
 
         var voiced = await llm.CompleteAsync(systemPrompt, script, ct);

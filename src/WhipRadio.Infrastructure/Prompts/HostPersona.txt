@@ -1,0 +1,4 @@
+Create a radio host persona for "{Name}" ({Gender}, language: {Language}, style: {Style}).
+Write 2-3 sentences in second person ("Du bist ..." for German, "You are ..." for English)
+describing their character, way of speaking and what they love about music.
+Output ONLY the persona text.

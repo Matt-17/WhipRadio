@@ -18,14 +18,13 @@ public class WeightedTrackSelectorTests
             IsRetired = retired,
         };
 
-    private static ScheduleSlot Slot(string genre) => new() { HourOfDay = 10, Genre = genre };
-
-    private static Moderator Host(bool? prefersVocals = null) => new() { Name = "Test Host", PrefersVocals = prefersVocals };
+    private static ShowContext Context(string genre, string subgenre = "", bool? prefersVocals = null)
+        => new(genre, subgenre, new Moderator { Name = "Test Host", PrefersVocals = prefersVocals });
 
     [Fact]
     public void Pick_EmptyLibrary_ReturnsNull()
     {
-        var result = WeightedTrackSelector.Pick([], Slot("lofi"), Host(), [], Seeded);
+        var result = WeightedTrackSelector.Pick([], Context("lofi"), [], Seeded);
         Assert.Null(result);
     }
 
@@ -36,8 +35,23 @@ public class WeightedTrackSelectorTests
         var rock = NewTrack("indie rock");
         for (var i = 0; i < 20; i++)
         {
-            var picked = WeightedTrackSelector.Pick([lofi, rock], Slot("lofi"), Host(), [], new Random(i));
+            var picked = WeightedTrackSelector.Pick([lofi, rock], Context("lofi"), [], new Random(i));
             Assert.Equal(lofi.Id, picked!.Id);
+        }
+    }
+
+    [Fact]
+    public void Pick_PrefersMatchingSubgenreWithinGenre()
+    {
+        var techno = NewTrack("electronic");
+        techno.Subgenre = "techno";
+        var trance = NewTrack("electronic");
+        trance.Subgenre = "trance";
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [techno, trance], Context("electronic", "trance"), [], new Random(i));
+            Assert.Equal(trance.Id, picked!.Id);
         }
     }
 
@@ -45,7 +59,7 @@ public class WeightedTrackSelectorTests
     public void Pick_NoGenreMatch_FallsBackToAnyGenre()
     {
         var rock = NewTrack("indie rock");
-        var picked = WeightedTrackSelector.Pick([rock], Slot("lofi"), Host(), [], Seeded);
+        var picked = WeightedTrackSelector.Pick([rock], Context("lofi"), [], Seeded);
         Assert.Equal(rock.Id, picked!.Id);
     }
 
@@ -57,7 +71,7 @@ public class WeightedTrackSelectorTests
         for (var i = 0; i < 20; i++)
         {
             var picked = WeightedTrackSelector.Pick(
-                [vocal, instrumental], Slot("lofi"), Host(prefersVocals: true), [], new Random(i));
+                [vocal, instrumental], Context("lofi", prefersVocals: true), [], new Random(i));
             Assert.Equal(vocal.Id, picked!.Id);
         }
     }
@@ -67,7 +81,7 @@ public class WeightedTrackSelectorTests
     {
         var instrumental = NewTrack("lofi", hasVocals: false);
         var picked = WeightedTrackSelector.Pick(
-            [instrumental], Slot("lofi"), Host(prefersVocals: true), [], Seeded);
+            [instrumental], Context("lofi", prefersVocals: true), [], Seeded);
         Assert.Equal(instrumental.Id, picked!.Id);
     }
 
@@ -78,7 +92,7 @@ public class WeightedTrackSelectorTests
         Guid[] recent = [tracks[0].Id, tracks[1].Id, tracks[2].Id];
         for (var i = 0; i < 20; i++)
         {
-            var picked = WeightedTrackSelector.Pick(tracks, Slot("lofi"), Host(), recent, new Random(i));
+            var picked = WeightedTrackSelector.Pick(tracks, Context("lofi"), recent, new Random(i));
             Assert.Equal(tracks[3].Id, picked!.Id);
         }
     }
@@ -87,7 +101,7 @@ public class WeightedTrackSelectorTests
     public void Pick_AllTracksRecentlyPlayed_ReturnsNull()
     {
         var track = NewTrack("lofi");
-        var picked = WeightedTrackSelector.Pick([track], Slot("lofi"), Host(), [track.Id], Seeded);
+        var picked = WeightedTrackSelector.Pick([track], Context("lofi"), [track.Id], Seeded);
         Assert.Null(picked);
     }
 
@@ -98,9 +112,27 @@ public class WeightedTrackSelectorTests
         var active = NewTrack("lofi");
         for (var i = 0; i < 20; i++)
         {
-            var picked = WeightedTrackSelector.Pick([retired, active], Slot("lofi"), Host(), [], new Random(i));
+            var picked = WeightedTrackSelector.Pick([retired, active], Context("lofi"), [], new Random(i));
             Assert.Equal(active.Id, picked!.Id);
         }
+    }
+
+    [Fact]
+    public void ComputeArtistFactors_ScaleWithNetVotes()
+    {
+        var lovedArtist = Guid.NewGuid();
+        var hatedArtist = Guid.NewGuid();
+        var loved = NewTrack("lofi");
+        loved.ArtistId = lovedArtist;
+        loved.UpVotes = 10;
+        var hated = NewTrack("lofi");
+        hated.ArtistId = hatedArtist;
+        hated.DownVotes = 30;
+
+        var factors = WeightedTrackSelector.ComputeArtistFactors([loved, hated]);
+
+        Assert.Equal(1.5, factors[lovedArtist], precision: 10);
+        Assert.Equal(0.25, factors[hatedArtist], precision: 10); // clamped floor
     }
 
     [Fact]
@@ -111,7 +143,7 @@ public class WeightedTrackSelectorTests
         var repository = new FakeTrackRepository([fresh, recent], [recent.Id]);
         var selector = new WeightedTrackSelector(repository, Seeded);
 
-        var picked = await selector.PickNextAsync(Slot("lofi"), Host(), CancellationToken.None);
+        var picked = await selector.PickNextAsync(Context("lofi"), CancellationToken.None);
 
         Assert.Equal(fresh.Id, picked!.Id);
         Assert.Equal(WeightedTrackSelector.RecentExclusionCount, repository.RequestedRecentCount);

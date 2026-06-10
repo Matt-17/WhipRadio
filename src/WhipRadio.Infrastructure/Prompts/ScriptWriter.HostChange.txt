@@ -1,0 +1,3 @@
+Write a short on-air host handover. Context: {Facts}
+Make it warm and personal - greet the listeners, mention the other host by name,
+and tease what your show will bring. 2-4 sentences.

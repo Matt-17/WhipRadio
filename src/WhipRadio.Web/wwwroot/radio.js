@@ -38,5 +38,15 @@ window.whipRadio = {
     if (this._audio) {
       this._audio.volume = Math.min(1, Math.max(0, value));
     }
+  },
+
+  // One-shot clip playback (talk replays from the play log / host pages).
+  _clip: null,
+  playClip(url) {
+    if (this._clip) {
+      this._clip.pause();
+    }
+    this._clip = new Audio(url);
+    this._clip.play().catch(e => console.warn("whipRadio: clip failed", e));
   }
 };

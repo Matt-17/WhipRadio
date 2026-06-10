@@ -1,0 +1,57 @@
+@page "/console"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Console</PageTitle>
+
+<h1 class="stage-title">Console</h1>
+<div class="stage-sub">orchestrator log output · newest first · refreshes every 3 s</div>
+
+<div class="panel reveal">
+    @if (_lines is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> tapping the wire…</div>
+    }
+    else
+    {
+        <div class="console-log">
+            @foreach (var line in _lines)
+            {
+                <div class="console-line level-@line.Level.ToLowerInvariant()">
+                    <span class="ts">@line.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                    <span class="lvl">@Abbrev(line.Level)</span>
+                    <span class="cat">@line.Category</span>
+                    <span class="msg">@line.Message</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ConsoleLineDto>? _lines;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _lines = await Api.GetConsoleAsync();
+        _timer = new Timer(async _ =>
+        {
+            _lines = await Api.GetConsoleAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private static string Abbrev(string level) => level switch
+    {
+        "Information" => "INF",
+        "Warning" => "WRN",
+        "Error" => "ERR",
+        "Critical" => "CRT",
+        _ => level.Length >= 3 ? level[..3].ToUpperInvariant() : level,
+    };
+
+    public void Dispose() => _timer?.Dispose();
+}

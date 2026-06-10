@@ -1,0 +1,82 @@
+@page "/stats"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Stats</PageTitle>
+
+<h1 class="stage-title">Station Statistics</h1>
+<div class="stage-sub">for the nerds · refreshes every 10 seconds</div>
+
+@if (_stats is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> counting everything…</div></div>
+}
+else
+{
+    <div class="stat-grid reveal">
+        <div class="panel stat-card"><div class="stat-value">@_stats.CurrentListeners</div><div class="stat-label">listeners now</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.ListenerPeak</div><div class="stat-label">listener peak</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalTracks</div><div class="stat-label">tracks</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalArtists</div><div class="stat-label">artists</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalAnnouncements</div><div class="stat-label">talks produced</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalPlays</div><div class="stat-label">items aired</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.PlaysLastHour</div><div class="stat-label">aired last hour</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalVotes</div><div class="stat-label">votes cast</div></div>
+        <div class="panel stat-card"><div class="stat-value">@_stats.TotalMusicHours.ToString("0.#")</div><div class="stat-label">music hours aired</div></div>
+    </div>
+
+    <div class="stat-columns">
+        <div class="panel reveal">
+            <div class="panel-label">Top Artists (by plays)</div>
+            <table class="console-table">
+                <tbody>
+                    @foreach (var artist in _stats.TopArtists)
+                    {
+                        <tr><td>@artist.Name</td><td class="num">@artist.Value.ToString("0")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="panel reveal">
+            <div class="panel-label">Host Airtime (minutes)</div>
+            <table class="console-table">
+                <tbody>
+                    @foreach (var host in _stats.HostAirtimeMinutes)
+                    {
+                        <tr><td>@host.Name</td><td class="num">@host.Value.ToString("0.#")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="panel reveal">
+            <div class="panel-label">Tracks per Genre</div>
+            <table class="console-table">
+                <tbody>
+                    @foreach (var genre in _stats.TracksPerGenre)
+                    {
+                        <tr><td>@genre.Name</td><td class="num">@genre.Value.ToString("0")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private StatsDto? _stats;
+    private Timer? _timer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await Api.GetStatsAsync();
+        _timer = new Timer(async _ =>
+        {
+            _stats = await Api.GetStatsAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

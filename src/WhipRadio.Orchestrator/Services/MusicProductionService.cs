@@ -11,10 +11,11 @@ using WhipRadio.Orchestrator.Configuration;
 namespace WhipRadio.Orchestrator.Services;
 
 /// <summary>
-/// Keeps the record collection stocked: while the library holds fewer unplayed
-/// tracks than StationSettings.TargetQueueLength, it generates one track at a
-/// time (genre from the current schedule slot, vocals when the moderator
-/// prefers them AND ace-step is available, else instrumental MusicGen).
+/// Keeps the record collection stocked — but paced: production runs only while
+/// MusicProductionEnabled, only while the library is below MaxLibrarySize, and
+/// only while fewer than TargetQueueLength unplayed tracks exist. Every track
+/// belongs to a fictional artist whose signature style drives the prompt;
+/// disliked artists retire and stop getting new material.
 /// </summary>
 public class MusicProductionService(
     IServiceScopeFactory scopeFactory,
@@ -32,9 +33,10 @@ public class MusicProductionService(
         {
             try
             {
-                if (await LibraryNeedsTrackAsync(stoppingToken))
+                var settings = await GetSettingsAsync(stoppingToken);
+                if (settings.MusicProductionEnabled && await LibraryNeedsTrackAsync(settings, stoppingToken))
                 {
-                    await ProduceOneTrackAsync(stoppingToken);
+                    await ProduceOneTrackAsync(settings, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -52,52 +54,59 @@ public class MusicProductionService(
         }
     }
 
-    private async Task<bool> LibraryNeedsTrackAsync(CancellationToken ct)
+    private async Task<StationSettings> GetSettingsAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct);
-        var target = settings?.TargetQueueLength ?? 3;
-        var unplayed = await db.Tracks.CountAsync(t => !t.IsRetired && t.PlayCount == 0, ct);
-        return unplayed < target;
+        return await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
     }
 
-    private async Task ProduceOneTrackAsync(CancellationToken ct)
+    private async Task<bool> LibraryNeedsTrackAsync(StationSettings settings, CancellationToken ct)
     {
-        // Scoped resolution: the typed HTTP clients and copywriter are scoped services.
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var total = await db.Tracks.CountAsync(t => !t.IsRetired, ct);
+        if (total >= settings.MaxLibrarySize)
+        {
+            return false; // shelf is full — don't produce more than anyone can play
+        }
+
+        var unplayed = await db.Tracks.CountAsync(t => !t.IsRetired && t.PlayCount == 0, ct);
+        return unplayed < settings.TargetQueueLength;
+    }
+
+    private async Task ProduceOneTrackAsync(StationSettings settings, CancellationToken ct)
+    {
         using var scope = scopeFactory.CreateScope();
         var musicGenerator = scope.ServiceProvider.GetRequiredService<IMusicGenerator>();
         var copywriter = scope.ServiceProvider.GetRequiredService<MusicCopywriter>();
 
-        var (slot, moderator) = await schedule.GetCurrentAsync(ct);
-        var genre = slot.Genre;
+        var context = await schedule.GetCurrentAsync(ct);
+        var artist = await GetOrCreateArtistAsync(copywriter, context, ct);
 
-        string? lyrics = null;
-        var wantVocals = moderator.PrefersVocals == true
+        var wantVocals = context.Moderator.PrefersVocals == true
             && await musicGenerator.IsBackendAvailableAsync(MusicBackends.AceStep, ct);
+        var lyrics = wantVocals
+            ? await copywriter.WriteLyricsAsync(context.Genre, settings.DefaultLanguage, ct)
+            : null;
 
-        string language;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
-        {
-            language = (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.DefaultLanguage ?? "en";
-        }
+        var existingTitles = await GetExistingTitlesAsync(ct);
+        var title = await copywriter.InventTitleAsync(artist, existingTitles, ct);
 
-        if (wantVocals)
-        {
-            lyrics = await copywriter.WriteLyricsAsync(genre, language, ct);
-        }
-
-        var title = await copywriter.InventTitleAsync(genre, ct);
-        var style = $"{genre}, catchy, radio-friendly, {moderator.Style} mood";
+        var style = artist.StyleDescriptor;
         var prompt = wantVocals ? style : $"{style}, instrumental";
-        var duration = musicOptions.Value.TrackDurationSeconds;
+        var minSeconds = Math.Max(30, settings.MinTrackDurationSeconds);
+        var maxSeconds = Math.Max(minSeconds, settings.MaxTrackDurationSeconds);
+        var duration = Random.Shared.Next(minSeconds, maxSeconds + 1);
 
-        logger.LogInformation("Generating track \"{Title}\" ({Genre}, vocals: {Vocals})", title, genre, wantVocals);
+        logger.LogInformation(
+            "Generating \"{Title}\" by {Artist} ({Subgenre}, {Duration}s, vocals: {Vocals})",
+            title, artist.Name, artist.Subgenre, duration, wantVocals);
 
         MusicResult result;
         try
         {
             result = await musicGenerator.GenerateAsync(
-                new MusicRequest(prompt, genre, wantVocals, lyrics, duration), ct);
+                new MusicRequest(prompt, context.Genre, wantVocals, lyrics, duration), ct);
         }
         catch (MusicBackendUnavailableException ex) when (wantVocals)
         {
@@ -106,7 +115,7 @@ public class MusicProductionService(
             lyrics = null;
             prompt = $"{style}, instrumental";
             result = await musicGenerator.GenerateAsync(
-                new MusicRequest(prompt, genre, wantVocals, lyrics, duration), ct);
+                new MusicRequest(prompt, context.Genre, wantVocals, lyrics, duration), ct);
         }
 
         var id = Guid.NewGuid();
@@ -119,7 +128,9 @@ public class MusicProductionService(
         {
             Id = id,
             Title = title,
-            Genre = genre,
+            Genre = context.Genre,
+            Subgenre = artist.Subgenre,
+            ArtistId = artist.Id,
             Style = style,
             HasVocals = result.BackendUsed == MusicBackends.AceStep,
             Lyrics = lyrics,
@@ -137,7 +148,53 @@ public class MusicProductionService(
         }
 
         logger.LogInformation(
-            "Added \"{Title}\" to the library ({Duration:F0}s, backend {Backend})",
-            title, track.DurationSeconds, track.Backend);
+            "Added \"{Title}\" by {Artist} to the library ({Duration:F0}s, backend {Backend})",
+            title, artist.Name, track.DurationSeconds, track.Backend);
+    }
+
+    /// <summary>
+    /// Reuses an active artist for the current subgenre most of the time; ~25%
+    /// of tracks (or when none exists) introduce a brand-new artist.
+    /// </summary>
+    private async Task<Artist> GetOrCreateArtistAsync(MusicCopywriter copywriter, ShowContext context, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        var candidates = await db.Artists
+            .Where(a => !a.IsRetired && a.Genre == context.Genre)
+            .ToListAsync(ct);
+        var subgenreMatches = candidates
+            .Where(a => string.Equals(a.Subgenre, context.Subgenre, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (subgenreMatches.Count > 0 && Random.Shared.NextDouble() > 0.25)
+        {
+            return subgenreMatches[Random.Shared.Next(subgenreMatches.Count)];
+        }
+
+        var allNames = await db.Artists.Select(a => a.Name).ToListAsync(ct);
+        var (name, styleDescriptor) = await copywriter.InventArtistAsync(
+            context.Genre, context.Subgenre, allNames, ct);
+
+        var artist = new Artist
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            Genre = context.Genre,
+            Subgenre = context.Subgenre,
+            StyleDescriptor = $"{context.Subgenre}, {styleDescriptor}",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        db.Artists.Add(artist);
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("New artist on the roster: {Name} ({Subgenre})", name, artist.Subgenre);
+        return artist;
+    }
+
+    private async Task<List<string>> GetExistingTitlesAsync(CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Tracks.OrderBy(t => t.CreatedAt).Select(t => t.Title).ToListAsync(ct);
     }
 }

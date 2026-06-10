@@ -10,6 +10,13 @@ public class Track
 
     public string Genre { get; set; } = string.Empty;
 
+    /// <summary>E.g. "techno", "trance", "drum and bass" below the broad genre.</summary>
+    public string Subgenre { get; set; } = string.Empty;
+
+    public Guid? ArtistId { get; set; }
+
+    public Artist? Artist { get; set; }
+
     /// <summary>Free-form prompt descriptor used at generation time.</summary>
     public string Style { get; set; } = string.Empty;
 

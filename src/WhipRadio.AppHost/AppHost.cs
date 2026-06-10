@@ -66,6 +66,7 @@ var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestr
     .WithEnvironment("Stream__Mount", "/radio.mp3")
     .WithEnvironment("Stream__Bitrate", "192k")
     .WithEnvironment("Icecast__SourcePassword", icecastSourcePassword)
+    .WithEnvironment("Icecast__AdminPassword", icecastAdminPassword)
     .WithEnvironment(context =>
     {
         context.EnvironmentVariables["Icecast__Host"] = icecastEndpoint.Property(EndpointProperty.Host);

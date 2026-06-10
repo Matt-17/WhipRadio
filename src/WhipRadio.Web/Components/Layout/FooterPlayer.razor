@@ -1,0 +1,118 @@
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IAsyncDisposable
+@inject RadioLiveClient Live
+@inject RadioApiClient Api
+@inject IJSRuntime Js
+@inject IConfiguration Configuration
+
+<footer class="player-bar">
+    <button class="btn primary play-btn" @onclick="TogglePlayAsync">@(_playing ? "■" : "►")</button>
+
+    <div class="player-info">
+        @if (Live.NowPlaying is { } np)
+        {
+            <div class="player-title">
+                @np.Title
+                @if (np.ArtistName is not null)
+                {
+                    <span class="dim"> — @np.ArtistName</span>
+                }
+            </div>
+            <div class="player-meta">
+                @(np.ModeratorName ?? "WhipRadio")
+                @if (np.FormatName is not null)
+                {
+                    <span> · @np.FormatName</span>
+                }
+                <span> · @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))</span>
+            </div>
+            <div class="player-progress"><div class="fill" style="width:@($"{Progress:F1}%")"></div></div>
+        }
+        else
+        {
+            <div class="player-title dim">— tuning —</div>
+            <div class="player-meta">waiting for the studio</div>
+            <div class="player-progress"><div class="fill" style="width:0%"></div></div>
+        }
+    </div>
+
+    <div class="player-votes">
+        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @(Live.NowPlaying?.UpVotes ?? 0)</button>
+        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @(Live.NowPlaying?.DownVotes ?? 0)</button>
+    </div>
+
+    <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeChanged" title="Volume" />
+</footer>
+
+@code {
+    private bool _playing;
+    private int _volume = 80;
+    private string _streamUrl = "";
+    private Timer? _ticker;
+
+    private bool CanVote => Live.NowPlaying?.ItemType == "Track";
+
+    private TimeSpan Elapsed => Live.NowPlaying is { } np
+        ? DateTime.UtcNow - np.StartedAtUtc
+        : TimeSpan.Zero;
+
+    private double Progress => Live.NowPlaying is { } np && np.DurationSeconds > 0
+        ? Math.Clamp(Elapsed.TotalSeconds / np.DurationSeconds * 100, 0, 100)
+        : 0;
+
+    protected override void OnInitialized()
+    {
+        _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
+        Live.Changed += OnLiveChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Live.EnsureStartedAsync();
+            _ticker = new Timer(_ => _ = InvokeAsync(StateHasChanged), null,
+                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+        }
+    }
+
+    private void OnLiveChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task TogglePlayAsync()
+    {
+        if (_playing)
+        {
+            _playing = await Js.InvokeAsync<bool>("whipRadio.pause");
+        }
+        else
+        {
+            _playing = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        }
+    }
+
+    private async Task OnVolumeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var volume))
+        {
+            _volume = volume;
+            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        }
+    }
+
+    private async Task VoteAsync(int direction)
+    {
+        if (Live.NowPlaying is { ItemType: "Track" } np)
+        {
+            await Api.VoteAsync(np.ItemId, direction);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Live.Changed -= OnLiveChanged;
+        _ticker?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

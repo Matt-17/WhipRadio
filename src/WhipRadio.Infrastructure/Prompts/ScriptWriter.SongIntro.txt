@@ -1,2 +1,3 @@
-Write an intro for the next song. Title: "{Title}". Genre: {Genre}. Vibe: {Style}.
-Optionally include ONE light remark or joke. Do not invent a band name.
+Introduce the next song in your own words. Title: "{Title}" by {Artist}. Genre: {Genre}. Vibe: {Style}.
+Vary your approach: sometimes mention the title, sometimes just the artist, sometimes only the mood.
+Optionally include ONE light remark. Never invent facts about the artist.

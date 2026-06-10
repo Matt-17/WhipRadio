@@ -13,7 +13,7 @@ public class HttpTtsEngine(HttpClient http) : ITtsEngine
 
     public async Task<TtsResult> SynthesizeAsync(string markedUpText, TtsVoiceOptions options, CancellationToken ct)
     {
-        var request = new SynthesizeRequest(markedUpText, options.VoiceId, options.Language, options.Rate);
+        var request = new SynthesizeRequest(markedUpText, options.VoiceId, options.Language, options.Rate, options.Engine);
         using var response = await http.PostAsJsonAsync("/synthesize", request, ct);
         response.EnsureSuccessStatusCode();
 
@@ -43,7 +43,8 @@ public class HttpTtsEngine(HttpClient http) : ITtsEngine
         [property: JsonPropertyName("text")] string Text,
         [property: JsonPropertyName("voice")] string Voice,
         [property: JsonPropertyName("language")] string Language,
-        [property: JsonPropertyName("rate")] double Rate);
+        [property: JsonPropertyName("rate")] double Rate,
+        [property: JsonPropertyName("engine")] string Engine = "kokoro");
 
     internal sealed record VoiceDto(
         [property: JsonPropertyName("id")] string Id,

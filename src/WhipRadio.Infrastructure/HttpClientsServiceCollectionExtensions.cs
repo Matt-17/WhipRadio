@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
+using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Infrastructure.Weather;
 
@@ -11,36 +12,62 @@ namespace WhipRadio.Infrastructure;
 public static class HttpClientsServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the Ollama, TTS, music and Open-Meteo typed clients. Base addresses
-    /// use Aspire service discovery names (http://ollama etc.); explicit endpoints and
-    /// Aspire connection strings take precedence.
+    /// Registers the AI clients. Text generation and TTS go through settings-driven
+    /// routers (ollama/openai, sidecar/elevenlabs). Base addresses use Aspire service
+    /// discovery names (http://ollama etc.); explicit endpoints and Aspire connection
+    /// strings take precedence.
     /// </summary>
     public static IServiceCollection AddRadioHttpClients(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<LlmOptions>(configuration.GetSection(LlmOptions.SectionName));
         services.Configure<WeatherOptions>(configuration.GetSection(WeatherOptions.SectionName));
+        services.AddSingleton<StationSettingsCache>();
 
         // The AI clients are long-running (model loads, CPU inference). Aspire's default
         // standard resilience handler (~10 s attempt timeout + retries) would cancel and
         // re-send these calls — every retry queues another full generation in the sidecar —
         // so it is removed; the production services own their retry loops.
-        services.AddHttpClient<ITextGenerationService, OllamaTextGenerationService>(client =>
-        {
-            client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", "http://ollama");
-            client.Timeout = TimeSpan.FromMinutes(10); // small models on CPU can be slow
-        }).RemoveAllResilienceHandlers();
+        services.AddHttpClient(TextGenerationRouter.OllamaClientName, client =>
+            {
+                client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", "http://ollama");
+                client.Timeout = TimeSpan.FromMinutes(10); // small models on CPU can be slow
+            })
+            .RemoveAllResilienceHandlers()
+            .HardenForLongRunningCalls();
 
-        services.AddHttpClient<ITtsEngine, HttpTtsEngine>(client =>
-        {
-            client.BaseAddress = ResolveEndpoint(configuration, "Tts:Endpoint", "tts", "http://tts");
-            client.Timeout = TimeSpan.FromMinutes(10);
-        }).RemoveAllResilienceHandlers();
+        services.AddHttpClient(TextGenerationRouter.OpenAiClientName, client =>
+            {
+                client.BaseAddress = new Uri(configuration["OpenAi:Endpoint"] ?? "https://api.openai.com");
+                client.Timeout = TimeSpan.FromMinutes(3);
+            })
+            .RemoveAllResilienceHandlers();
+
+        services.AddScoped<ITextGenerationService, TextGenerationRouter>();
+
+        services.AddHttpClient<HttpTtsEngine>(client =>
+            {
+                client.BaseAddress = ResolveEndpoint(configuration, "Tts:Endpoint", "tts", "http://tts");
+                client.Timeout = TimeSpan.FromMinutes(10);
+            })
+            .RemoveAllResilienceHandlers()
+            .HardenForLongRunningCalls();
+
+        services.AddHttpClient(TtsEngineRouter.ElevenLabsClientName, client =>
+            {
+                client.BaseAddress = new Uri(configuration["ElevenLabs:Endpoint"] ?? "https://api.elevenlabs.io");
+                client.Timeout = TimeSpan.FromMinutes(3);
+            })
+            .RemoveAllResilienceHandlers();
+
+        services.AddScoped<ITtsEngine, TtsEngineRouter>();
 
         services.AddHttpClient<IMusicGenerator, HttpMusicGenerator>(client =>
-        {
-            client.BaseAddress = ResolveEndpoint(configuration, "Music:Endpoint", "music", "http://music");
-            client.Timeout = TimeSpan.FromMinutes(30); // music generation is long-running by design
-        }).RemoveAllResilienceHandlers();
+            {
+                client.BaseAddress = ResolveEndpoint(configuration, "Music:Endpoint", "music", "http://music");
+                client.Timeout = TimeSpan.FromMinutes(30); // music generation is long-running by design
+            })
+            .RemoveAllResilienceHandlers()
+            .HardenForLongRunningCalls();
 
         services.AddHttpClient<IAnnouncementDataSource, OpenMeteoWeatherSource>(client =>
         {
@@ -53,6 +80,21 @@ public static class HttpClientsServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Hardens a long-running AI client against "I/O operation aborted" failures:
+    /// a stable SocketsHttpHandler with generous pooled-connection lifetime and an
+    /// infinite factory handler lifetime so in-flight calls never lose their handler.
+    /// </summary>
+    private static IHttpClientBuilder HardenForLongRunningCalls(this IHttpClientBuilder builder)
+        => builder
+            .SetHandlerLifetime(Timeout.InfiniteTimeSpan)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(30),
+                PooledConnectionIdleTimeout = TimeSpan.FromMinutes(5),
+                ConnectTimeout = TimeSpan.FromSeconds(15),
+            });
 
     private static Uri ResolveEndpoint(IConfiguration configuration, string configKey, string connectionName, string fallback)
     {

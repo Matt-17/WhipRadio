@@ -18,4 +18,6 @@ public class PlayLogEntry
     public Guid ItemId { get; set; }
 
     public int? ModeratorId { get; set; }
+
+    public double DurationSeconds { get; set; }
 }

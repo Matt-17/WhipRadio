@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from .kokoro_engine import KokoroEngine
 from .markers import BreathSegment, PauseSegment, TextSegment, parse_segments
+from .piper_engine import PiperEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,8 +28,12 @@ TARGET_SAMPLE_RATE = 44100
 BREATH_WAV = Path(__file__).resolve().parent.parent / "assets" / "breath.wav"
 
 app = FastAPI(title="WhipRadio TTS sidecar")
-engine = KokoroEngine()
-_breath_cache: np.ndarray | None = None
+ENGINES = {
+    "kokoro": KokoroEngine(),
+    "piper": PiperEngine(),
+}
+DEFAULT_ENGINE = "kokoro"
+_breath_cache: dict[int, np.ndarray] = {}
 
 
 class SynthesizeRequest(BaseModel):
@@ -36,6 +41,7 @@ class SynthesizeRequest(BaseModel):
     voice: str = "af_heart"
     language: str = "en"
     rate: float = 1.0
+    engine: str = DEFAULT_ENGINE
 
 
 def _resample(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
@@ -46,24 +52,28 @@ def _resample(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarr
     return np.interp(positions, np.arange(audio.size), audio).astype(np.float32)
 
 
-def _breath_sample() -> np.ndarray:
-    global _breath_cache
-    if _breath_cache is None:
+def _breath_sample(target_rate: int) -> np.ndarray:
+    if target_rate not in _breath_cache:
         data, rate = sf.read(BREATH_WAV, dtype="float32")
         if data.ndim > 1:
             data = data.mean(axis=1)
-        _breath_cache = _resample(data, rate, engine.sample_rate)
-    return _breath_cache
+        _breath_cache[target_rate] = _resample(data, rate, target_rate)
+    return _breath_cache[target_rate]
 
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "engine": engine.name}
+    return {"status": "ok", "engine": DEFAULT_ENGINE, "engines": list(ENGINES.keys())}
 
 
 @app.get("/voices")
 def voices() -> list[dict]:
-    return engine.voices()
+    result: list[dict] = []
+    for engine in ENGINES.values():
+        for voice in engine.voices():
+            voice.setdefault("engine", engine.name)
+            result.append(voice)
+    return result
 
 
 @app.post("/synthesize")
@@ -72,6 +82,7 @@ def synthesize(request: SynthesizeRequest) -> Response:
     if not segments:
         raise HTTPException(status_code=400, detail="No synthesizable content in 'text'.")
 
+    engine = ENGINES.get(request.engine, ENGINES[DEFAULT_ENGINE])
     voice = engine.resolve_voice(request.voice, request.language)
     base_rate = max(0.5, min(2.0, request.rate))
     parts: list[np.ndarray] = []
@@ -84,7 +95,7 @@ def synthesize(request: SynthesizeRequest) -> Response:
             samples = int(engine.sample_rate * segment.milliseconds / 1000)
             parts.append(np.zeros(samples, dtype=np.float32))
         elif isinstance(segment, BreathSegment):
-            parts.append(_breath_sample())
+            parts.append(_breath_sample(engine.sample_rate))
 
     audio = np.concatenate([p for p in parts if p.size]) if parts else np.zeros(0, dtype=np.float32)
     if audio.size == 0:

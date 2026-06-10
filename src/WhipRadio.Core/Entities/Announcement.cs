@@ -8,6 +8,12 @@ public enum AnnouncementKind
     Joke,
     Banter,
     StationId,
+
+    /// <summary>Host hands over / takes over the show (hello & goodbye).</summary>
+    HostChange,
+
+    /// <summary>Personal anecdote referencing the host's day memory.</summary>
+    PersonalNote,
 }
 
 /// <summary>A produced spoken segment (two-stage LLM pipeline + TTS).</summary>

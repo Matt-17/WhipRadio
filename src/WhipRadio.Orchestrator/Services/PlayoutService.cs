@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -15,6 +17,7 @@ namespace WhipRadio.Orchestrator.Services;
 public class PlayoutService(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
+    IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
     IOptions<RadioOptions> radioOptions,
@@ -29,6 +32,12 @@ public class PlayoutService(
         {
             try
             {
+                if (!await IsPlayoutEnabledAsync(stoppingToken))
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    continue;
+                }
+
                 await RunEncoderSessionAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -61,6 +70,12 @@ public class PlayoutService(
                 throw new InvalidOperationException($"Encoder ffmpeg exited with code {encoder.ExitCode}.");
             }
 
+            if (!await IsPlayoutEnabledAsync(ct))
+            {
+                logger.LogInformation("Playout disabled from admin — going off air");
+                return; // closes the encoder; the outer loop idles until re-enabled
+            }
+
             var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
             if (item is null)
             {
@@ -71,6 +86,24 @@ public class PlayoutService(
 
             await reporter.ReportStartedAsync(item, ct);
             await PlayItemAsync(item, encoderInput, ct);
+        }
+    }
+
+    private async Task<bool> IsPlayoutEnabledAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct);
+            return settings?.PlayoutEnabled ?? true;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return true; // never let a db hiccup take the station down
         }
     }
 

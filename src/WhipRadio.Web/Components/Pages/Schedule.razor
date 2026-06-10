@@ -1,0 +1,73 @@
+@page "/schedule"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Schedule</PageTitle>
+
+<h1 class="stage-title">Weekly Program</h1>
+<div class="stage-sub">planned by the AI program director · spots fill in over time</div>
+
+<div class="panel reveal">
+    @if (_slots is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> reading the program board…</div>
+    }
+    else
+    {
+        <div class="schedule-grid">
+            <div class="schedule-corner"></div>
+            @foreach (var day in _dayOrder)
+            {
+                <div class="schedule-day">@DayName(day)</div>
+            }
+
+            @for (var hour = 0; hour < 24; hour++)
+            {
+                <div class="schedule-hour">@($"{hour:00}:00")</div>
+                @foreach (var day in _dayOrder)
+                {
+                    var slot = SlotAt(day, hour);
+                    @if (slot is null)
+                    {
+                        <div class="schedule-cell planning" title="still in planning">·</div>
+                    }
+                    else
+                    {
+                        <div class="schedule-cell @(slot.FormatId is null ? "planning" : "planned")"
+                             title="@($"{slot.FormatName} — {slot.ModeratorName} ({slot.Genre})")">
+                            @if (IsSlotStart(slot, hour))
+                            {
+                                <div class="cell-format">@(slot.FormatName ?? "in planning")</div>
+                                <div class="cell-host">@slot.ModeratorName</div>
+                            }
+                        </div>
+                    }
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<ProgramSlotDto>? _slots;
+    private int[] _dayOrder = [1, 2, 3, 4, 5, 6, 0];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await Api.GetSettingsAsync();
+        _dayOrder = settings?.FirstDayOfWeek == 0
+            ? [0, 1, 2, 3, 4, 5, 6]
+            : [1, 2, 3, 4, 5, 6, 0];
+        _slots = await Api.GetScheduleAsync();
+    }
+
+    private ProgramSlotDto? SlotAt(int day, int hour)
+        => _slots?.FirstOrDefault(s =>
+            s.DayOfWeek == day && s.StartMinute <= hour * 60 && hour * 60 < s.StartMinute + s.DurationMinutes);
+
+    private bool IsSlotStart(ProgramSlotDto slot, int hour)
+        => slot.StartMinute / 60 == hour;
+
+    private static string DayName(int day) => ((DayOfWeek)day).ToString()[..3];
+}

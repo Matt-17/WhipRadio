@@ -20,6 +20,28 @@ public class OllamaTextGenerationService(HttpClient http, IOptions<LlmOptions> o
             Stream: false,
             Options: new ChatOptions(options.Value.Temperature));
 
+        try
+        {
+            return await SendAsync(request, ct);
+        }
+        catch (Exception ex) when (IsTransportFailure(ex) && !ct.IsCancellationRequested)
+        {
+            // One retry bridges dropped keep-alive connections / model reloads.
+            await Task.Delay(TimeSpan.FromSeconds(2), ct);
+            return await SendAsync(request, ct);
+        }
+    }
+
+    /// <summary>Retry only transport-level drops — never HTTP error statuses.</summary>
+    private static bool IsTransportFailure(Exception ex) => ex switch
+    {
+        HttpRequestException { StatusCode: null } => true,
+        IOException => true,
+        _ => false,
+    };
+
+    private async Task<string> SendAsync(ChatRequest request, CancellationToken ct)
+    {
         using var response = await http.PostAsJsonAsync("/api/chat", request, ct);
         response.EnsureSuccessStatusCode();
 

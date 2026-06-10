@@ -1,22 +1,28 @@
 @page "/"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
-@implements IAsyncDisposable
+@implements IDisposable
+@inject RadioLiveClient Live
 @inject RadioApiClient Api
-@inject IJSRuntime Js
 @inject IConfiguration Configuration
-@rendermode InteractiveServer
+@inject IJSRuntime Js
 
 <PageTitle>WhipRadio — Live</PageTitle>
 
 <h1 class="stage-title">Live Broadcast</h1>
-<div class="stage-sub">Studio 1 · fully local · ai operated</div>
+<div class="stage-sub">
+    studio 1 · fully local · ai operated
+    @if (Live.NowPlaying?.FormatName is { } format)
+    {
+        <span> · now: <span style="color:var(--amber)">@format</span></span>
+    }
+</div>
 
 <div class="panel reveal">
     <div class="panel-label">Now Playing</div>
 
     <div class="vfd">
-        @if (_nowPlaying is null)
+        @if (Live.NowPlaying is null)
         {
             <div class="vfd-kind">Signal</div>
             <div class="vfd-title">— Tuning —</div>
@@ -24,159 +30,117 @@
         }
         else
         {
-            <div class="vfd-kind">@(_nowPlaying.ItemType == "Track" ? "Track" : "Announcement")</div>
-            <div class="vfd-title">@_nowPlaying.Title</div>
-            <div class="vfd-meta">
-                @if (_nowPlaying.ModeratorName is not null)
+            <div class="vfd-kind">@(Live.NowPlaying.ItemType == "Track" ? "Track" : $"On the mic — {Live.NowPlaying.Title}")</div>
+            <div class="vfd-title">
+                @if (Live.NowPlaying.ItemType == "Track")
                 {
-                    <span>host <strong>@_nowPlaying.ModeratorName</strong> · </span>
+                    @Live.NowPlaying.Title
                 }
-                <span>@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(_nowPlaying.DurationSeconds))</span>
+                else
+                {
+                    @(Live.NowPlaying.ModeratorName ?? "Studio Talk")
+                }
+            </div>
+            <div class="vfd-meta">
+                @if (Live.NowPlaying.ArtistName is not null)
+                {
+                    <span>by <strong>@Live.NowPlaying.ArtistName</strong> · </span>
+                }
+                @if (Live.NowPlaying.ModeratorName is not null && Live.NowPlaying.ItemType == "Track")
+                {
+                    <span>host <strong>@Live.NowPlaying.ModeratorName</strong> · </span>
+                }
+                <span>@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(Live.NowPlaying.DurationSeconds))</span>
             </div>
         }
-        <div class="tuner">
+        <div class="tuner" title="track position">
             <div class="needle" style="left: @($"{Progress:F1}%")"></div>
         </div>
     </div>
 
-    <div class="vu @(_playing ? null : "idle")" aria-hidden="true">
+    <div class="vu @(Live.NowPlaying is not null ? null : "idle")" aria-hidden="true">
         @for (var i = 0; i < 12; i++)
         {
             <span></span>
         }
     </div>
-
-    <div class="btn-row" style="margin-top: 10px;">
-        <button class="btn primary" @onclick="TogglePlayAsync">@(_playing ? "■ Stop" : "► Listen")</button>
-        <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeChanged" title="Volume" />
-        <span style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 1px;">
-            VOL @_volume
-        </span>
-        <div class="spacer" style="flex:1"></div>
-        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @(_votes?.UpVotes ?? CurrentTrackUpVotes)</button>
-        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @(_votes?.DownVotes ?? CurrentTrackDownVotes)</button>
-    </div>
-
-    @if (_voteFlash is not null)
-    {
-        <div class="flash" style="margin-top: 10px;">@_voteFlash</div>
-    }
 </div>
 
+@if (Live.NowPlaying?.Transcript is { } transcript)
+{
+    <div class="panel reveal">
+        <div class="panel-label">Transcript — what @(Live.NowPlaying.ModeratorName ?? "the host") is saying</div>
+        <div class="transcript">@transcript</div>
+    </div>
+}
+
+@if (Live.Queue.Count > 0)
+{
+    <div class="panel reveal">
+        <div class="panel-label">Up Next</div>
+        <table class="console-table">
+            <tbody>
+                @foreach (var item in Live.Queue)
+                {
+                    <tr>
+                        <td style="width:90px">
+                            <span class="tag @(item.ItemType == "Track" ? "amber" : "")">@(item.ItemType == "Track" ? "track" : "talk")</span>
+                        </td>
+                        <td>@item.Title</td>
+                        <td class="num dim" style="width:80px">@FormatClock(TimeSpan.FromSeconds(item.DurationSeconds))</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
 <div class="panel reveal">
-    <div class="panel-label">Stream</div>
-    <div style="font-family: var(--font-mono); font-size: 13px; color: var(--muted);">
-        Direct stream for Winamp / VLC: <a href="@_streamUrl" target="_blank">@_streamUrl</a>
+    <div class="panel-label">Direct Stream</div>
+    <div class="btn-row">
+        <code class="stream-url">@_streamUrl</code>
+        <button class="btn" @onclick="CopyStreamUrlAsync">@(_copied ? "✓ copied" : "copy link")</button>
     </div>
 </div>
 
 @code {
-    private NowPlayingDto? _nowPlaying;
-    private VoteResultDto? _votes;
-    private string? _voteFlash;
-    private bool _playing;
-    private int _volume = 80;
     private string _streamUrl = "";
-    private readonly CancellationTokenSource _cts = new();
+    private bool _copied;
+    private Timer? _ticker;
 
-    private bool CanVote => _nowPlaying?.ItemType == "Track";
-    private int CurrentTrackUpVotes => 0;
-    private int CurrentTrackDownVotes => 0;
+    private TimeSpan Elapsed => Live.NowPlaying is { } np ? DateTime.UtcNow - np.StartedAtUtc : TimeSpan.Zero;
 
-    private TimeSpan Elapsed => _nowPlaying is null
-        ? TimeSpan.Zero
-        : DateTime.UtcNow - _nowPlaying.StartedAtUtc;
-
-    private double Progress => _nowPlaying is null || _nowPlaying.DurationSeconds <= 0
-        ? 0
-        : Math.Clamp(Elapsed.TotalSeconds / _nowPlaying.DurationSeconds * 100, 0, 100);
+    private double Progress => Live.NowPlaying is { } np && np.DurationSeconds > 0
+        ? Math.Clamp(Elapsed.TotalSeconds / np.DurationSeconds * 100, 0, 100)
+        : 0;
 
     protected override void OnInitialized()
     {
         _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
+        Live.Changed += OnChanged;
     }
 
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            _ = PollAsync();
+            await Live.EnsureStartedAsync();
+            _ticker = new Timer(_ => _ = InvokeAsync(StateHasChanged), null,
+                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         }
     }
 
-    private async Task PollAsync()
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task CopyStreamUrlAsync()
     {
-        while (!_cts.IsCancellationRequested)
-        {
-            var current = await Api.GetNowPlayingAsync(_cts.Token);
-            if (current?.ItemId != _nowPlaying?.ItemId)
-            {
-                _votes = null;
-                _voteFlash = null;
-            }
-
-            _nowPlaying = current;
-            await InvokeAsync(StateHasChanged);
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-        }
+        await Js.InvokeVoidAsync("navigator.clipboard.writeText", _streamUrl);
+        _copied = true;
     }
 
-    private async Task TogglePlayAsync()
+    public void Dispose()
     {
-        if (_playing)
-        {
-            _playing = await Js.InvokeAsync<bool>("whipRadio.pause");
-        }
-        else
-        {
-            _playing = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
-            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
-        }
-    }
-
-    private async Task OnVolumeChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var volume))
-        {
-            _volume = volume;
-            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
-        }
-    }
-
-    private async Task VoteAsync(int direction)
-    {
-        if (_nowPlaying is null || !CanVote)
-        {
-            return;
-        }
-
-        var result = await Api.VoteAsync(_nowPlaying.ItemId, direction);
-        if (result is not null)
-        {
-            _votes = result;
-            _voteFlash = direction > 0 ? "Vote registered — the llamas approve." : "Vote registered — noted with a sigh.";
-        }
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _cts.Cancel();
-        _cts.Dispose();
-        try
-        {
-            await Js.InvokeVoidAsync("whipRadio.pause");
-        }
-        catch
-        {
-            // circuit already gone
-        }
+        Live.Changed -= OnChanged;
+        _ticker?.Dispose();
     }
 }

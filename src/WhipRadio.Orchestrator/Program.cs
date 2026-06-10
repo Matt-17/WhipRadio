@@ -27,6 +27,7 @@ builder.Services.Configure<MusicOptions>(builder.Configuration.GetSection(MusicO
 
 builder.Services.AddRadioPersistence(builder.Configuration);
 builder.Services.AddRadioHttpClients(builder.Configuration);
+builder.Services.AddHttpClient("icecast-admin", client => client.Timeout = TimeSpan.FromSeconds(10));
 
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
@@ -35,19 +36,32 @@ builder.Services.AddScoped<AnnouncementFactory>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ScheduleService>();
-builder.Services.AddSingleton<IPlayoutQueue, ChannelPlayoutQueue>();
+builder.Services.AddSingleton<QueueStateTracker>();
+builder.Services.AddSingleton<ChannelPlayoutQueue>();
+builder.Services.AddSingleton<IPlayoutQueue>(sp => new TrackedPlayoutQueue(
+    sp.GetRequiredService<ChannelPlayoutQueue>(),
+    sp.GetRequiredService<QueueStateTracker>()));
 builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
+builder.Services.AddSingleton<VoiceCatalogService>();
+
+builder.Services.AddSignalR();
+
+var logBuffer = new InMemoryLogBuffer();
+builder.Services.AddSingleton(logBuffer);
+builder.Logging.AddProvider(new BufferLoggerProvider(logBuffer));
 
 builder.Services.AddHostedService<PlayoutService>();
 builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
+builder.Services.AddHostedService<ProgramDirectorService>();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
 app.MapRadioApi();
+app.MapHub<RadioHub>("/hubs/radio");
 
 // Migrate + seed before the pipelines start consuming the database.
 await using (var db = await app.Services

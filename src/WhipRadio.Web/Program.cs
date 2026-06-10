@@ -13,6 +13,7 @@ builder.Services.AddHttpClient<RadioApiClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+builder.Services.AddScoped<RadioLiveClient>();
 
 var app = builder.Build();
 

@@ -2,56 +2,99 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
-@rendermode InteractiveServer
 
 <PageTitle>WhipRadio — Settings</PageTitle>
 
 <h1 class="stage-title">Station Settings</h1>
 <div class="stage-sub">turn the big knobs carefully</div>
 
-<div class="panel reveal">
-    @if (_settings is null)
-    {
-        <div class="empty-state"><span class="blink">▮</span> reading the console memory…</div>
-    }
-    else
-    {
+@if (_settings is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> reading the console memory…</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Station</div>
+        <div class="form-grid">
+            <div class="field"><label>Station Name</label><input @bind="_stationName" /></div>
+            <div class="field"><label>Default Language</label><input @bind="_defaultLanguage" placeholder="de / en" /></div>
+            <div class="field"><label>Display Frequency (MHz)</label><input type="number" step="0.1" min="76" max="108" @bind="_frequencyMhz" /></div>
+            <div class="field">
+                <label>First Day of Week</label>
+                <select @bind="_firstDayOfWeek">
+                    <option value="1">Monday</option>
+                    <option value="0">Sunday</option>
+                </select>
+            </div>
+            <div class="field"><label>Announcement every N tracks</label><input type="number" min="0" max="10" @bind="_announceEvery" /></div>
+            <div class="field">
+                <label>Breath markers in speech</label>
+                <select @bind="_breath">
+                    <option value="false">off (recommended)</option>
+                    <option value="true">on</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">AI Providers</div>
         <div class="form-grid">
             <div class="field">
-                <label for="station-name">Station Name</label>
-                <input id="station-name" @bind="_stationName" />
+                <label>Text Provider (scripts, titles, director)</label>
+                <select @bind="_textProvider">
+                    <option value="ollama">Ollama (local, default)</option>
+                    <option value="openai">OpenAI (cloud)</option>
+                </select>
             </div>
-            <div class="field">
-                <label for="language">Default Language</label>
-                <input id="language" @bind="_defaultLanguage" placeholder="de / en" />
-            </div>
-            <div class="field">
-                <label for="queue-length">Target Queue Length</label>
-                <input id="queue-length" type="number" min="1" max="20" @bind="_targetQueueLength" />
-            </div>
-            <div class="field">
-                <label for="announce-every">Announcement every N tracks</label>
-                <input id="announce-every" type="number" min="0" max="10" @bind="_announcementEveryNTracks" />
-            </div>
-        </div>
-
-        <div class="btn-row">
-            <button class="btn primary" @onclick="SaveAsync">Save to Console</button>
-            @if (_saved)
+            @if (_textProvider == "openai")
             {
-                <span class="flash">✓ settings stored — applied on the next cycle</span>
+                <div class="field"><label>OpenAI API Key</label><input type="password" @bind="_openAiKey" placeholder="sk-…" /></div>
+                <div class="field"><label>OpenAI Model</label><input @bind="_openAiModel" placeholder="gpt-4o-mini" /></div>
+            }
+            <div class="field">
+                <label>ElevenLabs TTS (cloud voices)</label>
+                <select @bind="_elevenLabs">
+                    <option value="false">disabled</option>
+                    <option value="true">enabled</option>
+                </select>
+            </div>
+            @if (_elevenLabs == "true")
+            {
+                <div class="field"><label>ElevenLabs API Key</label><input type="password" @bind="_elevenLabsKey" placeholder="xi-…" /></div>
             }
         </div>
-    }
-</div>
+        <div class="dim" style="font-size:12.5px">
+            With ElevenLabs enabled, new hosts created with the elevenlabs engine get a designed
+            voice; the local Piper engine provides German voices without any key.
+        </div>
+    </div>
+
+    <div class="btn-row" style="margin-top:22px">
+        <button class="btn primary" @onclick="SaveAsync">Save to Console</button>
+        @if (_saved)
+        {
+            <span class="flash">✓ settings stored — applied within ~15 seconds</span>
+        }
+    </div>
+}
 
 @code {
     private StationSettingsDto? _settings;
+    private bool _saved;
+
     private string _stationName = "";
     private string _defaultLanguage = "";
-    private int _targetQueueLength = 3;
-    private int _announcementEveryNTracks = 1;
-    private bool _saved;
+    private double _frequencyMhz = 104.4;
+    private int _firstDayOfWeek = 1;
+    private int _announceEvery = 1;
+    private string _breath = "false";
+    private string _textProvider = "ollama";
+    private string _openAiKey = "";
+    private string _openAiModel = "gpt-4o-mini";
+    private string _elevenLabs = "false";
+    private string _elevenLabsKey = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -60,15 +103,39 @@
         {
             _stationName = _settings.StationName;
             _defaultLanguage = _settings.DefaultLanguage;
-            _targetQueueLength = _settings.TargetQueueLength;
-            _announcementEveryNTracks = _settings.AnnouncementEveryNTracks;
+            _frequencyMhz = _settings.FrequencyMhz;
+            _firstDayOfWeek = _settings.FirstDayOfWeek;
+            _announceEvery = _settings.AnnouncementEveryNTracks;
+            _breath = _settings.EnableBreathMarkers.ToString().ToLowerInvariant();
+            _textProvider = _settings.TextProvider;
+            _openAiKey = _settings.OpenAiApiKey;
+            _openAiModel = _settings.OpenAiModel;
+            _elevenLabs = _settings.ElevenLabsEnabled.ToString().ToLowerInvariant();
+            _elevenLabsKey = _settings.ElevenLabsApiKey;
         }
     }
 
     private async Task SaveAsync()
     {
-        _settings = await Api.SaveSettingsAsync(new StationSettingsDto(
-            _stationName, _defaultLanguage, _targetQueueLength, _announcementEveryNTracks));
+        if (_settings is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(_settings with
+        {
+            StationName = _stationName,
+            DefaultLanguage = _defaultLanguage,
+            FrequencyMhz = _frequencyMhz,
+            FirstDayOfWeek = _firstDayOfWeek,
+            AnnouncementEveryNTracks = _announceEvery,
+            EnableBreathMarkers = _breath == "true",
+            TextProvider = _textProvider,
+            OpenAiApiKey = _openAiKey,
+            OpenAiModel = _openAiModel,
+            ElevenLabsEnabled = _elevenLabs == "true",
+            ElevenLabsApiKey = _elevenLabsKey,
+        });
         _saved = true;
     }
 }

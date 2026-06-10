@@ -3,7 +3,8 @@ using WhipRadio.Core.Entities;
 
 namespace WhipRadio.Infrastructure.Persistence;
 
-/// <summary>Applies migrations and seeds moderators, schedule and station settings.</summary>
+/// <summary>Applies migrations and seeds moderators and station settings.
+/// The weekly program plan is produced at runtime by the program director.</summary>
 public static class DbInitializer
 {
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
@@ -28,13 +29,6 @@ public static class DbInitializer
             });
             await db.SaveChangesAsync(ct);
         }
-
-        if (!await db.ScheduleSlots.AnyAsync(ct))
-        {
-            var moderators = await db.Moderators.OrderBy(m => m.Id).ToListAsync(ct);
-            db.ScheduleSlots.AddRange(SeedSchedule(moderators));
-            await db.SaveChangesAsync(ct);
-        }
     }
 
     private static Moderator[] SeedModerators() =>
@@ -43,6 +37,8 @@ public static class DbInitializer
         {
             Name = "Lena Funkturm",
             Language = "de",
+            Gender = ModeratorGenders.Female,
+            TtsEngine = TtsEngines.Kokoro,
             VoiceId = "af_heart",
             SpeechRate = 1.15,
             Style = "fast-energetic",
@@ -58,7 +54,9 @@ public static class DbInitializer
         {
             Name = "Herbert Nachtwelle",
             Language = "de",
-            VoiceId = "af_heart",
+            Gender = ModeratorGenders.Male,
+            TtsEngine = TtsEngines.Kokoro,
+            VoiceId = "am_michael",
             SpeechRate = 0.85,
             Style = "slow-thoughtful",
             PersonaPrompt =
@@ -73,7 +71,9 @@ public static class DbInitializer
         {
             Name = "Charlie Wave",
             Language = "en",
-            VoiceId = "af_heart",
+            Gender = ModeratorGenders.Male,
+            TtsEngine = TtsEngines.Kokoro,
+            VoiceId = "bm_george",
             SpeechRate = 1.0,
             Style = "laid-back",
             PersonaPrompt =
@@ -85,19 +85,4 @@ public static class DbInitializer
             IsActive = true,
         },
     ];
-
-    private static IEnumerable<ScheduleSlot> SeedSchedule(IReadOnlyList<Moderator> moderators)
-    {
-        // Rotate 3 genres across the day; moderators take 8-hour shifts.
-        string[] genres = ["lofi", "indie rock", "electronic"];
-        for (var hour = 0; hour < 24; hour++)
-        {
-            yield return new ScheduleSlot
-            {
-                HourOfDay = hour,
-                Genre = genres[hour % genres.Length],
-                ModeratorId = moderators[hour / 8 % moderators.Count].Id,
-            };
-        }
-    }
 }

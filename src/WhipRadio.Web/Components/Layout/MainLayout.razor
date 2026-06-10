@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
 
 <div class="console">
     <header class="masthead">
@@ -7,21 +9,23 @@
             <div class="brand-slogan">Llamas whipped the radio's mix.</div>
         </div>
         <div class="spacer"></div>
+        <StudioClock />
         <div class="freq-readout">
             <span>Local AI FM</span>
-            <strong>104.4 MHz</strong>
+            <strong>@_frequency.ToString("0.0") MHz</strong>
         </div>
         <OnAirLamp />
     </header>
 
     <aside class="rack">
-        <div class="rack-label">// Console</div>
         <NavMenu />
     </aside>
 
     <main class="stage">
         @Body
     </main>
+
+    <FooterPlayer />
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
@@ -29,3 +33,16 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private double _frequency = 104.4;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await Api.GetSettingsAsync();
+        if (settings is not null)
+        {
+            _frequency = settings.FrequencyMhz;
+        }
+    }
+}

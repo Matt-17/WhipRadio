@@ -1,0 +1,25 @@
+@implements IDisposable
+
+<div class="freq-readout">
+    <span>Studio Time</span>
+    <strong>@_now.ToString("HH:mm:ss")</strong>
+</div>
+
+@code {
+    private DateTime _now = DateTime.Now;
+    private Timer? _timer;
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _timer = new Timer(_ =>
+            {
+                _now = DateTime.Now;
+                _ = InvokeAsync(StateHasChanged);
+            }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+        }
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

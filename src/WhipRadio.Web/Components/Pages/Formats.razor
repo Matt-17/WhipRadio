@@ -1,0 +1,73 @@
+@page "/formats"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Formats</PageTitle>
+
+<h1 class="stage-title">Show Formats</h1>
+<div class="stage-sub">created and reasoned about by the program director</div>
+
+@if (_formats is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> opening the format binder…</div></div>
+}
+else if (_formats.Count == 0)
+{
+    <div class="panel reveal">
+        <div class="empty-state"><span class="blink">▮</span> No formats yet — the program director is still planning the week.</div>
+    </div>
+}
+else
+{
+    <div class="mod-grid">
+        @foreach (var format in _formats)
+        {
+            <div class="panel mod-card reveal @(format.IsEnabled ? null : "inactive")">
+                <div class="mod-name">@format.Name</div>
+                <div class="mod-meta">
+                    <span class="tag amber">@(string.IsNullOrEmpty(format.Subgenre) ? format.Genre : format.Subgenre)</span>
+                    @if (format.ModeratorName is not null)
+                    {
+                        <span class="tag">host @format.ModeratorName</span>
+                    }
+                    @if (format.NextOnAir is not null)
+                    {
+                        <span class="tag green">next @format.NextOnAir</span>
+                    }
+                </div>
+                <div class="mod-persona">
+                    @format.Description
+                    <div class="dim" style="margin-top:8px; font-size:12px">Director's reason: @format.Reason</div>
+                </div>
+                <footer>
+                    <div class="btn-row">
+                        <button class="btn small vote-up" @onclick="() => VoteAsync(format.Id, 1)">👍 @format.UpVotes</button>
+                        <button class="btn small vote-down" @onclick="() => VoteAsync(format.Id, -1)">👎 @format.DownVotes</button>
+                    </div>
+                    <div class="switch @(format.IsEnabled ? "on" : null)"
+                         title="Turn off: the director will assign a replacement over time, not instantly"
+                         @onclick="() => ToggleAsync(format.Id)"></div>
+                </footer>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<FormatDto>? _formats;
+
+    protected override async Task OnInitializedAsync() => _formats = await Api.GetFormatsAsync();
+
+    private async Task ToggleAsync(Guid id)
+    {
+        await Api.ToggleFormatAsync(id);
+        _formats = await Api.GetFormatsAsync();
+    }
+
+    private async Task VoteAsync(Guid id, int direction)
+    {
+        await Api.VoteFormatAsync(id, direction);
+        _formats = await Api.GetFormatsAsync();
+    }
+}

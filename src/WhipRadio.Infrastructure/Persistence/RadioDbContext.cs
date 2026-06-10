@@ -7,6 +7,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 {
     public DbSet<Moderator> Moderators => Set<Moderator>();
 
+    public DbSet<Artist> Artists => Set<Artist>();
+
     public DbSet<Track> Tracks => Set<Track>();
 
     public DbSet<Announcement> Announcements => Set<Announcement>();
@@ -15,7 +17,11 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<Vote> Votes => Set<Vote>();
 
-    public DbSet<ScheduleSlot> ScheduleSlots => Set<ScheduleSlot>();
+    public DbSet<Format> Formats => Set<Format>();
+
+    public DbSet<ProgramSlot> ProgramSlots => Set<ProgramSlot>();
+
+    public DbSet<ModeratorMemory> ModeratorMemories => Set<ModeratorMemory>();
 
     public DbSet<StationSettings> StationSettings => Set<StationSettings>();
 
@@ -25,6 +31,15 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         {
             track.HasIndex(t => t.Genre);
             track.HasIndex(t => t.IsRetired);
+            track.HasOne(t => t.Artist)
+                .WithMany()
+                .HasForeignKey(t => t.ArtistId);
+        });
+
+        modelBuilder.Entity<Artist>(artist =>
+        {
+            artist.HasIndex(a => a.Name);
+            artist.HasIndex(a => a.Genre);
         });
 
         modelBuilder.Entity<Announcement>(announcement =>
@@ -47,12 +62,24 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             .WithMany()
             .HasForeignKey(v => v.TrackId);
 
-        modelBuilder.Entity<ScheduleSlot>(slot =>
+        modelBuilder.Entity<Format>(format =>
         {
-            slot.HasOne(s => s.Moderator)
+            format.HasOne(f => f.Moderator)
                 .WithMany()
-                .HasForeignKey(s => s.ModeratorId);
-            slot.HasIndex(s => s.HourOfDay).IsUnique();
+                .HasForeignKey(f => f.ModeratorId);
+        });
+
+        modelBuilder.Entity<ProgramSlot>(slot =>
+        {
+            slot.HasOne(s => s.Format)
+                .WithMany()
+                .HasForeignKey(s => s.FormatId);
+            slot.HasIndex(s => new { s.DayOfWeek, s.StartMinute }).IsUnique();
+        });
+
+        modelBuilder.Entity<ModeratorMemory>(memory =>
+        {
+            memory.HasIndex(m => new { m.ModeratorId, m.Date });
         });
     }
 }

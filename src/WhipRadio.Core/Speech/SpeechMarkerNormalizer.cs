@@ -23,7 +23,11 @@ public static partial class SpeechMarkerNormalizer
 
     private static readonly string[] ValidRates = ["slow", "normal", "fast"];
 
-    public static string Normalize(string text)
+    public static string Normalize(string text) => Normalize(text, allowBreath: true);
+
+    /// <param name="allowBreath">When false, [breath] markers are stripped entirely
+    /// (some TTS engines render them badly — station setting).</param>
+    public static string Normalize(string text, bool allowBreath)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -32,8 +36,27 @@ public static partial class SpeechMarkerNormalizer
 
         var normalized = BracketTagRegex().Replace(text, match => NormalizeTag(match.Groups["tag"].Value));
         normalized = DuplicateBreathRegex().Replace(normalized, "[breath]");
+        if (!allowBreath)
+        {
+            normalized = normalized.Replace("[breath]", " ");
+        }
+
         normalized = MultiSpaceRegex().Replace(normalized, " ");
         return normalized.Trim();
+    }
+
+    /// <summary>
+    /// Renders marked-up text for engines without marker support (e.g. cloud TTS):
+    /// pauses become ellipses, breath/rate markers are dropped.
+    /// </summary>
+    public static string ToPlainText(string markedUpText)
+    {
+        var text = BracketTagRegex().Replace(markedUpText, match =>
+        {
+            var tag = match.Groups["tag"].Value.Trim().ToLowerInvariant();
+            return tag.StartsWith("pause", StringComparison.Ordinal) ? "…" : string.Empty;
+        });
+        return MultiSpaceRegex().Replace(text, " ").Trim();
     }
 
     private static string NormalizeTag(string tag)

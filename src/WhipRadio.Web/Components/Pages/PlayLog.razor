@@ -1,13 +1,34 @@
 @page "/playlog"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
+@implements IDisposable
 @inject RadioApiClient Api
-@rendermode InteractiveServer
+@inject RadioLiveClient Live
+@inject IJSRuntime Js
 
 <PageTitle>WhipRadio — Play Log</PageTitle>
 
 <h1 class="stage-title">Play Log</h1>
-<div class="stage-sub">the last 100 things that went out over the air</div>
+<div class="stage-sub">what went out over the air — talks replayable for an hour and beyond</div>
+
+@if (Live.Queue.Count > 0)
+{
+    <div class="panel reveal">
+        <div class="panel-label">Up Next</div>
+        <table class="console-table">
+            <tbody>
+                @foreach (var item in Live.Queue)
+                {
+                    <tr>
+                        <td style="width:90px"><span class="tag @(item.ItemType == "Track" ? "amber" : "")">@(item.ItemType == "Track" ? "track" : "talk")</span></td>
+                        <td>@item.Title</td>
+                        <td class="num dim" style="width:80px">@FormatClock(TimeSpan.FromSeconds(item.DurationSeconds))</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
 
 <div class="panel reveal">
     @if (_entries is null)
@@ -27,6 +48,8 @@
                     <th>Type</th>
                     <th>Title</th>
                     <th>Host</th>
+                    <th class="num">Length</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -35,18 +58,30 @@
                     <tr>
                         <td class="dim">@entry.PlayedAt.ToLocalTime().ToString("dd.MM. HH:mm:ss")</td>
                         <td>
-                            @if (entry.ItemType == "Track")
-                            {
-                                <span class="tag amber">track</span>
-                            }
-                            else
-                            {
-                                <span class="tag">talk</span>
-                            }
+                            <span class="tag @(entry.ItemType == "Track" ? "amber" : "")">@(entry.ItemType == "Track" ? "track" : "talk")</span>
                         </td>
                         <td>@entry.Title</td>
                         <td class="dim">@(entry.ModeratorName ?? "—")</td>
+                        <td class="num dim">@FormatClock(TimeSpan.FromSeconds(entry.DurationSeconds))</td>
+                        <td style="white-space:nowrap">
+                            @if (entry.ItemType == "Announcement")
+                            {
+                                <button class="btn small" @onclick="() => PlayTalkAsync(entry.ItemId)">▶ play</button>
+                                @if (entry.Transcript is not null)
+                                {
+                                    <button class="btn small" @onclick="() => ToggleTranscript(entry.ItemId)">
+                                        @(_openTranscripts.Contains(entry.ItemId) ? "hide text" : "text")
+                                    </button>
+                                }
+                            }
+                        </td>
                     </tr>
+                    @if (entry.Transcript is not null && _openTranscripts.Contains(entry.ItemId))
+                    {
+                        <tr>
+                            <td colspan="6"><div class="transcript">@entry.Transcript</div></td>
+                        </tr>
+                    }
                 }
             </tbody>
         </table>
@@ -55,6 +90,26 @@
 
 @code {
     private List<PlayLogEntryDto>? _entries;
+    private readonly HashSet<Guid> _openTranscripts = [];
 
-    protected override async Task OnInitializedAsync() => _entries = await Api.GetPlayLogAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        Live.Changed += OnChanged;
+        _entries = await Api.GetPlayLogAsync();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task PlayTalkAsync(Guid id)
+        => await Js.InvokeVoidAsync("whipRadio.playClip", Api.AnnouncementAudioUrl(id));
+
+    private void ToggleTranscript(Guid id)
+    {
+        if (!_openTranscripts.Remove(id))
+        {
+            _openTranscripts.Add(id);
+        }
+    }
+
+    public void Dispose() => Live.Changed -= OnChanged;
 }

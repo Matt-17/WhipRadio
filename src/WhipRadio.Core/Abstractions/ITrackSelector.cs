@@ -4,7 +4,7 @@ namespace WhipRadio.Core.Abstractions;
 
 public interface ITrackSelector
 {
-    Task<Track?> PickNextAsync(ScheduleSlot slot, Moderator moderator, CancellationToken ct);
+    Task<Track?> PickNextAsync(ShowContext context, CancellationToken ct);
 }
 
 /// <summary>Persistence-facing candidate source so the selector stays unit-testable.</summary>

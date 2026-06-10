@@ -1,0 +1,114 @@
+@page "/admin"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Admin</PageTitle>
+
+<h1 class="stage-title">Master Control</h1>
+<div class="stage-sub">the big red buttons · use responsibly</div>
+
+@if (_settings is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> unlocking the control room…</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Broadcast</div>
+        <div class="admin-row">
+            <div>
+                <strong>On Air</strong>
+                <div class="dim">Stops/starts the playout engine. Off air = the Icecast mount goes quiet.</div>
+            </div>
+            <div class="switch big @(_settings.PlayoutEnabled ? "on" : null)" @onclick="TogglePlayoutAsync"></div>
+        </div>
+        <div class="admin-row">
+            <div>
+                <strong>Music Production</strong>
+                <div class="dim">Stops/starts generating new tracks. Production also pauses automatically at @_settings.MaxLibrarySize tracks.</div>
+            </div>
+            <div class="switch big @(_settings.MusicProductionEnabled ? "on" : null)" @onclick="ToggleMusicAsync"></div>
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Production Pacing</div>
+        <div class="form-grid">
+            <div class="field"><label>Target unplayed tracks</label><input type="number" min="1" max="20" @bind="_settings_TargetQueueLength" /></div>
+            <div class="field"><label>Max library size</label><input type="number" min="5" max="5000" @bind="_settings_MaxLibrarySize" /></div>
+            <div class="field"><label>Min track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MinDuration" /></div>
+            <div class="field"><label>Max track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MaxDuration" /></div>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SavePacingAsync">Apply</button>
+            @if (_saved)
+            {
+                <span class="flash">✓ applied</span>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private StationSettingsDto? _settings;
+    private bool _saved;
+    private int _settings_TargetQueueLength;
+    private int _settings_MaxLibrarySize;
+    private int _settings_MinDuration;
+    private int _settings_MaxDuration;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _settings = await Api.GetSettingsAsync();
+        if (_settings is not null)
+        {
+            _settings_TargetQueueLength = _settings.TargetQueueLength;
+            _settings_MaxLibrarySize = _settings.MaxLibrarySize;
+            _settings_MinDuration = _settings.MinTrackDurationSeconds;
+            _settings_MaxDuration = _settings.MaxTrackDurationSeconds;
+        }
+    }
+
+    private async Task TogglePlayoutAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(_settings with { PlayoutEnabled = !_settings.PlayoutEnabled });
+    }
+
+    private async Task ToggleMusicAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(_settings with { MusicProductionEnabled = !_settings.MusicProductionEnabled });
+    }
+
+    private async Task SavePacingAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(_settings with
+        {
+            TargetQueueLength = _settings_TargetQueueLength,
+            MaxLibrarySize = _settings_MaxLibrarySize,
+            MinTrackDurationSeconds = _settings_MinDuration,
+            MaxTrackDurationSeconds = _settings_MaxDuration,
+        });
+        _saved = true;
+    }
+}

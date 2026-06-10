@@ -1,0 +1,33 @@
+@*
+    Vote visualization: a bar growing right (green) for positive net votes and
+    left (red) for negative, around a neutral center. Each track starts with a
+    10-vote neutral baseline so early votes don't overstate the trend.
+*@
+<div class="vote-bar" title="@Up up / @Down down">
+    <div class="vote-bar-track">
+        <div class="vote-bar-center"></div>
+        @if (Net >= 0)
+        {
+            <div class="vote-bar-fill positive" style="width:@($"{Magnitude:F0}%")"></div>
+        }
+        else
+        {
+            <div class="vote-bar-fill negative" style="width:@($"{Magnitude:F0}%")"></div>
+        }
+    </div>
+    <span class="vote-bar-count">@Total</span>
+</div>
+
+@code {
+    private const int NeutralBaseline = 10;
+
+    [Parameter] public int Up { get; set; }
+
+    [Parameter] public int Down { get; set; }
+
+    private int Net => Up - Down;
+
+    private int Total => Up + Down;
+
+    private double Magnitude => Math.Min(50, Math.Abs(Net) * 50.0 / (Total + NeutralBaseline));
+}

@@ -11,6 +11,7 @@ namespace WhipRadio.Orchestrator.Services;
 /// <summary>
 /// Runs the full announcement pipeline:
 /// ScriptWriter → VoiceDirector → SpeechMarkerNormalizer → TTS → WAV on disk → DB row.
+/// Also feeds the host's day-memory so later talks can reference earlier ones.
 /// </summary>
 public class AnnouncementFactory(
     IScriptWriter scriptWriter,
@@ -18,6 +19,7 @@ public class AnnouncementFactory(
     ITtsEngine ttsEngine,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<RadioOptions> radioOptions,
+    TimeProvider timeProvider,
     ILogger<AnnouncementFactory> logger)
 {
     public async Task<Announcement> ProduceAsync(
@@ -28,14 +30,27 @@ public class AnnouncementFactory(
         string stationName,
         CancellationToken ct)
     {
+        bool allowBreath;
+        await using (var settingsDb = await dbFactory.CreateDbContextAsync(ct))
+        {
+            allowBreath = (await settingsDb.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))
+                ?.EnableBreathMarkers ?? false;
+        }
+
+        // Personal talks reference what the host already said today.
+        if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
+        {
+            facts = await GetTodaysMemoryAsync(moderator.Id, ct);
+        }
+
         var request = new AnnouncementRequest(kind, stationName, moderator.Language, relatedTrack, facts);
         var script = await scriptWriter.WriteAsync(request, ct);
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct);
-        var normalized = SpeechMarkerNormalizer.Normalize(voiced);
+        var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
 
         var tts = await ttsEngine.SynthesizeAsync(
             normalized,
-            new TtsVoiceOptions(moderator.VoiceId, moderator.Language, moderator.SpeechRate),
+            new TtsVoiceOptions(moderator.VoiceId, moderator.Language, moderator.SpeechRate, moderator.TtsEngine),
             ct);
 
         var id = Guid.NewGuid();
@@ -60,12 +75,39 @@ public class AnnouncementFactory(
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         db.Announcements.Add(announcement);
+
+        // Remember talk topics (not track intros — those are throwaway).
+        if (kind is AnnouncementKind.Banter or AnnouncementKind.PersonalNote or AnnouncementKind.Joke)
+        {
+            db.ModeratorMemories.Add(new ModeratorMemory
+            {
+                ModeratorId = moderator.Id,
+                Date = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime),
+                Content = script.Length > 300 ? script[..300] : script,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
         await db.SaveChangesAsync(ct);
 
         logger.LogInformation(
-            "Produced {Kind} announcement {Id} ({Duration:F1}s) by {Moderator}",
-            kind, id, tts.DurationSeconds, moderator.Name);
+            "Produced {Kind} announcement {Id} ({Duration:F1}s) by {Moderator} [{Engine}]",
+            kind, id, tts.DurationSeconds, moderator.Name, moderator.TtsEngine);
 
         return announcement;
+    }
+
+    private async Task<string> GetTodaysMemoryAsync(int moderatorId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime);
+        var memories = await db.ModeratorMemories.AsNoTracking()
+            .Where(m => m.ModeratorId == moderatorId && m.Date == today)
+            .OrderByDescending(m => m.CreatedAt)
+            .Take(3)
+            .Select(m => m.Content)
+            .ToListAsync(ct);
+
+        return memories.Count == 0 ? "nothing yet" : string.Join(" | ", memories);
     }
 }

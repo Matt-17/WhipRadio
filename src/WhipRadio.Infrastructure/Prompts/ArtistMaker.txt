@@ -1,0 +1,6 @@
+Invent a fictional music artist or band for the genre {Genre} (subgenre: {Subgenre}).
+The name must be original and must NOT resemble any of these existing artists: {AvoidNames}.
+Also describe their signature sound in one sentence (instruments, mood, tempo, production style).
+Answer in EXACTLY this format, nothing else:
+NAME: <artist name, max 4 words>
+STYLE: <one sentence signature sound>
