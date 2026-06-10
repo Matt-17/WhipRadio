@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WhipRadio.AppHost/WhipRadio.AppHost.csproj" />
+    <Project Path="src/WhipRadio.Core/WhipRadio.Core.csproj" />
+    <Project Path="src/WhipRadio.Infrastructure/WhipRadio.Infrastructure.csproj" />
+    <Project Path="src/WhipRadio.Orchestrator/WhipRadio.Orchestrator.csproj" />
+    <Project Path="src/WhipRadio.ServiceDefaults/WhipRadio.ServiceDefaults.csproj" />
+    <Project Path="src/WhipRadio.Web/WhipRadio.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WhipRadio.Core.Tests/WhipRadio.Core.Tests.csproj" />
+    <Project Path="tests/WhipRadio.Infrastructure.Tests/WhipRadio.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

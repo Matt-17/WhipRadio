@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\WhipRadio.Core\WhipRadio.Core.csproj" />
+    <ProjectReference Include="..\WhipRadio.Infrastructure\WhipRadio.Infrastructure.csproj" />
+    <ProjectReference Include="..\WhipRadio.ServiceDefaults\WhipRadio.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-WhipRadio.Orchestrator-f6dc173a-b932-402e-b9bc-5bc690bcecdc</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WhipRadio.Core\WhipRadio.Core.csproj" />
+    <ProjectReference Include="..\WhipRadio.Infrastructure\WhipRadio.Infrastructure.csproj" />
+    <ProjectReference Include="..\WhipRadio.ServiceDefaults\WhipRadio.ServiceDefaults.csproj" />
+  </ItemGroup>
+</Project>
