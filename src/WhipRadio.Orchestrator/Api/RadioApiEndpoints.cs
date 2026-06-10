@@ -496,6 +496,9 @@ public static class RadioApiEndpoints
             control.TriggerRun();
             return Results.Ok(new { triggered = true, lastRunUtc = control.LastRunUtc });
         });
+
+        api.MapGet("/serverstats", async (ServerStatsCollector collector, CancellationToken ct) =>
+            Results.Ok(await collector.CollectAsync(ct)));
     }
 
     private static string? NextOnAir(IEnumerable<ProgramSlot> slots, DateTimeOffset now)

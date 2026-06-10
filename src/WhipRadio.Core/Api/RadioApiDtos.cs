@@ -150,6 +150,29 @@ public sealed record NameCountDto(string Name, double Value);
 
 public sealed record ConsoleLineDto(DateTime TimestampUtc, string Level, string Category, string Message);
 
+public sealed record GpuStatsDto(
+    string Name,
+    double UtilizationPercent,
+    double MemoryUsedMb,
+    double MemoryTotalMb,
+    double TemperatureC);
+
+public sealed record StorageAreaDto(string Name, double SizeMb, int FileCount);
+
+public sealed record ServerStatsDto(
+    string OsDescription,
+    int ProcessorCount,
+    double CpuUsagePercent,
+    double MemoryTotalMb,
+    double MemoryUsedMb,
+    double ProcessMemoryMb,
+    double ProcessUptimeSeconds,
+    GpuStatsDto? Gpu,
+    string DataRootPath,
+    double DiskTotalGb,
+    double DiskFreeGb,
+    IReadOnlyList<StorageAreaDto> StorageAreas);
+
 public sealed record SubmitGreetingDto(
     string SenderName,
     string MessageText,

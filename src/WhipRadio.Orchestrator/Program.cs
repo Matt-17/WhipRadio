@@ -47,6 +47,7 @@ builder.Services.AddSingleton<VoiceCatalogService>();
 builder.Services.AddSingleton<GreetingState>();
 builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
+builder.Services.AddSingleton<ServerStatsCollector>();
 
 builder.Services.AddSignalR();
 

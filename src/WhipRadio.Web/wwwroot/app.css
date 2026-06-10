@@ -895,3 +895,34 @@ table.console-table {
 }
 
 .field select:focus { border-color: var(--amber-dim); }
+
+/* ---------- server stat meters ---------- */
+
+.meter-row { margin-bottom: 16px; }
+
+.meter-head {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.meter {
+    height: 10px;
+    border-radius: 5px;
+    background: #1a1510;
+    border: 1px solid var(--line-soft);
+    overflow: hidden;
+}
+
+.meter .fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2e6b4c, var(--green));
+    transition: width .8s ease;
+}
+
+.meter .fill.warm { background: linear-gradient(90deg, var(--amber-dim), var(--amber)); }
+.meter .fill.hot { background: linear-gradient(90deg, #6b2e2a, var(--red)); }

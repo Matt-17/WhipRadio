@@ -1,0 +1,130 @@
+@page "/server"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Server</PageTitle>
+
+<h1 class="stage-title">Server Stats</h1>
+<div class="stage-sub">hardware &amp; storage · for the engineer in the booth · refreshes every 5 s</div>
+
+@if (_stats is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> probing the rack…</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Compute</div>
+        <div class="meter-row">
+            <div class="meter-head"><span>CPU (@_stats.ProcessorCount cores)</span><span>@_stats.CpuUsagePercent.ToString("0.#") %</span></div>
+            <div class="meter"><div class="fill @MeterClass(_stats.CpuUsagePercent)" style="width:@Pct(_stats.CpuUsagePercent)"></div></div>
+        </div>
+        <div class="meter-row">
+            <div class="meter-head">
+                <span>Memory</span>
+                <span>@Gb(_stats.MemoryUsedMb) / @Gb(_stats.MemoryTotalMb) GB</span>
+            </div>
+            <div class="meter"><div class="fill @MeterClass(MemoryPercent)" style="width:@Pct(MemoryPercent)"></div></div>
+        </div>
+        @if (_stats.Gpu is { } gpu)
+        {
+            <div class="meter-row">
+                <div class="meter-head"><span>GPU — @gpu.Name (@gpu.TemperatureC.ToString("0") °C)</span><span>@gpu.UtilizationPercent.ToString("0") %</span></div>
+                <div class="meter"><div class="fill @MeterClass(gpu.UtilizationPercent)" style="width:@Pct(gpu.UtilizationPercent)"></div></div>
+            </div>
+            <div class="meter-row">
+                <div class="meter-head"><span>VRAM</span><span>@Gb(gpu.MemoryUsedMb) / @Gb(gpu.MemoryTotalMb) GB</span></div>
+                <div class="meter"><div class="fill @MeterClass(VramPercent(gpu))" style="width:@Pct(VramPercent(gpu))"></div></div>
+            </div>
+        }
+        else
+        {
+            <div class="dim" style="font-family:var(--font-mono); font-size:12px">no NVIDIA GPU detected (nvidia-smi unavailable)</div>
+        }
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Disk — @_stats.DataRootPath</div>
+        <div class="meter-row">
+            <div class="meter-head">
+                <span>Drive usage</span>
+                <span>@((_stats.DiskTotalGb - _stats.DiskFreeGb).ToString("0.#")) / @_stats.DiskTotalGb.ToString("0.#") GB (@_stats.DiskFreeGb.ToString("0.#") GB free)</span>
+            </div>
+            <div class="meter"><div class="fill @MeterClass(DiskPercent)" style="width:@Pct(DiskPercent)"></div></div>
+        </div>
+        <table class="console-table" style="margin-top:14px">
+            <thead><tr><th>Area</th><th class="num">Size</th><th class="num">Files</th></tr></thead>
+            <tbody>
+                @foreach (var area in _stats.StorageAreas)
+                {
+                    <tr>
+                        <td>@area.Name</td>
+                        <td class="num">@SizeLabel(area.SizeMb)</td>
+                        <td class="num dim">@area.FileCount</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Orchestrator Process</div>
+        <table class="console-table">
+            <tbody>
+                <tr><td>Operating system</td><td class="dim">@_stats.OsDescription</td></tr>
+                <tr><td>Process memory</td><td class="dim">@SizeLabel(_stats.ProcessMemoryMb)</td></tr>
+                <tr><td>Uptime</td><td class="dim">@FormatUptime(_stats.ProcessUptimeSeconds)</td></tr>
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private ServerStatsDto? _stats;
+    private Timer? _timer;
+
+    private double MemoryPercent => _stats is { MemoryTotalMb: > 0 }
+        ? _stats.MemoryUsedMb / _stats.MemoryTotalMb * 100 : 0;
+
+    private double DiskPercent => _stats is { DiskTotalGb: > 0 }
+        ? (_stats.DiskTotalGb - _stats.DiskFreeGb) / _stats.DiskTotalGb * 100 : 0;
+
+    private static double VramPercent(GpuStatsDto gpu)
+        => gpu.MemoryTotalMb > 0 ? gpu.MemoryUsedMb / gpu.MemoryTotalMb * 100 : 0;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await Api.GetServerStatsAsync();
+        _timer = new Timer(async _ =>
+        {
+            _stats = await Api.GetServerStatsAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private static string Pct(double value) => $"{Math.Clamp(value, 0, 100):F1}%";
+
+    private static string MeterClass(double percent) => percent switch
+    {
+        > 90 => "hot",
+        > 70 => "warm",
+        _ => "",
+    };
+
+    private static string Gb(double mb) => (mb / 1024).ToString("0.#");
+
+    private static string SizeLabel(double mb)
+        => mb >= 1024 ? $"{mb / 1024:0.##} GB" : $"{mb:0.#} MB";
+
+    private static string FormatUptime(double seconds)
+    {
+        var time = TimeSpan.FromSeconds(seconds);
+        return time.TotalDays >= 1
+            ? $"{(int)time.TotalDays}d {time.Hours}h {time.Minutes}m"
+            : $"{time.Hours}h {time.Minutes}m {time.Seconds}s";
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

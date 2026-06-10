@@ -142,6 +142,9 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task RunDirectorAsync(CancellationToken ct = default)
         => await http.PostAsync("/api/admin/director/run", null, ct);
 
+    public async Task<ServerStatsDto?> GetServerStatsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<ServerStatsDto>("/api/serverstats", ct);
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try
