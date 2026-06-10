@@ -38,10 +38,13 @@ public static partial class LlmOutputSanitizer
 
         result = result.Replace("`", string.Empty);
 
+        // Strip surrounding quotes both before and after the lead-in removal:
+        // quotes may wrap the whole reply including the lead-in, or just the copy itself.
+        result = StripSurroundingQuotes(result);
+
         // Strip a leading conversational lead-in line ("Sure, here is your intro:").
         result = LeadInRegex().Replace(result, string.Empty).Trim();
 
-        // Strip one pair of symmetric surrounding quotes.
         result = StripSurroundingQuotes(result);
 
         return result.Trim();

@@ -1,0 +1,2 @@
+Write a very short outro for the song that just ended. Title: "{Title}". Genre: {Genre}.
+One or two sentences, leading smoothly back into the show.

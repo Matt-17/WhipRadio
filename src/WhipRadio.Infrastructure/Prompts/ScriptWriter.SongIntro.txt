@@ -1,0 +1,2 @@
+Write an intro for the next song. Title: "{Title}". Genre: {Genre}. Vibe: {Style}.
+Optionally include ONE light remark or joke. Do not invent a band name.

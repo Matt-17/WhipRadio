@@ -1,0 +1,2 @@
+Write a short station identification. Mention the station name "{StationName}" exactly once.
+Optionally tease what is coming up. Context: {Facts}
