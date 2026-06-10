@@ -31,7 +31,10 @@ ffmpeg and piped into the encoder — a gapless, CD-like stream.
 - **.NET SDK 10.0.3xx** (see `global.json`)
 - **ffmpeg on PATH** (dev host; e.g. `winget install Gyan.FFmpeg`)
 - ~**10 GB disk** for models (gemma3:4b ≈ 3.3 GB, musicgen-small ≈ 2 GB, Kokoro ≈ 0.4 GB, images)
-- Optional: NVIDIA GPU — everything also runs on CPU, just slowly (the station
+- Optional: NVIDIA GPU — **auto-detected**: when `nvidia-smi` is present the
+  AppHost runs Ollama with `--gpus=all` and builds/runs both Python sidecars
+  with CUDA torch (`TORCH_INDEX=cu121` build arg). Disable with
+  `Gpu__Disabled=true`. Everything also runs on CPU, just slowly (the station
   fills the gaps with talk)
 
 ## Quickstart

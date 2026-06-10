@@ -32,7 +32,9 @@ public class AnnouncementProductionService(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Announcement production cycle failed; retrying after delay");
+                logger.LogError(ex,
+                    "Announcement production cycle failed ({Reason}); retrying in {Delay}s",
+                    ex.GetBaseException().Message, CycleDelay.TotalSeconds);
             }
 
             await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);

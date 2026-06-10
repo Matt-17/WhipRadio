@@ -7,6 +7,11 @@ RUN apt-get update \
 
 WORKDIR /srv
 
+# TORCH_INDEX=cpu (default) or cu121 for NVIDIA GPU inference.
+# torch is installed first so kokoro's dependency resolution reuses it.
+ARG TORCH_INDEX=cpu
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

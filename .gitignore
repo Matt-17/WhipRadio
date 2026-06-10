@@ -488,3 +488,5 @@ __pycache__/
 *.pyc
 sidecars/**/models/
 .vs/
+apphost-run.log
+design-time.db

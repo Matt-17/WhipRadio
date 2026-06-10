@@ -1,4 +1,12 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Configuration;
+
 var builder = DistributedApplication.CreateBuilder(args);
+
+// --- GPU auto-detection -------------------------------------------------------
+// All AI workloads (LLM, TTS, music) use the GPU when one is available.
+// Override with Gpu:Disabled=true. CPU remains the fallback everywhere.
+var useGpu = !builder.Configuration.GetValue("Gpu:Disabled", false) && HostHasNvidiaGpu();
 
 // --- Parameters -------------------------------------------------------------
 var icecastSourcePassword = builder.AddParameter("icecast-source-password", "hackme-dev");
@@ -11,6 +19,11 @@ var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..
 // --- LLM: Ollama with gemma3:4b ----------------------------------------------
 var ollama = builder.AddOllama("ollama")
     .WithDataVolume("ollama-models");
+if (useGpu)
+{
+    ollama.WithGPUSupport();
+}
+
 var chatModel = ollama.AddModel("chat-model", "gemma3:4b");
 
 // --- Icecast streaming server -------------------------------------------------
@@ -25,13 +38,23 @@ var icecast = builder.AddContainer("icecast", "libretime/icecast", "latest")
 var icecastEndpoint = icecast.GetEndpoint("http");
 
 // --- Python sidecars (model cache shared via hf-cache volume) -----------------
+var torchIndex = useGpu ? "cu121" : "cpu";
+
 var tts = builder.AddDockerfile("tts", "../../sidecars/tts")
+    .WithBuildArg("TORCH_INDEX", torchIndex)
     .WithVolume("hf-cache", "/models")
     .WithHttpEndpoint(port: 8001, targetPort: 8001, name: "http");
 
 var music = builder.AddDockerfile("music", "../../sidecars/music")
+    .WithBuildArg("TORCH_INDEX", torchIndex)
     .WithVolume("hf-cache", "/models")
     .WithHttpEndpoint(port: 8002, targetPort: 8002, name: "http");
+
+if (useGpu)
+{
+    tts.WithContainerRuntimeArgs("--gpus=all");
+    music.WithContainerRuntimeArgs("--gpus=all");
+}
 
 // --- Orchestrator: pipelines + playout -----------------------------------------
 var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestrator")
@@ -64,3 +87,28 @@ builder.AddProject<Projects.WhipRadio_Web>("web")
     .WithExternalHttpEndpoints();
 
 builder.Build().Run();
+
+static bool HostHasNvidiaGpu()
+{
+    try
+    {
+        using var process = Process.Start(new ProcessStartInfo("nvidia-smi", "-L")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        if (process is null)
+        {
+            return false;
+        }
+
+        process.WaitForExit(5000);
+        return process.HasExited && process.ExitCode == 0;
+    }
+    catch
+    {
+        return false;
+    }
+}

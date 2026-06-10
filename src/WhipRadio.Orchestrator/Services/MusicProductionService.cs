@@ -43,7 +43,9 @@ public class MusicProductionService(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Music production cycle failed; retrying after backoff");
+                logger.LogError(ex,
+                    "Music production cycle failed ({Reason}); retrying in {Backoff}s",
+                    ex.GetBaseException().Message, backoff.TotalSeconds);
             }
 
             await Task.Delay(backoff, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);

@@ -12,10 +12,12 @@ RUN apt-get update \
 
 WORKDIR /srv
 
-# torch first, from the CPU wheel index. Everything else comes from PyPI so
-# binary wheels (e.g. PyAV) are picked up instead of source builds.
+# torch first, from the PyTorch wheel index (TORCH_INDEX=cpu default, cu121 for
+# NVIDIA GPU). Everything else comes from PyPI so binary wheels (e.g. PyAV when
+# wheels exist) are picked up instead of source builds.
+ARG TORCH_INDEX=cpu
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
+    && pip install --no-cache-dir torch==2.1.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

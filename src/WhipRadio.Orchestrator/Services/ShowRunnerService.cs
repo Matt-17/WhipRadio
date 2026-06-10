@@ -44,7 +44,7 @@ public class ShowRunnerService(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "ShowRunner cycle failed; retrying");
+                logger.LogError(ex, "ShowRunner cycle failed ({Reason}); retrying", ex.GetBaseException().Message);
                 delay = IdleDelay;
             }
 
