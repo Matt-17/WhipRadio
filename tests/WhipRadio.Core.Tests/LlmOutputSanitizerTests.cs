@@ -37,4 +37,18 @@ public class LlmOutputSanitizerTests
     {
         Assert.Equal(string.Empty, LlmOutputSanitizer.Sanitize("  "));
     }
+
+    [Fact]
+    public void Sanitize_StripsParentheticalStageDirections()
+    {
+        var result = LlmOutputSanitizer.Sanitize("(Sound of a pulsing synth) WhipRadio, the sounds you need. (laughs softly) Up next!");
+        Assert.Equal("WhipRadio, the sounds you need. Up next!", result);
+    }
+
+    [Fact]
+    public void Sanitize_KeepsSpeechMarkersIntact()
+    {
+        var input = "Hello [pause:300ms] there [breath] friends.";
+        Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
+    }
 }

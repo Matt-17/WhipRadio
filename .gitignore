@@ -490,3 +490,4 @@ sidecars/**/models/
 .vs/
 apphost-run.log
 design-time.db
+dbcopy/

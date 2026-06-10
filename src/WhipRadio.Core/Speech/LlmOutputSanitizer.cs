@@ -11,6 +11,12 @@ public static partial class LlmOutputSanitizer
     [GeneratedRegex(@"^(sure|certainly|of course|okay|ok|here('|’)s|here is|hier ist|gerne|klar|natürlich)\b.{0,80}?:\s*", RegexOptions.IgnoreCase)]
     private static partial Regex LeadInRegex();
 
+    [GeneratedRegex(@"\([^()]*\)")]
+    private static partial Regex ParentheticalRegex();
+
+    [GeneratedRegex(@"[ \t]{2,}")]
+    private static partial Regex MultiSpaceRegex();
+
     public static string Sanitize(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -44,6 +50,12 @@ public static partial class LlmOutputSanitizer
 
         // Strip a leading conversational lead-in line ("Sure, here is your intro:").
         result = LeadInRegex().Replace(result, string.Empty).Trim();
+
+        // Parentheses in radio copy are stage directions ("(Sound of a synth)") —
+        // they have no spoken equivalent, so drop them.
+        result = ParentheticalRegex().Replace(result, " ");
+        result = MultiSpaceRegex().Replace(result, " ");
+        result = result.Replace(" .", ".").Replace(" ,", ",");
 
         result = StripSurroundingQuotes(result);
 
