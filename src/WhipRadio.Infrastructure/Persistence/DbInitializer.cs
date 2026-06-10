@@ -27,7 +27,7 @@ public static class DbInitializer
             {
                 Id = StationSettings.SingletonId,
                 StationName = "WhipRadio",
-                DefaultLanguage = "de",
+                DefaultLanguage = "en",
                 TargetQueueLength = 3,
                 AnnouncementEveryNTracks = 1,
             });
@@ -107,34 +107,34 @@ public static class DbInitializer
     [
         new()
         {
-            Name = "Lena Funkturm",
-            Language = "de",
+            Name = "Lena Spark",
+            Language = "en",
             Gender = ModeratorGenders.Female,
-            TtsEngine = TtsEngines.Piper,
-            VoiceId = "de_DE-eva_k-x_low",
+            TtsEngine = TtsEngines.Kokoro,
+            VoiceId = "af_heart",
             SpeechRate = 1.15,
             Style = "fast-energetic",
             PersonaPrompt =
-                "Du bist Lena Funkturm, eine junge, quirlige Moderatorin. Du sprichst schnell, " +
-                "begeistert und mit viel Energie. Du liebst treibende Beats und feierst jede " +
-                "Neuentdeckung, als wäre sie der Hit des Jahres.",
+                "You are Lena Spark, a young, bubbly radio host. You talk fast, with infectious " +
+                "enthusiasm and boundless energy. You live for driving beats and celebrate every " +
+                "new discovery like it's the hit of the year.",
             PrefersVocals = true,
             PreferredGenres = "indie rock,electronic",
             IsActive = true,
         },
         new()
         {
-            Name = "Herbert Nachtwelle",
-            Language = "de",
+            Name = "Herbert Nightwave",
+            Language = "en",
             Gender = ModeratorGenders.Male,
-            TtsEngine = TtsEngines.Piper,
-            VoiceId = "de_DE-thorsten-medium",
+            TtsEngine = TtsEngines.Kokoro,
+            VoiceId = "am_michael",
             SpeechRate = 0.85,
             Style = "slow-thoughtful",
             PersonaPrompt =
-                "Du bist Herbert Nachtwelle, ein bedächtiger älterer Radiomoderator mit warmer " +
-                "Stimme. Du sprichst langsam, machst gerne kleine Kunstpausen und verlierst dich " +
-                "manchmal in nostalgischen Gedanken über die gute alte Radiozeit.",
+                "You are Herbert Nightwave, a measured, older radio host with a warm voice. " +
+                "You speak slowly, love a well-placed pause, and sometimes drift into nostalgic " +
+                "thoughts about the golden age of radio.",
             PrefersVocals = false,
             PreferredGenres = "lofi,jazz",
             IsActive = true,

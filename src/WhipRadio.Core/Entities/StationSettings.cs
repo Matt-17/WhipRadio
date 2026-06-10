@@ -77,10 +77,10 @@ public static class TextProviders
 /// </summary>
 public static class StationLanguages
 {
-    public static readonly IReadOnlyList<string> All = ["de", "en"];
+    public static readonly IReadOnlyList<string> All = ["en", "de"];
 
     public static string Normalize(string? language)
-        => All.FirstOrDefault(l => string.Equals(l, language, StringComparison.OrdinalIgnoreCase)) ?? "de";
+        => All.FirstOrDefault(l => string.Equals(l, language, StringComparison.OrdinalIgnoreCase)) ?? "en";
 }
 
 public static class TtsEngines

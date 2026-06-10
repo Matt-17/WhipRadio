@@ -12,7 +12,7 @@
 <div class="panel reveal">
     <div class="panel-label">Create a Host</div>
     <div class="form-grid">
-        <div class="field"><label>Name</label><input @bind="_newName" placeholder="e.g. Mia Morgenfunk" /></div>
+        <div class="field"><label>Name</label><input @bind="_newName" placeholder="e.g. Mia Morningwave" /></div>
         <div class="field">
             <label>Gender</label>
             <select @bind="_newGender"><option value="f">female</option><option value="m">male</option></select>
@@ -34,7 +34,7 @@
     </div>
     <div class="field" style="margin-bottom:16px">
         <label>Persona (how they talk, what they love)</label>
-        <input @bind="_newPersona" placeholder="Du bist … / You are …" />
+        <input @bind="_newPersona" placeholder="You are a warm late-night host who loves vinyl stories …" />
     </div>
     <div class="btn-row">
         <button class="btn primary" @onclick="CreateAsync">Hire Host</button>
@@ -111,8 +111,8 @@ else
 
     private string _newName = "";
     private string _newGender = "f";
-    private string _stationLanguage = "de";
-    private string _newEngine = "piper";
+    private string _stationLanguage = "en";
+    private string _newEngine = "kokoro";
     private string _newStyle = "";
     private string _newGenres = "";
     private string _newPersona = "";
