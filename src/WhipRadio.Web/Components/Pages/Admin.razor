@@ -33,6 +33,48 @@ else
     </div>
 
     <div class="panel reveal">
+        <div class="panel-label">Listener Messages</div>
+        <div class="admin-row">
+            <div>
+                <strong>Greetings &amp; Requests</strong>
+                <div class="dim">Listeners can send messages from the live page; queued ones are read on air.</div>
+            </div>
+            <div class="switch big @(_settings.GreetingsEnabled ? "on" : null)" @onclick="ToggleGreetingsAsync"></div>
+        </div>
+        @if (_messages.Count == 0)
+        {
+            <div class="empty-state">no pending messages</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <tbody>
+                    @foreach (var message in _messages)
+                    {
+                        <tr>
+                            <td style="width:120px"><strong>@message.SenderName</strong></td>
+                            <td>@message.MessageText
+                                @if (message.RequestGenre is not null)
+                                {
+                                    <span class="tag amber">wants @message.RequestGenre</span>
+                                }
+                            </td>
+                            <td style="width:90px"><span class="tag">@message.Status</span></td>
+                            <td style="width:170px; white-space:nowrap">
+                                @if (message.Status == "Pending")
+                                {
+                                    <button class="btn small" @onclick="() => QueueMessageAsync(message.Id)">on air</button>
+                                    <button class="btn small vote-down" @onclick="() => DismissMessageAsync(message.Id)">dismiss</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="panel reveal">
         <div class="panel-label">Production Pacing</div>
         <div class="form-grid">
             <div class="field"><label>Target unplayed tracks</label><input type="number" min="1" max="20" @bind="_settings_TargetQueueLength" /></div>
@@ -52,6 +94,7 @@ else
 
 @code {
     private StationSettingsDto? _settings;
+    private List<ListenerMessageDto> _messages = [];
     private bool _saved;
     private int _settings_TargetQueueLength;
     private int _settings_MaxLibrarySize;
@@ -66,6 +109,7 @@ else
     private async Task LoadAsync()
     {
         _settings = await Api.GetSettingsAsync();
+        _messages = await Api.GetGreetingsAsync();
         if (_settings is not null)
         {
             _settings_TargetQueueLength = _settings.TargetQueueLength;
@@ -93,6 +137,28 @@ else
         }
 
         _settings = await Api.SaveSettingsAsync(_settings with { MusicProductionEnabled = !_settings.MusicProductionEnabled });
+    }
+
+    private async Task ToggleGreetingsAsync()
+    {
+        if (_settings is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(_settings with { GreetingsEnabled = !_settings.GreetingsEnabled });
+    }
+
+    private async Task QueueMessageAsync(Guid id)
+    {
+        await Api.QueueGreetingAsync(id);
+        _messages = await Api.GetGreetingsAsync();
+    }
+
+    private async Task DismissMessageAsync(Guid id)
+    {
+        await Api.DismissGreetingAsync(id);
+        _messages = await Api.GetGreetingsAsync();
     }
 
     private async Task SavePacingAsync()

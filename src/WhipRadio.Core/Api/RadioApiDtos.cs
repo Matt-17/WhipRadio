@@ -98,7 +98,8 @@ public sealed record StationSettingsDto(
     string OpenAiApiKey,
     string OpenAiModel,
     bool ElevenLabsEnabled,
-    string ElevenLabsApiKey);
+    string ElevenLabsApiKey,
+    bool GreetingsEnabled = true);
 
 public sealed record VoteRequestDto(Guid TrackId, int Direction);
 
@@ -145,3 +146,20 @@ public sealed record StatsDto(
 public sealed record NameCountDto(string Name, double Value);
 
 public sealed record ConsoleLineDto(DateTime TimestampUtc, string Level, string Category, string Message);
+
+public sealed record SubmitGreetingDto(
+    string SenderName,
+    string MessageText,
+    string Kind,
+    string? RequestGenre = null,
+    string? RequestMood = null);
+
+public sealed record ListenerMessageDto(
+    Guid Id,
+    string SenderName,
+    string MessageText,
+    string Kind,
+    string? RequestGenre,
+    string? RequestMood,
+    DateTime SubmittedAt,
+    string Status);

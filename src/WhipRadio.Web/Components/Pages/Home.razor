@@ -96,6 +96,35 @@
 }
 
 <div class="panel reveal">
+    <div class="panel-label">Send a Greeting</div>
+    <div class="form-grid">
+        <div class="field"><label>Your name</label><input maxlength="30" @bind="_greetName" /></div>
+        <div class="field">
+            <label>Kind</label>
+            <select @bind="_greetKind">
+                <option value="Greeting">Greeting</option>
+                <option value="Request">Music request</option>
+            </select>
+        </div>
+        @if (_greetKind == "Request")
+        {
+            <div class="field"><label>Genre wish (optional)</label><input @bind="_greetGenre" placeholder="techno, lofi, …" /></div>
+        }
+    </div>
+    <div class="field" style="margin-bottom:14px">
+        <label>Message</label>
+        <input maxlength="200" @bind="_greetText" placeholder="Hello to the night shift!" />
+    </div>
+    <div class="btn-row">
+        <button class="btn primary" @onclick="SendGreetingAsync">Send to the Studio</button>
+        @if (_greetFeedback is not null)
+        {
+            <span class="flash">@_greetFeedback</span>
+        }
+    </div>
+</div>
+
+<div class="panel reveal">
     <div class="panel-label">Direct Stream</div>
     <div class="btn-row">
         <code class="stream-url">@_streamUrl</code>
@@ -107,6 +136,11 @@
     private string _streamUrl = "";
     private bool _copied;
     private Timer? _ticker;
+    private string _greetName = "";
+    private string _greetText = "";
+    private string _greetKind = "Greeting";
+    private string _greetGenre = "";
+    private string? _greetFeedback;
 
     private TimeSpan Elapsed => Live.NowPlaying is { } np ? DateTime.UtcNow - np.StartedAtUtc : TimeSpan.Zero;
 
@@ -131,6 +165,23 @@
     }
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task SendGreetingAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_greetName) || string.IsNullOrWhiteSpace(_greetText))
+        {
+            _greetFeedback = "Name and message, please!";
+            return;
+        }
+
+        var (ok, message) = await Api.SubmitGreetingAsync(new SubmitGreetingDto(
+            _greetName, _greetText, _greetKind, _greetKind == "Request" ? _greetGenre : null));
+        _greetFeedback = ok ? $"Thanks {_greetName}! {message}" : message;
+        if (ok)
+        {
+            _greetText = "";
+        }
+    }
 
     private async Task CopyStreamUrlAsync()
     {

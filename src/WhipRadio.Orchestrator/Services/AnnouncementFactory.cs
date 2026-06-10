@@ -43,6 +43,12 @@ public class AnnouncementFactory(
             facts = await GetTodaysMemoryAsync(moderator.Id, ct);
         }
 
+        // Piper renders the bundled breath sample poorly — suppress regardless of setting.
+        if (moderator.TtsEngine == TtsEngines.Piper)
+        {
+            allowBreath = false;
+        }
+
         var request = new AnnouncementRequest(kind, stationName, moderator.Language, relatedTrack, facts);
         var script = await scriptWriter.WriteAsync(request, ct);
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct);

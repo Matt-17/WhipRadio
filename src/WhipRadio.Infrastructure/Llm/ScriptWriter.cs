@@ -41,6 +41,7 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         {
             ["Facts"] = request.Facts ?? "a new show begins",
         }),
+        AnnouncementKind.ListenerGreeting => PromptTemplates.Render("ScriptWriter.ListenerGreeting", ParseGreetingFacts(request.Facts)),
         AnnouncementKind.StationId => PromptTemplates.Render("ScriptWriter.StationId", new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
@@ -48,6 +49,17 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }),
         _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown announcement kind"),
     };
+
+    /// <summary>Facts for greetings arrive as "SenderName|MessageText".</summary>
+    private static Dictionary<string, string> ParseGreetingFacts(string? facts)
+    {
+        var parts = (facts ?? string.Empty).Split('|', 2);
+        return new Dictionary<string, string>
+        {
+            ["SenderName"] = parts.ElementAtOrDefault(0) is { Length: > 0 } name ? name : "a listener",
+            ["MessageText"] = parts.ElementAtOrDefault(1) ?? "Greetings to everyone listening!",
+        };
+    }
 
     private static Dictionary<string, string> TrackValues(AnnouncementRequest request) => new()
     {

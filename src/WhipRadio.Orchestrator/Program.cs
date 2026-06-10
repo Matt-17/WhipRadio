@@ -44,6 +44,7 @@ builder.Services.AddSingleton<IPlayoutQueue>(sp => new TrackedPlayoutQueue(
 builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<VoiceCatalogService>();
+builder.Services.AddSingleton<GreetingState>();
 
 builder.Services.AddSignalR();
 
@@ -61,6 +62,7 @@ var app = builder.Build();
 
 app.MapDefaultEndpoints();
 app.MapRadioApi();
+app.MapGreetingsApi();
 app.MapHub<RadioHub>("/hubs/radio");
 
 // Migrate + seed before the pipelines start consuming the database.

@@ -225,13 +225,50 @@ Add `FormatId (FK nullable)`, `DayOfWeek (0=Sun…6=Sat, -1=all)`, `Label ("stil
 - `/hosts` list: add **Create Host** button → modal/page with fields: Name, Gender, Language, VoiceId (dropdown from `ITtsEngine.GetVoicesAsync`), SpeechRate, Style, PersonaPrompt, PreferredGenres, PrefersVocals, TtsProvider, UseBreath.
 - Each host row: **▶ Preview** button → fetches `/api/hosts/{id}/recent-talks` (last 5 announcements) → plays inline `<audio>` for each with transcript text shown below. No generate-on-demand in Phase 2 (use stored WAVs only).
 
+### 2.6 Listener greetings & requests via web app
+
+**Goal:** Listeners can send greetings or song-style requests; the active host reacts naturally on air.
+
+#### Data model additions
+New table **`ListenerMessage`**:
+| Field | Type | Notes |
+|---|---|---|
+| Id | Guid PK | |
+| SenderName | string | display name entered by listener |
+| MessageText | string | max 500 chars |
+| Kind | enum: Greeting / Request | |
+| RequestGenre | string? | only for Request kind |
+| RequestMood | string? | e.g. "something chill" |
+| SubmittedAt | DateTime | |
+| Status | enum: Pending / Queued / OnAir / Dismissed | |
+| ModeratorId | int? FK | host who handled it |
+| AnnouncementId | Guid? FK | resulting announcement if handled |
+
+`StationSettings`: add `GreetingsEnabled (bool, default true)`, `MaxPendingGreetings (int, default 10)`.
+
+#### Web app — greetings form
+- New section on Live page (below transcript panel): **"Send a greeting"** card.
+  - Fields: Your name (max 30 chars), Message (max 200 chars), Kind toggle (Greeting / Request); if Request: optional Genre hint + Mood hint.
+  - Submit → `POST /api/greetings` → inserts `ListenerMessage` with `Status=Pending`.
+  - Show confirmation: "Thanks {name}! Your message is in the queue."
+  - No login required. Trivial spam guard: max 3 submissions per client IP per hour (track in memory, not DB).
+- Settings page: toggle `GreetingsEnabled`; when off, form is hidden and endpoint returns 403.
+- Pending messages list in Admin page: table of pending messages with **Queue** / **Dismiss** buttons. Queued messages get `Status=Queued` and are picked up by the announcement pipeline.
+
+#### Orchestrator — greeting handling
+- `AnnouncementProductionService`: when selecting the next `TalkKind`, if any `ListenerMessage` has `Status=Queued`: weight for a new kind `ListenerGreeting` jumps to 80 (effectively next announcement handles it).
+- ScriptWriter prompt for `ListenerGreeting`:
+  *"A listener named {SenderName} sent this message: '{MessageText}'. React naturally as a radio host — read out the greeting, respond in character, keep it to 3–4 sentences. If it's a music request, acknowledge it and say you'll see what you can do (but do NOT promise a specific song — the station picks its own music)."*
+- VoiceDirector adapts per usual moderator persona.
+- After announcement is queued to playout: set `Status=OnAir`, link `AnnouncementId`.
+- If the message was a Request: add the requested genre/mood as a soft hint to the next `MusicProductionService` generation cycle (one-shot: `_nextGenreHint` field, consumed once).
+
 **Accept:**
-- Herbert Nachtwelle (or any male-named host) gets a male voice after migration/reseed.
-- Gender field visible in host list and creation form.
-- After 90 min same host, rotation occurs automatically.
-- Handover plays farewell + intro between shifts.
-- Talk types vary across 10 consecutive announcements (no two consecutive SongIntros if other types are available).
-- Host create form functional; recent talks playable.
+- Submit a greeting via web form → within 2 announcement cycles it is read on air.
+- Admin can dismiss a pending greeting; dismissed messages never go on air.
+- Request hint influences next music generation genre (verify in log).
+- Spam guard: 4th submission from same IP within 1 h returns 429.
+- `GreetingsEnabled=false` hides form and returns 403 on API.
 
 ---
 
@@ -543,19 +580,21 @@ Address the technical errors and language/voice issues found in testing.
 - [ ] Stats page loads with real data
 - [ ] IO-abort errors eliminated (60-min soak)
 - [ ] No language mixing (German host speaks German)
+- [ ] Greeting submitted via web form → read on air within 2 announcement cycles
+- [ ] Admin dismiss flow works; spam guard returns 429 on 4th submission
 
 ---
 
 ## Phase 3 Preview (do NOT implement in Phase 2)
 
-- Crossfading and ducking (music volume ducks under announcements)
-- Top-of-the-hour precision (song end aligns to :00)
-- Podcast format support
-- Host-to-host conversation segments
-- Listener greetings / requests via web app
-- Advertising spot generation
-- News & traffic data sources (interfaces already exist)
-- Mobile-optimised PWA with offline cache
-- Multi-station (different streams, same Aspire host)
-PLANEOF
+> These items exist here so the agent can verify Phase 2 didn't accidentally break
+> anything in their direction, and to confirm interfaces are in place. No implementation.
+
+- **Crossfading and ducking** — music volume ducks under announcements; song ends fade out.
+- **Top-of-the-hour precision** — playout scheduler aligns song end to :00 for news.
+- **Podcast format support** — long-form pre-recorded or AI-generated episode segments.
+- **Host-to-host conversation segments** — two hosts banter live between songs.
+- **Advertising spot generation** — AI-written + TTS-spoken ad spots; slot scheduling.
+- **News & traffic data sources** — `IAnnouncementDataSource` implementations beyond weather (interfaces already exist in Core; verify they compile and are injectable).
+
 echo "Phase2.md created, lines: $(wc -l < /home/claude/Phase2.md)"

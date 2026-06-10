@@ -331,6 +331,7 @@ public static class RadioApiEndpoints
             settings.OpenAiModel = string.IsNullOrWhiteSpace(request.OpenAiModel) ? settings.OpenAiModel : request.OpenAiModel.Trim();
             settings.ElevenLabsEnabled = request.ElevenLabsEnabled;
             settings.ElevenLabsApiKey = request.ElevenLabsApiKey ?? string.Empty;
+            settings.GreetingsEnabled = request.GreetingsEnabled;
 
             await db.SaveChangesAsync(ct);
             return Results.Ok(ToDto(settings));
@@ -504,7 +505,7 @@ public static class RadioApiEndpoints
         s.MusicProductionEnabled, s.PlayoutEnabled, s.MaxLibrarySize,
         s.MinTrackDurationSeconds, s.MaxTrackDurationSeconds, s.EnableBreathMarkers,
         s.FrequencyMhz, s.FirstDayOfWeek, s.TextProvider, s.OpenAiApiKey, s.OpenAiModel,
-        s.ElevenLabsEnabled, s.ElevenLabsApiKey);
+        s.ElevenLabsEnabled, s.ElevenLabsApiKey, s.GreetingsEnabled);
 
     private static string HashClient(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..16];

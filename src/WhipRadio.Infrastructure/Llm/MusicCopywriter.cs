@@ -49,7 +49,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["ArtistName"] = artist.Name,
             ["ArtistStyle"] = artist.StyleDescriptor,
             ["Subgenre"] = string.IsNullOrEmpty(artist.Subgenre) ? artist.Genre : artist.Subgenre,
-            ["ForbiddenWords"] = forbidden.Count == 0 ? "(none)" : string.Join(", ", forbidden),
+            ["ForbiddenWords"] = string.Join(", ", forbidden),
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(15)),
         });
 
@@ -79,6 +79,10 @@ public class MusicCopywriter(ITextGenerationService llm)
 /// <summary>Finds overused words in existing titles so prompts can forbid them.</summary>
 public static class TitleWordGuard
 {
+    /// <summary>LLM clichés that are ALWAYS banned from titles (Plan Phase 2 §8.4).</summary>
+    public static readonly IReadOnlyList<string> AlwaysBanned =
+        ["ghost", "neon", "echo", "static", "fade", "shadow", "pulse", "void", "dark", "night"];
+
     private static readonly HashSet<string> Stopwords = new(StringComparer.OrdinalIgnoreCase)
     {
         "the", "and", "for", "with", "into", "from", "your", "this", "that",
@@ -87,15 +91,16 @@ public static class TitleWordGuard
 
     public static IReadOnlyList<string> MostFrequentWords(IEnumerable<string> titles, int take)
     {
-        return titles
+        var dynamic = titles
             .SelectMany(t => t.Split([' ', '-', ':', ',', '.'], StringSplitOptions.RemoveEmptyEntries))
             .Select(w => w.Trim().ToLowerInvariant())
-            .Where(w => w.Length > 3 && !Stopwords.Contains(w))
+            .Where(w => w.Length > 3 && !Stopwords.Contains(w) && !AlwaysBanned.Contains(w))
             .GroupBy(w => w)
             .Where(g => g.Count() >= 2)
             .OrderByDescending(g => g.Count())
             .Take(take)
-            .Select(g => g.Key)
-            .ToList();
+            .Select(g => g.Key);
+
+        return [.. AlwaysBanned, .. dynamic];
     }
 }

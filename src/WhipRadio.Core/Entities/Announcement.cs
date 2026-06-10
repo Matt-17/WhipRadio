@@ -14,6 +14,9 @@ public enum AnnouncementKind
 
     /// <summary>Personal anecdote referencing the host's day memory.</summary>
     PersonalNote,
+
+    /// <summary>The host reads and reacts to a listener's greeting or request.</summary>
+    ListenerGreeting,
 }
 
 /// <summary>A produced spoken segment (two-stage LLM pipeline + TTS).</summary>

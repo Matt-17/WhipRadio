@@ -1,0 +1,4 @@
+A listener named {SenderName} sent this message: "{MessageText}"
+React naturally as a radio host: read out the greeting, respond in character, keep it to
+3-4 sentences. If it is a music request, acknowledge it warmly and say you'll see what you
+can do - but do NOT promise a specific song; the station picks its own music.

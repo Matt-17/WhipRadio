@@ -118,6 +118,27 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task<List<ConsoleLineDto>> GetConsoleAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ConsoleLineDto>>("/api/console", ct) ?? [];
 
+    public async Task<(bool Ok, string Message)> SubmitGreetingAsync(SubmitGreetingDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/greetings/", request, ct);
+        return response.StatusCode switch
+        {
+            HttpStatusCode.OK => (true, "Your message is in the queue!"),
+            HttpStatusCode.TooManyRequests => (false, "Easy there — try again a bit later."),
+            HttpStatusCode.Forbidden => (false, "Greetings are currently disabled."),
+            _ => (false, "Something went wrong — try again."),
+        };
+    }
+
+    public async Task<List<ListenerMessageDto>> GetGreetingsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ListenerMessageDto>>("/api/greetings/", ct) ?? [];
+
+    public async Task QueueGreetingAsync(Guid id, CancellationToken ct = default)
+        => await http.PostAsync($"/api/greetings/{id}/queue", null, ct);
+
+    public async Task DismissGreetingAsync(Guid id, CancellationToken ct = default)
+        => await http.PostAsync($"/api/greetings/{id}/dismiss", null, ct);
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try

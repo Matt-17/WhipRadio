@@ -21,6 +21,7 @@ public class MusicProductionService(
     IServiceScopeFactory scopeFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
+    GreetingState greetingState,
     IOptions<RadioOptions> radioOptions,
     IOptions<MusicOptions> musicOptions,
     ILogger<MusicProductionService> logger) : BackgroundService
@@ -81,6 +82,18 @@ public class MusicProductionService(
         var copywriter = scope.ServiceProvider.GetRequiredService<MusicCopywriter>();
 
         var context = await schedule.GetCurrentAsync(ct);
+
+        // A queued listener request leaves a one-shot genre hint for this cycle.
+        if (greetingState.ConsumeGenreHint() is { } hintedGenre)
+        {
+            logger.LogInformation("Listener request hint: generating {Genre} this cycle", hintedGenre);
+            context = context with
+            {
+                Genre = hintedGenre,
+                Subgenre = Core.Selection.GenreCatalog.PickSubgenre(hintedGenre, Random.Shared),
+            };
+        }
+
         var artist = await GetOrCreateArtistAsync(copywriter, context, ct);
 
         var wantVocals = context.Moderator.PrefersVocals == true

@@ -14,6 +14,7 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
             ["PersonaPrompt"] = moderator.PersonaPrompt,
             ["Style"] = moderator.Style,
             ["Language"] = moderator.Language,
+            ["Gender"] = moderator.Gender == ModeratorGenders.Male ? "male" : "female",
         });
 
         var voiced = await llm.CompleteAsync(systemPrompt, script, ct);

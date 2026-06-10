@@ -57,6 +57,12 @@ public class StationSettings
     public bool ElevenLabsEnabled { get; set; }
 
     public string ElevenLabsApiKey { get; set; } = string.Empty;
+
+    // --- Listener interaction --------------------------------------------------
+
+    public bool GreetingsEnabled { get; set; } = true;
+
+    public int MaxPendingGreetings { get; set; } = 10;
 }
 
 public static class TextProviders

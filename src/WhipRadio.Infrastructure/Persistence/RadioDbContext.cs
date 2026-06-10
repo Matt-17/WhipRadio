@@ -23,6 +23,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<ModeratorMemory> ModeratorMemories => Set<ModeratorMemory>();
 
+    public DbSet<ListenerMessage> ListenerMessages => Set<ListenerMessage>();
+
     public DbSet<StationSettings> StationSettings => Set<StationSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -80,6 +82,13 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<ModeratorMemory>(memory =>
         {
             memory.HasIndex(m => new { m.ModeratorId, m.Date });
+        });
+
+        modelBuilder.Entity<ListenerMessage>(message =>
+        {
+            message.Property(m => m.Kind).HasConversion<string>();
+            message.Property(m => m.Status).HasConversion<string>();
+            message.HasIndex(m => m.Status);
         });
     }
 }

@@ -16,6 +16,10 @@ public static class DbInitializer
             db.Moderators.AddRange(SeedModerators());
             await db.SaveChangesAsync(ct);
         }
+        else
+        {
+            await PatchSeededModeratorsAsync(db, ct);
+        }
 
         if (!await db.StationSettings.AnyAsync(ct))
         {
@@ -31,6 +35,34 @@ public static class DbInitializer
         }
     }
 
+    /// <summary>
+    /// Databases created before gender/engine existed have every host on the
+    /// default female Kokoro voice. Re-sync the well-known seeded hosts once.
+    /// </summary>
+    private static async Task PatchSeededModeratorsAsync(RadioDbContext db, CancellationToken ct)
+    {
+        var seeds = SeedModerators().ToDictionary(m => m.Name);
+        var patched = false;
+
+        foreach (var moderator in await db.Moderators.ToListAsync(ct))
+        {
+            if (seeds.TryGetValue(moderator.Name, out var seed) &&
+                moderator.VoiceId == "af_heart" && moderator.TtsEngine == TtsEngines.Kokoro &&
+                (seed.VoiceId != "af_heart" || seed.TtsEngine != TtsEngines.Kokoro))
+            {
+                moderator.Gender = seed.Gender;
+                moderator.TtsEngine = seed.TtsEngine;
+                moderator.VoiceId = seed.VoiceId;
+                patched = true;
+            }
+        }
+
+        if (patched)
+        {
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
     private static Moderator[] SeedModerators() =>
     [
         new()
@@ -38,8 +70,8 @@ public static class DbInitializer
             Name = "Lena Funkturm",
             Language = "de",
             Gender = ModeratorGenders.Female,
-            TtsEngine = TtsEngines.Kokoro,
-            VoiceId = "af_heart",
+            TtsEngine = TtsEngines.Piper,
+            VoiceId = "de_DE-eva_k-x_low",
             SpeechRate = 1.15,
             Style = "fast-energetic",
             PersonaPrompt =
@@ -55,8 +87,8 @@ public static class DbInitializer
             Name = "Herbert Nachtwelle",
             Language = "de",
             Gender = ModeratorGenders.Male,
-            TtsEngine = TtsEngines.Kokoro,
-            VoiceId = "am_michael",
+            TtsEngine = TtsEngines.Piper,
+            VoiceId = "de_DE-thorsten-medium",
             SpeechRate = 0.85,
             Style = "slow-thoughtful",
             PersonaPrompt =

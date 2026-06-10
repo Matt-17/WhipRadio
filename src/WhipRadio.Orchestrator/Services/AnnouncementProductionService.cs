@@ -60,6 +60,12 @@ public class AnnouncementProductionService(
 
         var cycle = Interlocked.Increment(ref _cycleCounter);
 
+        // Queued listener greetings jump the line — listeners are waiting.
+        if (await TryProduceGreetingAsync(factory, moderator, stationName, ct))
+        {
+            return;
+        }
+
         // Every 4th cycle: weather instead of a song intro.
         if (cycle % 4 == 0)
         {
@@ -106,6 +112,41 @@ public class AnnouncementProductionService(
         }
 
         await factory.ProduceAsync(AnnouncementKind.SongIntro, moderator, nextTrack, null, stationName, ct);
+    }
+
+    private async Task<bool> TryProduceGreetingAsync(
+        AnnouncementFactory factory, Moderator moderator, string stationName, CancellationToken ct)
+    {
+        ListenerMessage? message;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            message = await db.ListenerMessages
+                .Where(m => m.Status == ListenerMessageStatus.Queued)
+                .OrderBy(m => m.SubmittedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        if (message is null)
+        {
+            return false;
+        }
+
+        var announcement = await factory.ProduceAsync(
+            AnnouncementKind.ListenerGreeting, moderator, null,
+            $"{message.SenderName}|{message.MessageText}", stationName, ct);
+
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            await db.ListenerMessages
+                .Where(m => m.Id == message.Id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.Status, ListenerMessageStatus.OnAir)
+                    .SetProperty(m => m.ModeratorId, moderator.Id)
+                    .SetProperty(m => m.AnnouncementId, announcement.Id), ct);
+        }
+
+        logger.LogInformation("Listener greeting from {Sender} produced for air", message.SenderName);
+        return true;
     }
 
     private async Task<bool> HasUnplayedAsync(AnnouncementKind kind, int moderatorId, CancellationToken ct)
