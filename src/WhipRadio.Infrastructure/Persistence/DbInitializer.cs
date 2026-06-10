@@ -33,6 +33,38 @@ public static class DbInitializer
             });
             await db.SaveChangesAsync(ct);
         }
+        else
+        {
+            await PatchSettingsAsync(db, ct);
+        }
+    }
+
+    /// <summary>
+    /// Columns added by later migrations land as 0/false/"" on existing rows —
+    /// which would leave the station off air with a zero-sized library. Restore
+    /// the intended defaults when those impossible values are detected.
+    /// </summary>
+    private static async Task PatchSettingsAsync(RadioDbContext db, CancellationToken ct)
+    {
+        var settings = await db.StationSettings.FirstAsync(ct);
+        if (settings.MaxLibrarySize > 0)
+        {
+            return; // already initialized
+        }
+
+        var defaults = new StationSettings();
+        settings.MusicProductionEnabled = defaults.MusicProductionEnabled;
+        settings.PlayoutEnabled = defaults.PlayoutEnabled;
+        settings.MaxLibrarySize = defaults.MaxLibrarySize;
+        settings.MinTrackDurationSeconds = defaults.MinTrackDurationSeconds;
+        settings.MaxTrackDurationSeconds = defaults.MaxTrackDurationSeconds;
+        settings.FrequencyMhz = defaults.FrequencyMhz;
+        settings.FirstDayOfWeek = defaults.FirstDayOfWeek;
+        settings.TextProvider = defaults.TextProvider;
+        settings.OpenAiModel = defaults.OpenAiModel;
+        settings.GreetingsEnabled = defaults.GreetingsEnabled;
+        settings.MaxPendingGreetings = defaults.MaxPendingGreetings;
+        await db.SaveChangesAsync(ct);
     }
 
     /// <summary>
@@ -46,13 +78,21 @@ public static class DbInitializer
 
         foreach (var moderator in await db.Moderators.ToListAsync(ct))
         {
-            if (seeds.TryGetValue(moderator.Name, out var seed) &&
-                moderator.VoiceId == "af_heart" && moderator.TtsEngine == TtsEngines.Kokoro &&
-                (seed.VoiceId != "af_heart" || seed.TtsEngine != TtsEngines.Kokoro))
+            // Pre-Phase-2 rows have empty Gender/TtsEngine (migration column default).
+            var isStale = string.IsNullOrEmpty(moderator.TtsEngine) || string.IsNullOrEmpty(moderator.Gender);
+
+            if (seeds.TryGetValue(moderator.Name, out var seed) && isStale)
             {
                 moderator.Gender = seed.Gender;
                 moderator.TtsEngine = seed.TtsEngine;
                 moderator.VoiceId = seed.VoiceId;
+                patched = true;
+            }
+            else if (isStale)
+            {
+                // Unknown legacy host: keep the voice, default the new fields.
+                moderator.Gender = string.IsNullOrEmpty(moderator.Gender) ? ModeratorGenders.Female : moderator.Gender;
+                moderator.TtsEngine = string.IsNullOrEmpty(moderator.TtsEngine) ? TtsEngines.Kokoro : moderator.TtsEngine;
                 patched = true;
             }
         }

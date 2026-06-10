@@ -423,13 +423,14 @@ public static class RadioApiEndpoints
             }
 
             var hourAgo = DateTime.UtcNow.AddHours(-1);
-            var topArtists = await db.Tracks.AsNoTracking()
+            var topArtistsRaw = await db.Tracks.AsNoTracking()
                 .Where(t => t.Artist != null)
                 .GroupBy(t => t.Artist!.Name)
-                .Select(g => new NameCountDto(g.Key, g.Sum(t => t.PlayCount)))
-                .OrderByDescending(x => x.Value)
+                .Select(g => new { Name = g.Key, Plays = g.Sum(t => t.PlayCount) })
+                .OrderByDescending(x => x.Plays)
                 .Take(8)
                 .ToListAsync(ct);
+            var topArtists = topArtistsRaw.Select(x => new NameCountDto(x.Name, x.Plays)).ToList();
 
             var hostAirtime = await db.PlayLog.AsNoTracking()
                 .Where(e => e.ModeratorId != null)
@@ -438,11 +439,12 @@ public static class RadioApiEndpoints
                 .ToListAsync(ct);
             var moderatorNames = await db.Moderators.AsNoTracking().ToDictionaryAsync(m => m.Id, m => m.Name, ct);
 
-            var tracksPerGenre = await db.Tracks.AsNoTracking()
+            var tracksPerGenreRaw = await db.Tracks.AsNoTracking()
                 .GroupBy(t => t.Genre)
-                .Select(g => new NameCountDto(g.Key, g.Count()))
-                .OrderByDescending(x => x.Value)
+                .Select(g => new { Name = g.Key, Count = g.Count() })
+                .OrderByDescending(x => x.Count)
                 .ToListAsync(ct);
+            var tracksPerGenre = tracksPerGenreRaw.Select(x => new NameCountDto(x.Name, x.Count)).ToList();
 
             return Results.Ok(new StatsDto(
                 CurrentListeners: listeners,

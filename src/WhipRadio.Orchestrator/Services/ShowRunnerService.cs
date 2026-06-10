@@ -165,7 +165,14 @@ public class ShowRunnerService(
 
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            // Pooled weather first — it ages quickly.
+            // Listener greetings first — someone is waiting to hear their name.
+            var greeting = await FirstUnplayedAsync(db, AnnouncementKind.ListenerGreeting, moderator.Id, ct);
+            if (greeting is not null)
+            {
+                return greeting;
+            }
+
+            // Then pooled weather — it ages quickly.
             var weather = await FirstUnplayedAsync(db, AnnouncementKind.Weather, moderator.Id, ct);
             if (weather is not null)
             {

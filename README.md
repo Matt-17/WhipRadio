@@ -8,6 +8,13 @@ distinct personas (two-stage LLM pipeline via Ollama/gemma3), Kokoro TTS,
 Open-Meteo weather reports, and a continuous MP3 stream via Icecast — playable in
 Winamp/VLC **and** in the built-in Blazor web app.
 
+**Phase 2 highlights:** persistent footer player + SignalR real-time updates,
+fictional **artists** with vote-driven rotation, genre/subgenre taxonomy, an
+**AI program director** planning the weekly format schedule, host handovers +
+day-memory talks, listener greetings/requests, multi-provider AI (Ollama/OpenAI
+text, Kokoro/Piper/ElevenLabs TTS — Piper provides German voices), Icecast
+stream metadata, admin master control, statistics and a live console page.
+
 ## Architecture
 
 ```
@@ -104,5 +111,5 @@ dotnet test WhipRadio.slnx
 
 ## Repository layout
 
-See `Plan.md` for the full Phase-1 implementation plan this repo follows
-(naming: WhipRadio instead of LlamaRadio).
+See `Plan Phase 1.md` and `Plan Phase 2.md` for the implementation plans this
+repo follows (naming: WhipRadio instead of LlamaRadio).

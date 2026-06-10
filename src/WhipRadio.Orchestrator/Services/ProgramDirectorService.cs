@@ -223,10 +223,26 @@ public partial class ProgramDirectorService(
                 reason));
         }
 
-        // Require meaningful coverage, otherwise let the fallback take over.
+        // Drop overlapping/duplicate blocks: keep the earlier one, push starts forward.
         blocks = blocks.OrderBy(b => b.StartMinute).ToList();
-        var coverage = blocks.Sum(b => b.DurationMinutes);
-        return coverage >= 18 * 60 ? blocks.Select(b => b with { Reason = reason }).ToList() : null;
+        var sanitized = new List<PlannedBlock>();
+        var nextFree = 0;
+        foreach (var block in blocks)
+        {
+            var start = Math.Max(block.StartMinute, nextFree);
+            if (start >= 24 * 60)
+            {
+                break;
+            }
+
+            var duration = Math.Clamp(Math.Min(block.DurationMinutes, 24 * 60 - start), 30, 240);
+            sanitized.Add(block with { StartMinute = start, DurationMinutes = duration, Reason = reason });
+            nextFree = start + duration;
+        }
+
+        // Require meaningful coverage, otherwise let the fallback take over.
+        var coverage = sanitized.Sum(b => b.DurationMinutes);
+        return coverage >= 18 * 60 ? sanitized : null;
     }
 
     private static List<PlannedBlock> FallbackDayPlan(int day)
