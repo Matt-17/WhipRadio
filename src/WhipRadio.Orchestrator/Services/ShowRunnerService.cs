@@ -17,6 +17,7 @@ public class ShowRunnerService(
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
     IPlayoutQueue playoutQueue,
+    TimeProvider timeProvider,
     ILogger<ShowRunnerService> logger) : BackgroundService
 {
     /// <summary>If the queue already holds ≥2 items, wait.</summary>
@@ -176,11 +177,19 @@ public class ShowRunnerService(
                 return greeting;
             }
 
-            // Then pooled weather — it ages quickly.
-            var weather = await FirstUnplayedAsync(db, AnnouncementKind.Weather, moderator.Id, ct);
-            if (weather is not null)
+            // Weather airs once per hour, in the first talk slot after the full hour.
+            var localNow = timeProvider.GetLocalNow();
+            if (WeatherScheduler.IsAirWindow(localNow.Minute) && !await WeatherAiredThisHourAsync(db, localNow, ct))
             {
-                return weather;
+                var weather = await FirstUnplayedAsync(db, AnnouncementKind.Weather, moderator.Id, ct)
+                    ?? await db.Announcements.AsNoTracking()
+                        .Where(a => a.Kind == AnnouncementKind.Weather && !a.WasPlayed)
+                        .OrderByDescending(a => a.CreatedAt)
+                        .FirstOrDefaultAsync(ct); // any host's report beats none at the top of the hour
+                if (weather is not null)
+                {
+                    return weather;
+                }
             }
 
             // Occasionally a personal note or banter from the pool.
@@ -226,6 +235,23 @@ public class ShowRunnerService(
             logger.LogWarning(ex, "Could not produce talk for \"{Title}\" in time; playing without it", nextTrack.Title);
             return null;
         }
+    }
+
+    private static async Task<bool> WeatherAiredThisHourAsync(
+        RadioDbContext db, DateTimeOffset localNow, CancellationToken ct)
+    {
+        var hourStartUtc = localNow.UtcDateTime.AddMinutes(-localNow.Minute).AddSeconds(-localNow.Second);
+        var airedIds = await db.PlayLog.AsNoTracking()
+            .Where(e => e.PlayedAt >= hourStartUtc && e.ItemType == PlayoutItemType.Announcement)
+            .Select(e => e.ItemId)
+            .ToListAsync(ct);
+        if (airedIds.Count == 0)
+        {
+            return false;
+        }
+
+        return await db.Announcements.AsNoTracking()
+            .AnyAsync(a => airedIds.Contains(a.Id) && a.Kind == AnnouncementKind.Weather, ct);
     }
 
     private async Task<Announcement?> FirstUnplayedAsync(

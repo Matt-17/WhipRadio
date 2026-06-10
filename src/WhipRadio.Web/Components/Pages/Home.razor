@@ -95,6 +95,8 @@
     </div>
 }
 
+@if (_greetingsEnabled)
+{
 <div class="panel reveal">
     <div class="panel-label">Send a Greeting</div>
     <div class="form-grid">
@@ -123,6 +125,7 @@
         }
     </div>
 </div>
+}
 
 <div class="panel reveal">
     <div class="panel-label">Direct Stream</div>
@@ -141,6 +144,7 @@
     private string _greetKind = "Greeting";
     private string _greetGenre = "";
     private string? _greetFeedback;
+    private bool _greetingsEnabled;
 
     private TimeSpan Elapsed => Live.NowPlaying is { } np ? DateTime.UtcNow - np.StartedAtUtc : TimeSpan.Zero;
 
@@ -153,6 +157,9 @@
         _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
         Live.Changed += OnChanged;
     }
+
+    protected override async Task OnInitializedAsync()
+        => _greetingsEnabled = (await Api.GetSettingsAsync())?.GreetingsEnabled ?? false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -20,6 +20,7 @@ public partial class ProgramDirectorService(
     IServiceScopeFactory scopeFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
     TimeProvider timeProvider,
+    DirectorControl control,
     ILogger<ProgramDirectorService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromMinutes(10);
@@ -39,6 +40,7 @@ public partial class ProgramDirectorService(
                 await ApplyFormatVoteRulesAsync(stoppingToken);
                 await ReassignDisabledFormatSlotsAsync(stoppingToken);
                 await PlanNextUnplannedDayAsync(stoppingToken);
+                control.MarkRun();
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -49,7 +51,14 @@ public partial class ProgramDirectorService(
                 logger.LogError(ex, "Program director cycle failed ({Reason})", ex.GetBaseException().Message);
             }
 
-            await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            try
+            {
+                await control.WaitForNextCycleAsync(CycleDelay, stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
         }
     }
 

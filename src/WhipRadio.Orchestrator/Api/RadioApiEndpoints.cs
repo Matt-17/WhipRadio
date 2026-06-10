@@ -471,6 +471,12 @@ public static class RadioApiEndpoints
             Results.Ok(buffer.Snapshot()
                 .Select(e => new ConsoleLineDto(e.TimestampUtc, e.Level, e.Category, e.Message))
                 .ToList()));
+
+        api.MapPost("/admin/director/run", (DirectorControl control) =>
+        {
+            control.TriggerRun();
+            return Results.Ok(new { triggered = true, lastRunUtc = control.LastRunUtc });
+        });
     }
 
     private static string? NextOnAir(IEnumerable<ProgramSlot> slots, DateTimeOffset now)

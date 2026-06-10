@@ -45,6 +45,7 @@ builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<VoiceCatalogService>();
 builder.Services.AddSingleton<GreetingState>();
+builder.Services.AddSingleton<DirectorControl>();
 
 builder.Services.AddSignalR();
 

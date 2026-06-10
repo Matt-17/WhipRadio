@@ -139,6 +139,9 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task DismissGreetingAsync(Guid id, CancellationToken ct = default)
         => await http.PostAsync($"/api/greetings/{id}/dismiss", null, ct);
 
+    public async Task RunDirectorAsync(CancellationToken ct = default)
+        => await http.PostAsync("/api/admin/director/run", null, ct);
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try

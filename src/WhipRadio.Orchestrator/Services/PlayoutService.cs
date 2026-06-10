@@ -32,12 +32,6 @@ public class PlayoutService(
         {
             try
             {
-                if (!await IsPlayoutEnabledAsync(stoppingToken))
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-                    continue;
-                }
-
                 await RunEncoderSessionAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -62,6 +56,7 @@ public class PlayoutService(
             icecastOptions.Value.Host, icecastOptions.Value.Port, streamOptions.Value.Mount);
 
         var encoderInput = encoder.StandardInput.BaseStream;
+        var offAir = false;
 
         while (!ct.IsCancellationRequested)
         {
@@ -70,10 +65,26 @@ public class PlayoutService(
                 throw new InvalidOperationException($"Encoder ffmpeg exited with code {encoder.ExitCode}.");
             }
 
+            // Off air = the mount keeps streaming silence so listeners stay
+            // connected; now-playing clears immediately (ON AIR lamp goes dark).
             if (!await IsPlayoutEnabledAsync(ct))
             {
-                logger.LogInformation("Playout disabled from admin — going off air");
-                return; // closes the encoder; the outer loop idles until re-enabled
+                if (!offAir)
+                {
+                    offAir = true;
+                    reporter.ReportIdle();
+                    logger.LogInformation("Off air — streaming silence until re-enabled");
+                }
+
+                await encoderInput.WriteAsync(SilenceChunk, ct);
+                await encoderInput.FlushAsync(ct);
+                continue;
+            }
+
+            if (offAir)
+            {
+                offAir = false;
+                logger.LogInformation("Back on air");
             }
 
             var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
@@ -85,11 +96,7 @@ public class PlayoutService(
             }
 
             await reporter.ReportStartedAsync(item, ct);
-            if (!await PlayItemAsync(item, encoderInput, ct))
-            {
-                logger.LogInformation("Playout disabled from admin — going off air");
-                return; // closes the encoder; the outer loop reports idle and waits
-            }
+            await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
         }
     }
 

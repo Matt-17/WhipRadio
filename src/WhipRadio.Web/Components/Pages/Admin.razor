@@ -30,6 +30,13 @@ else
             </div>
             <div class="switch big @(_settings.MusicProductionEnabled ? "on" : null)" @onclick="ToggleMusicAsync"></div>
         </div>
+        <div class="admin-row">
+            <div>
+                <strong>Program Director</strong>
+                <div class="dim">Plans the weekly schedule in the background — or kick it manually.</div>
+            </div>
+            <button class="btn" @onclick="RunDirectorAsync">@(_directorKicked ? "✓ running…" : "Run now")</button>
+        </div>
     </div>
 
     <div class="panel reveal">
@@ -137,6 +144,14 @@ else
         }
 
         _settings = await Api.SaveSettingsAsync(_settings with { MusicProductionEnabled = !_settings.MusicProductionEnabled });
+    }
+
+    private bool _directorKicked;
+
+    private async Task RunDirectorAsync()
+    {
+        await Api.RunDirectorAsync();
+        _directorKicked = true;
     }
 
     private async Task ToggleGreetingsAsync()

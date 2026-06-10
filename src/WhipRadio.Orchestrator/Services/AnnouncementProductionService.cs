@@ -14,6 +14,7 @@ public class AnnouncementProductionService(
     IServiceScopeFactory scopeFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
+    TimeProvider timeProvider,
     ILogger<AnnouncementProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
@@ -66,15 +67,14 @@ public class AnnouncementProductionService(
             return;
         }
 
-        // Every 4th cycle: weather instead of a song intro.
-        if (cycle % 4 == 0)
+        // Weather is hourly, on the full hour: prepare the report in the last
+        // minutes of the hour so it's ready to air right after the top.
+        var minute = timeProvider.GetLocalNow().Minute;
+        if (Core.Playout.WeatherScheduler.ShouldPrepare(minute)
+            && !await HasUnplayedAsync(AnnouncementKind.Weather, moderator.Id, ct))
         {
-            if (!await HasUnplayedAsync(AnnouncementKind.Weather, moderator.Id, ct))
-            {
-                var facts = await weatherSource.GetSummaryAsync(moderator.Language, ct);
-                await factory.ProduceAsync(AnnouncementKind.Weather, moderator, null, facts, stationName, ct);
-            }
-
+            var facts = await weatherSource.GetSummaryAsync(moderator.Language, ct);
+            await factory.ProduceAsync(AnnouncementKind.Weather, moderator, null, facts, stationName, ct);
             return;
         }
 
