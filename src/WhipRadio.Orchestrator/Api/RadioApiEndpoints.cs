@@ -251,10 +251,14 @@ public static class RadioApiEndpoints
                 return Results.BadRequest("Name is required.");
             }
 
+            // Hosts always speak the station language (the main language).
+            var stationLanguage = StationLanguages.Normalize(
+                (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.DefaultLanguage);
+
             var moderator = new Moderator
             {
                 Name = request.Name.Trim(),
-                Language = string.IsNullOrWhiteSpace(request.Language) ? "de" : request.Language.Trim(),
+                Language = stationLanguage,
                 Gender = request.Gender == ModeratorGenders.Male ? ModeratorGenders.Male : ModeratorGenders.Female,
                 TtsEngine = string.IsNullOrWhiteSpace(request.TtsEngine) ? TtsEngines.Kokoro : request.TtsEngine,
                 Style = request.Style,
@@ -305,7 +309,8 @@ public static class RadioApiEndpoints
             return Results.Ok(ToDto(settings));
         });
 
-        api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db, CancellationToken ct) =>
+        api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db,
+            HostLanguageAligner aligner, CancellationToken ct) =>
         {
             var settings = await db.StationSettings.FirstOrDefaultAsync(ct);
             if (settings is null)
@@ -314,8 +319,9 @@ public static class RadioApiEndpoints
                 db.StationSettings.Add(settings);
             }
 
+            var previousLanguage = settings.DefaultLanguage;
             settings.StationName = string.IsNullOrWhiteSpace(request.StationName) ? settings.StationName : request.StationName.Trim();
-            settings.DefaultLanguage = string.IsNullOrWhiteSpace(request.DefaultLanguage) ? settings.DefaultLanguage : request.DefaultLanguage.Trim();
+            settings.DefaultLanguage = StationLanguages.Normalize(request.DefaultLanguage);
             settings.TargetQueueLength = Math.Clamp(request.TargetQueueLength, 1, 20);
             settings.AnnouncementEveryNTracks = Math.Clamp(request.AnnouncementEveryNTracks, 0, 10);
             settings.MusicProductionEnabled = request.MusicProductionEnabled;
@@ -334,6 +340,13 @@ public static class RadioApiEndpoints
             settings.GreetingsEnabled = request.GreetingsEnabled;
 
             await db.SaveChangesAsync(ct);
+
+            // Language changed → every host follows the station language.
+            if (!string.Equals(previousLanguage, settings.DefaultLanguage, StringComparison.OrdinalIgnoreCase))
+            {
+                await aligner.AlignAsync(ct);
+            }
+
             return Results.Ok(ToDto(settings));
         });
     }

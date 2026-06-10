@@ -19,7 +19,7 @@
         </div>
         <div class="field">
             <label>Language</label>
-            <select @bind="_newLanguage"><option value="de">de</option><option value="en">en</option></select>
+            <input value="@_stationLanguage (station language)" disabled />
         </div>
         <div class="field">
             <label>TTS Engine</label>
@@ -111,14 +111,18 @@ else
 
     private string _newName = "";
     private string _newGender = "f";
-    private string _newLanguage = "de";
+    private string _stationLanguage = "de";
     private string _newEngine = "piper";
     private string _newStyle = "";
     private string _newGenres = "";
     private string _newPersona = "";
     private string? _created;
 
-    protected override async Task OnInitializedAsync() => _moderators = await Api.GetModeratorsAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        _moderators = await Api.GetModeratorsAsync();
+        _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "de";
+    }
 
     private async Task CreateAsync()
     {
@@ -128,7 +132,7 @@ else
         }
 
         var created = await Api.CreateModeratorAsync(new CreateModeratorDto(
-            _newName, _newLanguage, _newGender, _newEngine, _newStyle, _newPersona, null, _newGenres));
+            _newName, _stationLanguage, _newGender, _newEngine, _newStyle, _newPersona, null, _newGenres));
         _created = created?.Name;
         _newName = "";
         _moderators = await Api.GetModeratorsAsync();

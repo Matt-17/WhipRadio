@@ -31,15 +31,17 @@ public class VoiceCatalogService(
             moderator.TtsEngine = moderator.Language.StartsWith("de") ? TtsEngines.Piper : TtsEngines.Kokoro;
         }
 
-        if (moderator.TtsEngine == TtsEngines.Piper || moderator.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase))
+        // German requires Piper — Kokoro is English-only, so the engine is corrected.
+        if (moderator.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase))
         {
-            // Piper is the local engine with German voices.
-            if (moderator.TtsEngine == TtsEngines.Piper)
-            {
-                return moderator.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase)
-                    ? (moderator.Gender == ModeratorGenders.Male ? "de_DE-thorsten-medium" : "de_DE-eva_k-x_low")
-                    : (moderator.Gender == ModeratorGenders.Male ? "en_US-ryan-medium" : "en_US-lessac-medium");
-            }
+            moderator.TtsEngine = TtsEngines.Piper;
+        }
+
+        if (moderator.TtsEngine == TtsEngines.Piper)
+        {
+            return moderator.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase)
+                ? (moderator.Gender == ModeratorGenders.Male ? "de_DE-thorsten-medium" : "de_DE-eva_k-x_low")
+                : (moderator.Gender == ModeratorGenders.Male ? "en_US-ryan-medium" : "en_US-lessac-medium");
         }
 
         var pool = moderator.Gender == ModeratorGenders.Male ? KokoroMale : KokoroFemale;

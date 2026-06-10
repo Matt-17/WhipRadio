@@ -46,6 +46,7 @@ builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<VoiceCatalogService>();
 builder.Services.AddSingleton<GreetingState>();
 builder.Services.AddSingleton<DirectorControl>();
+builder.Services.AddSingleton<HostLanguageAligner>();
 
 builder.Services.AddSignalR();
 
@@ -73,5 +74,8 @@ await using (var db = await app.Services
 {
     await DbInitializer.EnsureSeededAsync(db);
 }
+
+// The station language is the main language: hosts in another language are aligned.
+await app.Services.GetRequiredService<HostLanguageAligner>().AlignAsync();
 
 app.Run();

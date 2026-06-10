@@ -355,9 +355,13 @@ public partial class ProgramDirectorService(
                 return existing;
             }
 
+            // Hosts always speak the station language — the plan's language hint is ignored.
+            var stationLanguage = StationLanguages.Normalize(
+                (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.DefaultLanguage);
+
             return await CreateHostAsync(scope, db, all, name,
                 gender: parts.ElementAtOrDefault(1) == "m" ? ModeratorGenders.Male : ModeratorGenders.Female,
-                language: parts.ElementAtOrDefault(2) ?? "de",
+                language: stationLanguage,
                 style: parts.ElementAtOrDefault(3) ?? "friendly", ct);
         }
 

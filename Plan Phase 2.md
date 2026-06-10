@@ -76,6 +76,9 @@ doesn't silence the station.
   filter buttons + autoscroll toggle).
 - Language enforcement is prompt-level + logging; the "detect wrong language and
   regenerate once" check is not implemented.
+- **Multilingual guests** (hosts/guests speaking a language other than the
+  station language) are explicitly future work — today the station language is
+  the single main language and all hosts are aligned to it automatically.
 
 ---
 

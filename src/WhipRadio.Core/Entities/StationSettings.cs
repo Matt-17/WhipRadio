@@ -71,6 +71,18 @@ public static class TextProviders
     public const string OpenAi = "openai";
 }
 
+/// <summary>
+/// Languages the station can broadcast in (limited by local TTS voice support).
+/// The station language is the main language: hosts and all spoken texts follow it.
+/// </summary>
+public static class StationLanguages
+{
+    public static readonly IReadOnlyList<string> All = ["de", "en"];
+
+    public static string Normalize(string? language)
+        => All.FirstOrDefault(l => string.Equals(l, language, StringComparison.OrdinalIgnoreCase)) ?? "de";
+}
+
 public static class TtsEngines
 {
     public const string Kokoro = "kokoro";
