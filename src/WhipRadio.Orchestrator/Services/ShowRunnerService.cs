@@ -166,7 +166,11 @@ public class ShowRunnerService(
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             // Listener greetings first — someone is waiting to hear their name.
-            var greeting = await FirstUnplayedAsync(db, AnnouncementKind.ListenerGreeting, moderator.Id, ct);
+            // Not filtered by host: a greeting recorded by the previous host still airs.
+            var greeting = await db.Announcements.AsNoTracking()
+                .Where(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed)
+                .OrderBy(a => a.CreatedAt)
+                .FirstOrDefaultAsync(ct);
             if (greeting is not null)
             {
                 return greeting;

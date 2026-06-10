@@ -254,7 +254,13 @@ h1, h2, h3 { margin: 0; font-weight: 400; }
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
 
-.panel + .panel { margin-top: 22px; }
+/* Uniform vertical rhythm for all top-level blocks on a page — including the
+   first one (adjacent margins collapse, so the subtitle gap stays consistent). */
+.stage > .panel,
+.stage > .mod-grid,
+.stage > .stat-grid,
+.stage > .stat-columns,
+.stage > .panel + .panel { margin-top: 22px; }
 
 .panel-label {
     font-family: var(--font-mono);
