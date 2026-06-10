@@ -123,12 +123,15 @@ else
 
     private async Task SaveAsync()
     {
-        if (_settings is null)
+        // Re-fetch first: only this page's fields are applied on top of the
+        // freshest server state — a stale snapshot must not revert other settings.
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
         {
             return;
         }
 
-        _settings = await Api.SaveSettingsAsync(_settings with
+        _settings = await Api.SaveSettingsAsync(fresh with
         {
             StationName = _stationName,
             DefaultLanguage = _defaultLanguage,

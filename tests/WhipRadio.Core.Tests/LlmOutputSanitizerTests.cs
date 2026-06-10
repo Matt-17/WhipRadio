@@ -51,4 +51,41 @@ public class LlmOutputSanitizerTests
         var input = "Hello [pause:300ms] there [breath] friends.";
         Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
     }
+
+    [Fact]
+    public void Sanitize_StripsHereWeGoLeadIn()
+    {
+        Assert.Equal("Welcome back to WhipRadio!",
+            LlmOutputSanitizer.Sanitize("Okay, here we go: Welcome back to WhipRadio!"));
+    }
+
+    [Fact]
+    public void Sanitize_StripsTaskConfirmationFirstLine()
+    {
+        Assert.Equal("Up next, a real gem.",
+            LlmOutputSanitizer.Sanitize("I created a text for a song intro\nUp next, a real gem."));
+        Assert.Equal("Und jetzt wird es ruhig.",
+            LlmOutputSanitizer.Sanitize("Hier ist dein Moderationstext:\nUnd jetzt wird es ruhig."));
+    }
+
+    [Fact]
+    public void Sanitize_KeepsLegitimateOkayOpener()
+    {
+        var input = "Okay okay, settle down folks, big news tonight!";
+        Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
+    }
+
+    [Fact]
+    public void Sanitize_StripsTrailingMetaLine()
+    {
+        Assert.Equal("Up next a song.",
+            LlmOutputSanitizer.Sanitize("Up next a song.\nLet me know if you want any changes!"));
+    }
+
+    [Fact]
+    public void Sanitize_StripsMarkdownEmphasis()
+    {
+        Assert.Equal("Welcome to the show tonight!",
+            LlmOutputSanitizer.Sanitize("*Welcome* to the **show** tonight!"));
+    }
 }

@@ -9,6 +9,7 @@ using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
+using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
@@ -59,8 +60,9 @@ public static class RadioApiEndpoints
             }
             else
             {
-                transcript = (await db.Announcements.AsNoTracking()
+                var voicedText = (await db.Announcements.AsNoTracking()
                     .FirstOrDefaultAsync(a => a.Id == current.ItemId, ct))?.VoicedText;
+                transcript = voicedText is null ? null : SpeechMarkerNormalizer.ToPlainText(voicedText);
             }
 
             string? formatName = null;
@@ -165,7 +167,9 @@ public static class RadioApiEndpoints
                 {
                     var announcement = announcements.GetValueOrDefault(e.ItemId);
                     title = announcement?.Kind.ToString() ?? "(announcement)";
-                    transcript = announcement?.VoicedText;
+                    transcript = announcement?.VoicedText is { } voiced
+                        ? SpeechMarkerNormalizer.ToPlainText(voiced)
+                        : null;
                 }
 
                 return new PlayLogEntryDto(
@@ -298,7 +302,8 @@ public static class RadioApiEndpoints
                 .ToListAsync(ct);
 
             return Results.Ok(talks.Select(a => new PlayLogEntryDto(
-                a.CreatedAt, "Announcement", a.Id, a.Kind.ToString(), null, a.DurationSeconds, a.VoicedText)).ToList());
+                a.CreatedAt, "Announcement", a.Id, a.Kind.ToString(), null, a.DurationSeconds,
+                SpeechMarkerNormalizer.ToPlainText(a.VoicedText))).ToList());
         });
     }
 

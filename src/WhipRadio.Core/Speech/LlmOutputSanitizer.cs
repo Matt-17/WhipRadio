@@ -3,13 +3,25 @@ using System.Text.RegularExpressions;
 namespace WhipRadio.Core.Speech;
 
 /// <summary>
-/// Defensive cleanup of LLM output that ignored prompt instructions:
-/// strips code fences, surrounding quotes and leading "Sure, here is..." filler lines.
+/// Defensive cleanup of LLM output that ignored prompt instructions: strips code
+/// fences, markdown emphasis, surrounding quotes, parenthetical stage directions,
+/// and — critically — the model's meta-chatter about its own task ("Okay, here we
+/// go:", "I created a text for a song intro:", "Let me know if …"). Only the
+/// words meant to be SPOKEN may reach the TTS.
 /// </summary>
 public static partial class LlmOutputSanitizer
 {
-    [GeneratedRegex(@"^(sure|certainly|of course|okay|ok|here('|’)s|here is|hier ist|gerne|klar|natürlich)\b.{0,80}?:\s*", RegexOptions.IgnoreCase)]
-    private static partial Regex LeadInRegex();
+    [GeneratedRegex(@"^(sure|certainly|of course|okay|ok|alright|here('|’)s|here is|here we go|hier ist|hier kommt|gerne|klar|natürlich|also gut|na gut|los geht('|’)s|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|ich habe|ich schreibe|let me)\b.{0,100}?:\s*", RegexOptions.IgnoreCase)]
+    private static partial Regex LeadInWithColonRegex();
+
+    [GeneratedRegex(@"^(okay|ok|alright|sure|here('|’)s|here is|here we go|hier ist|hier kommt|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|ich habe|ich schreibe|let me)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MetaOpenerRegex();
+
+    [GeneratedRegex(@"\b(text|script|skript|intro|outro|announcement|ansage|moderation|version|copy|for you|für dich)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex MetaVocabularyRegex();
+
+    [GeneratedRegex(@"\b(let me know|hope (this|that|you)|feel free|lass es mich wissen|ich hoffe|sag bescheid|viel spaß damit)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex TrailingMetaRegex();
 
     [GeneratedRegex(@"\([^()]*\)")]
     private static partial Regex ParentheticalRegex();
@@ -42,14 +54,21 @@ public static partial class LlmOutputSanitizer
             result = result.Trim();
         }
 
-        result = result.Replace("`", string.Empty);
+        // Markdown leftovers have no spoken form.
+        result = result.Replace("`", string.Empty).Replace("*", string.Empty).Replace("#", string.Empty);
 
         // Strip surrounding quotes both before and after the lead-in removal:
         // quotes may wrap the whole reply including the lead-in, or just the copy itself.
         result = StripSurroundingQuotes(result);
 
-        // Strip a leading conversational lead-in line ("Sure, here is your intro:").
-        result = LeadInRegex().Replace(result, string.Empty).Trim();
+        // "Okay, here we go: <copy>" — same-line meta lead-in up to the colon.
+        result = LeadInWithColonRegex().Replace(result, string.Empty).Trim();
+
+        // "I created a text for a song intro:\n<copy>" — whole meta first line.
+        result = StripMetaFirstLine(result);
+
+        // "…\nLet me know if you want changes!" — trailing meta line.
+        result = StripTrailingMetaLine(result);
 
         // Parentheses in radio copy are stage directions ("(Sound of a synth)") —
         // they have no spoken equivalent, so drop them.
@@ -60,6 +79,46 @@ public static partial class LlmOutputSanitizer
         result = StripSurroundingQuotes(result);
 
         return result.Trim();
+    }
+
+    /// <summary>Drops a first line that is clearly the model talking about its task,
+    /// but only when real copy remains afterwards.</summary>
+    private static string StripMetaFirstLine(string text)
+    {
+        var newlineIndex = text.IndexOf('\n');
+        if (newlineIndex < 0)
+        {
+            return text;
+        }
+
+        var firstLine = text[..newlineIndex].Trim();
+        var rest = text[(newlineIndex + 1)..].Trim();
+        if (rest.Length == 0)
+        {
+            return text;
+        }
+
+        var looksMeta = MetaOpenerRegex().IsMatch(firstLine)
+            && (firstLine.EndsWith(':') || MetaVocabularyRegex().IsMatch(firstLine));
+        return looksMeta ? rest : text;
+    }
+
+    private static string StripTrailingMetaLine(string text)
+    {
+        var newlineIndex = text.LastIndexOf('\n');
+        if (newlineIndex < 0)
+        {
+            return text;
+        }
+
+        var lastLine = text[(newlineIndex + 1)..].Trim();
+        var rest = text[..newlineIndex].Trim();
+        if (rest.Length == 0)
+        {
+            return text;
+        }
+
+        return TrailingMetaRegex().IsMatch(lastLine) ? rest : text;
     }
 
     private static string StripSurroundingQuotes(string text)

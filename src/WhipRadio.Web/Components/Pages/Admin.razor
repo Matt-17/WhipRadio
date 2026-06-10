@@ -128,22 +128,25 @@ else
 
     private async Task TogglePlayoutAsync()
     {
-        if (_settings is null)
+        // Re-fetch first: a stale page snapshot must never overwrite other settings.
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
         {
             return;
         }
 
-        _settings = await Api.SaveSettingsAsync(_settings with { PlayoutEnabled = !_settings.PlayoutEnabled });
+        _settings = await Api.SaveSettingsAsync(fresh with { PlayoutEnabled = !fresh.PlayoutEnabled });
     }
 
     private async Task ToggleMusicAsync()
     {
-        if (_settings is null)
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
         {
             return;
         }
 
-        _settings = await Api.SaveSettingsAsync(_settings with { MusicProductionEnabled = !_settings.MusicProductionEnabled });
+        _settings = await Api.SaveSettingsAsync(fresh with { MusicProductionEnabled = !fresh.MusicProductionEnabled });
     }
 
     private bool _directorKicked;
@@ -156,12 +159,13 @@ else
 
     private async Task ToggleGreetingsAsync()
     {
-        if (_settings is null)
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
         {
             return;
         }
 
-        _settings = await Api.SaveSettingsAsync(_settings with { GreetingsEnabled = !_settings.GreetingsEnabled });
+        _settings = await Api.SaveSettingsAsync(fresh with { GreetingsEnabled = !fresh.GreetingsEnabled });
     }
 
     private async Task QueueMessageAsync(Guid id)
@@ -178,12 +182,13 @@ else
 
     private async Task SavePacingAsync()
     {
-        if (_settings is null)
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
         {
             return;
         }
 
-        _settings = await Api.SaveSettingsAsync(_settings with
+        _settings = await Api.SaveSettingsAsync(fresh with
         {
             TargetQueueLength = _settings_TargetQueueLength,
             MaxLibrarySize = _settings_MaxLibrarySize,

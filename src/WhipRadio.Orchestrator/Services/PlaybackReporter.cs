@@ -70,8 +70,10 @@ public class PlaybackReporter(
                 .Where(a => a.Id == item.ItemId)
                 .ExecuteUpdateAsync(s => s.SetProperty(a => a.WasPlayed, true), ct);
 
-            transcript = (await db.Announcements.AsNoTracking()
+            var voicedText = (await db.Announcements.AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == item.ItemId, ct))?.VoicedText;
+            // Transcripts show the bare spoken text — never the speech markup.
+            transcript = voicedText is null ? null : Core.Speech.SpeechMarkerNormalizer.ToPlainText(voicedText);
         }
 
         await db.SaveChangesAsync(ct);
