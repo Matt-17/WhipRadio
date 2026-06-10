@@ -1,0 +1,77 @@
+using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
+
+namespace WhipRadio.Core.Tests;
+
+public class TalkPlannerTests
+{
+    [Fact]
+    public void EffectiveTalkativeness_FormatTempersTheHost()
+    {
+        Assert.Equal(0.5, TalkPlanner.EffectiveTalkativeness(0.8, 0.2), precision: 10);
+        Assert.Equal(0.8, TalkPlanner.EffectiveTalkativeness(0.8, null), precision: 10);
+    }
+
+    [Fact]
+    public void PickGapTalkCount_QuietHostIsMostlySilent()
+    {
+        var random = new Random(7);
+        var counts = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickGapTalkCount(random, hasMandatoryTalk: false, talkativeness: 0.0))
+            .ToList();
+
+        Assert.True(counts.Count(c => c == 0) > 250, "a quiet host should skip most gaps");
+        Assert.DoesNotContain(counts, c => c > 1);
+    }
+
+    [Fact]
+    public void PickGapTalkCount_TalkyHostChainsTalks()
+    {
+        var random = new Random(7);
+        var counts = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickGapTalkCount(random, hasMandatoryTalk: false, talkativeness: 1.0))
+            .ToList();
+
+        Assert.True(counts.Count(c => c == 0) < 100, "a talky host is rarely silent");
+        Assert.Contains(counts, c => c >= 2);
+        Assert.All(counts, c => Assert.InRange(c, 0, 3));
+    }
+
+    [Fact]
+    public void PickGapTalkCount_MandatoryTalkThinsOutFreeTalks()
+    {
+        var random = new Random(7);
+        var counts = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickGapTalkCount(random, hasMandatoryTalk: true, talkativeness: 0.5))
+            .ToList();
+
+        Assert.True(counts.Count(c => c == 0) > 250, "weather/greeting already filled the gap");
+        Assert.DoesNotContain(counts, c => c == 3);
+    }
+
+    [Fact]
+    public void PickLengthHint_AllVariantsReachable()
+    {
+        var random = new Random(7);
+        var hints = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickLengthHint(random, talkativeness: 0.8))
+            .Distinct()
+            .ToList();
+
+        Assert.Equal(4, hints.Count); // one-liner, short, medium, story
+    }
+
+    [Fact]
+    public void PickFreeTalkKind_RespectsAvailableContext()
+    {
+        var random = new Random(7);
+        var kinds = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickFreeTalkKind(random, hasNextTrack: false, hasPreviousTrack: false))
+            .Distinct()
+            .ToList();
+
+        Assert.DoesNotContain(AnnouncementKind.SongIntro, kinds);
+        Assert.DoesNotContain(AnnouncementKind.SongOutro, kinds);
+        Assert.Contains(AnnouncementKind.Banter, kinds);
+    }
+}

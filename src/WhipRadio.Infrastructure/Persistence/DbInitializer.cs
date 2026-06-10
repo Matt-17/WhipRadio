@@ -114,6 +114,7 @@ public static class DbInitializer
             VoiceId = "af_heart",
             SpeechRate = 1.15,
             Style = "fast-energetic",
+            Talkativeness = 0.8,
             PersonaPrompt =
                 "You are Lena Spark, a young, bubbly radio host. You talk fast, with infectious " +
                 "enthusiasm and boundless energy. You live for driving beats and celebrate every " +
@@ -131,6 +132,7 @@ public static class DbInitializer
             VoiceId = "am_michael",
             SpeechRate = 0.85,
             Style = "slow-thoughtful",
+            Talkativeness = 0.5,
             PersonaPrompt =
                 "You are Herbert Nightwave, a measured, older radio host with a warm voice. " +
                 "You speak slowly, love a well-placed pause, and sometimes drift into nostalgic " +
@@ -148,6 +150,7 @@ public static class DbInitializer
             VoiceId = "bm_george",
             SpeechRate = 1.0,
             Style = "laid-back",
+            Talkativeness = 0.35,
             PersonaPrompt =
                 "You are Charlie Wave, a laid-back international host with a dry sense of humor. " +
                 "You keep things smooth and casual, drop the occasional pun, and sound like you " +

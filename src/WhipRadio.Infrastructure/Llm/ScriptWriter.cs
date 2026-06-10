@@ -13,6 +13,7 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         {
             ["StationName"] = request.StationName,
             ["Language"] = request.Language,
+            ["LengthHint"] = string.IsNullOrEmpty(request.LengthHint) ? "2-5 sentences." : request.LengthHint,
         });
 
         var userPrompt = BuildUserPrompt(request);

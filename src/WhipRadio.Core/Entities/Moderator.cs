@@ -28,6 +28,9 @@ public class Moderator
     /// <summary>E.g. "fast-energetic", "slow-thoughtful".</summary>
     public string Style { get; set; } = string.Empty;
 
+    /// <summary>0–1: how chatty this host is between songs (0 = mostly music, 1 = loves to talk).</summary>
+    public double Talkativeness { get; set; } = 0.5;
+
     /// <summary>null = no preference; drives track selection.</summary>
     public bool? PrefersVocals { get; set; }
 

@@ -23,6 +23,9 @@ public class Format
     /// <summary>The program director's reasoning for this format.</summary>
     public string Reason { get; set; } = string.Empty;
 
+    /// <summary>0–1: how talk-heavy this format is (a party night ≈ 0.2, a morning show ≈ 0.8).</summary>
+    public double Talkativeness { get; set; } = 0.5;
+
     /// <summary>Disabled formats are replaced by the director over time, not instantly.</summary>
     public bool IsEnabled { get; set; } = true;
 

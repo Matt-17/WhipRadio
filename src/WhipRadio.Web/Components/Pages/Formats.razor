@@ -35,6 +35,7 @@ else
                     {
                         <span class="tag green">next @format.NextOnAir</span>
                     }
+                    <span class="tag">@(format.Talkativeness < 0.35 ? "music-heavy" : format.Talkativeness > 0.65 ? "talk-heavy" : "balanced")</span>
                 </div>
                 <div class="mod-persona">
                     @format.Description

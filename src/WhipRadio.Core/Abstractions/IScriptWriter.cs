@@ -8,7 +8,8 @@ public sealed record AnnouncementRequest(
     string StationName,
     string Language,
     Track? Track = null,
-    string? Facts = null);
+    string? Facts = null,
+    string? LengthHint = null);
 
 /// <summary>Stage 1: produces the announcement content.</summary>
 public interface IScriptWriter

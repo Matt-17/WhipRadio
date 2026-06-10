@@ -28,7 +28,8 @@ public class AnnouncementFactory(
         Track? relatedTrack,
         string? facts,
         string stationName,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? lengthHint = null)
     {
         bool allowBreath;
         await using (var settingsDb = await dbFactory.CreateDbContextAsync(ct))
@@ -49,7 +50,7 @@ public class AnnouncementFactory(
             allowBreath = false;
         }
 
-        var request = new AnnouncementRequest(kind, stationName, moderator.Language, relatedTrack, facts);
+        var request = new AnnouncementRequest(kind, stationName, moderator.Language, relatedTrack, facts, lengthHint);
         var script = await scriptWriter.WriteAsync(request, ct);
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct);
         var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
