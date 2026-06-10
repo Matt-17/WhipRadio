@@ -1,4 +1,6 @@
 # torch is installed in the Dockerfile (CPU or CUDA via TORCH_INDEX build arg)
+# transformers 5.x refuses the cu121 torch (2.5.x) — Kokoro's AlbertModel fails to import.
+transformers>=4.40,<5
 fastapi>=0.115
 uvicorn[standard]>=0.30
 kokoro>=0.9
