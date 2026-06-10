@@ -1,23 +1,31 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
-
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+<div class="console">
+    <header class="masthead">
+        <div class="brand">
+            <div class="brand-name">Whip<em>Radio</em></div>
+            <div class="brand-slogan">Llamas whipped the radio's mix.</div>
         </div>
+        <div class="spacer"></div>
+        <div class="freq-readout">
+            <span>Local AI FM</span>
+            <strong>104.4 MHz</strong>
+        </div>
+        <OnAirLamp />
+    </header>
 
-        <article class="content px-4">
-            @Body
-        </article>
+    <aside class="rack">
+        <div class="rack-label">// Console</div>
+        <NavMenu />
+    </aside>
+
+    <main class="stage">
+        @Body
     </main>
 </div>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
+    Transmission error — the console hiccuped.
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>

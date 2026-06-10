@@ -1,0 +1,63 @@
+@page "/moderators"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+@rendermode InteractiveServer
+
+<PageTitle>WhipRadio — Hosts</PageTitle>
+
+<h1 class="stage-title">The Hosts</h1>
+<div class="stage-sub">synthetic personalities · real opinions about music</div>
+
+@if (_moderators is null)
+{
+    <div class="panel reveal">
+        <div class="empty-state"><span class="blink">▮</span> waking up the hosts…</div>
+    </div>
+}
+else
+{
+    <div class="mod-grid">
+        @foreach (var moderator in _moderators)
+        {
+            <div class="panel mod-card reveal @(moderator.IsActive ? null : "inactive")">
+                <div class="mod-name">@moderator.Name</div>
+                <div class="mod-meta">
+                    <span class="tag">@moderator.Language</span>
+                    <span class="tag">voice @moderator.VoiceId</span>
+                    <span class="tag">@moderator.Style</span>
+                    <span class="tag">rate @moderator.SpeechRate.ToString("0.0#")</span>
+                    @if (moderator.PrefersVocals == true)
+                    {
+                        <span class="tag amber">likes vocals</span>
+                    }
+                    else if (moderator.PrefersVocals == false)
+                    {
+                        <span class="tag">instrumental fan</span>
+                    }
+                </div>
+                <div class="mod-persona">@moderator.PersonaPrompt</div>
+                <footer>
+                    <span class="tag @(moderator.IsActive ? "green" : "red")">
+                        @(moderator.IsActive ? "on roster" : "off roster")
+                    </span>
+                    <div class="switch @(moderator.IsActive ? "on" : null)"
+                         title="Toggle active"
+                         @onclick="() => ToggleAsync(moderator.Id)"></div>
+                </footer>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<ModeratorDto>? _moderators;
+
+    protected override async Task OnInitializedAsync() => _moderators = await Api.GetModeratorsAsync();
+
+    private async Task ToggleAsync(int id)
+    {
+        await Api.ToggleModeratorAsync(id);
+        _moderators = await Api.GetModeratorsAsync();
+    }
+}

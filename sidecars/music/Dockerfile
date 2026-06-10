@@ -1,7 +1,8 @@
-FROM python:3.11-slim
+# bookworm (FFmpeg 5.1): audiocraft pins av==11.0.0 (sdist only), and PyAV 11
+# does not compile against the FFmpeg 7 shipped in newer Debian releases.
+FROM python:3.11-slim-bookworm
 
-# audiocraft pins av==11.0.0, which only ships as sdist — PyAV is compiled
-# from source against the distro FFmpeg, hence the dev headers.
+# PyAV is compiled from source against the distro FFmpeg, hence the dev headers.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg libsndfile1 build-essential pkg-config \

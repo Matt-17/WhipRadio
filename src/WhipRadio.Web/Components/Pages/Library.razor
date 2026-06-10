@@ -1,0 +1,92 @@
+@page "/library"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+@rendermode InteractiveServer
+
+<PageTitle>WhipRadio — Library</PageTitle>
+
+<h1 class="stage-title">Record Collection</h1>
+<div class="stage-sub">every track composed in-house · by machines</div>
+
+<div class="panel reveal">
+    @if (_tracks is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> loading the shelves…</div>
+    }
+    else if (_tracks.Count == 0)
+    {
+        <div class="empty-state">
+            <span class="blink">▮</span> No records yet — the studio is composing its very first track.
+        </div>
+    }
+    else
+    {
+        <table class="console-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Genre</th>
+                    <th>Vocals</th>
+                    <th class="num">Length</th>
+                    <th class="num"><button class="@Sorted("plays")" @onclick="@(() => SortAsync("plays"))">Plays ↓</button></th>
+                    <th class="num"><button class="@Sorted("votes")" @onclick="@(() => SortAsync("votes"))">Votes ↓</button></th>
+                    <th><button class="@Sorted("created")" @onclick="@(() => SortAsync("created"))">Created ↓</button></th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var track in _tracks)
+                {
+                    <tr>
+                        <td>@track.Title</td>
+                        <td class="dim">@track.Genre</td>
+                        <td>
+                            @if (track.HasVocals)
+                            {
+                                <span class="tag amber">vocal</span>
+                            }
+                            else
+                            {
+                                <span class="tag">instr</span>
+                            }
+                        </td>
+                        <td class="num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</td>
+                        <td class="num">@track.PlayCount</td>
+                        <td class="num">
+                            <span style="color: var(--green)">+@track.UpVotes</span>
+                            <span class="dim">/</span>
+                            <span style="color: var(--red)">−@track.DownVotes</span>
+                        </td>
+                        <td class="dim">@track.CreatedAt.ToLocalTime().ToString("dd.MM. HH:mm")</td>
+                        <td>
+                            @if (track.IsRetired)
+                            {
+                                <span class="tag red">retired</span>
+                            }
+                            else
+                            {
+                                <span class="tag green">rotation</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<TrackDto>? _tracks;
+    private string _sort = "created";
+
+    protected override async Task OnInitializedAsync() => _tracks = await Api.GetLibraryAsync(_sort);
+
+    private string Sorted(string column) => _sort == column ? "sorted" : "";
+
+    private async Task SortAsync(string column)
+    {
+        _sort = column;
+        _tracks = await Api.GetLibraryAsync(_sort);
+    }
+}

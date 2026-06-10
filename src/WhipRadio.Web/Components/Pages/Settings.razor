@@ -1,0 +1,74 @@
+@page "/settings"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+@rendermode InteractiveServer
+
+<PageTitle>WhipRadio — Settings</PageTitle>
+
+<h1 class="stage-title">Station Settings</h1>
+<div class="stage-sub">turn the big knobs carefully</div>
+
+<div class="panel reveal">
+    @if (_settings is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> reading the console memory…</div>
+    }
+    else
+    {
+        <div class="form-grid">
+            <div class="field">
+                <label for="station-name">Station Name</label>
+                <input id="station-name" @bind="_stationName" />
+            </div>
+            <div class="field">
+                <label for="language">Default Language</label>
+                <input id="language" @bind="_defaultLanguage" placeholder="de / en" />
+            </div>
+            <div class="field">
+                <label for="queue-length">Target Queue Length</label>
+                <input id="queue-length" type="number" min="1" max="20" @bind="_targetQueueLength" />
+            </div>
+            <div class="field">
+                <label for="announce-every">Announcement every N tracks</label>
+                <input id="announce-every" type="number" min="0" max="10" @bind="_announcementEveryNTracks" />
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveAsync">Save to Console</button>
+            @if (_saved)
+            {
+                <span class="flash">✓ settings stored — applied on the next cycle</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private StationSettingsDto? _settings;
+    private string _stationName = "";
+    private string _defaultLanguage = "";
+    private int _targetQueueLength = 3;
+    private int _announcementEveryNTracks = 1;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _settings = await Api.GetSettingsAsync();
+        if (_settings is not null)
+        {
+            _stationName = _settings.StationName;
+            _defaultLanguage = _settings.DefaultLanguage;
+            _targetQueueLength = _settings.TargetQueueLength;
+            _announcementEveryNTracks = _settings.AnnouncementEveryNTracks;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _settings = await Api.SaveSettingsAsync(new StationSettingsDto(
+            _stationName, _defaultLanguage, _targetQueueLength, _announcementEveryNTracks));
+        _saved = true;
+    }
+}

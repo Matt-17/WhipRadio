@@ -1,0 +1,50 @@
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+@rendermode InteractiveServer
+
+<div class="onair @(_live ? "live" : null)">
+    <span class="lamp"></span> On Air
+</div>
+
+@code {
+    private bool _live;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ = PollAsync();
+        }
+    }
+
+    private async Task PollAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            var nowPlaying = await Api.GetNowPlayingAsync(_cts.Token);
+            var live = nowPlaying is not null;
+            if (live != _live)
+            {
+                _live = live;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

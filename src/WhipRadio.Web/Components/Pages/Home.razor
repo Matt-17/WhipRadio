@@ -1,7 +1,182 @@
-﻿@page "/"
+@page "/"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IAsyncDisposable
+@inject RadioApiClient Api
+@inject IJSRuntime Js
+@inject IConfiguration Configuration
+@rendermode InteractiveServer
 
-<PageTitle>Home</PageTitle>
+<PageTitle>WhipRadio — Live</PageTitle>
 
-<h1>Hello, world!</h1>
+<h1 class="stage-title">Live Broadcast</h1>
+<div class="stage-sub">Studio 1 · fully local · ai operated</div>
 
-Welcome to your new app.
+<div class="panel reveal">
+    <div class="panel-label">Now Playing</div>
+
+    <div class="vfd">
+        @if (_nowPlaying is null)
+        {
+            <div class="vfd-kind">Signal</div>
+            <div class="vfd-title">— Tuning —</div>
+            <div class="vfd-meta">The studio is warming up. The llamas are whipping the first mix.</div>
+        }
+        else
+        {
+            <div class="vfd-kind">@(_nowPlaying.ItemType == "Track" ? "Track" : "Announcement")</div>
+            <div class="vfd-title">@_nowPlaying.Title</div>
+            <div class="vfd-meta">
+                @if (_nowPlaying.ModeratorName is not null)
+                {
+                    <span>host <strong>@_nowPlaying.ModeratorName</strong> · </span>
+                }
+                <span>@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(_nowPlaying.DurationSeconds))</span>
+            </div>
+        }
+        <div class="tuner">
+            <div class="needle" style="left: @($"{Progress:F1}%")"></div>
+        </div>
+    </div>
+
+    <div class="vu @(_playing ? null : "idle")" aria-hidden="true">
+        @for (var i = 0; i < 12; i++)
+        {
+            <span></span>
+        }
+    </div>
+
+    <div class="btn-row" style="margin-top: 10px;">
+        <button class="btn primary" @onclick="TogglePlayAsync">@(_playing ? "■ Stop" : "► Listen")</button>
+        <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeChanged" title="Volume" />
+        <span style="font-family: var(--font-mono); font-size: 11px; color: var(--muted); letter-spacing: 1px;">
+            VOL @_volume
+        </span>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @(_votes?.UpVotes ?? CurrentTrackUpVotes)</button>
+        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @(_votes?.DownVotes ?? CurrentTrackDownVotes)</button>
+    </div>
+
+    @if (_voteFlash is not null)
+    {
+        <div class="flash" style="margin-top: 10px;">@_voteFlash</div>
+    }
+</div>
+
+<div class="panel reveal">
+    <div class="panel-label">Stream</div>
+    <div style="font-family: var(--font-mono); font-size: 13px; color: var(--muted);">
+        Direct stream for Winamp / VLC: <a href="@_streamUrl" target="_blank">@_streamUrl</a>
+    </div>
+</div>
+
+@code {
+    private NowPlayingDto? _nowPlaying;
+    private VoteResultDto? _votes;
+    private string? _voteFlash;
+    private bool _playing;
+    private int _volume = 80;
+    private string _streamUrl = "";
+    private readonly CancellationTokenSource _cts = new();
+
+    private bool CanVote => _nowPlaying?.ItemType == "Track";
+    private int CurrentTrackUpVotes => 0;
+    private int CurrentTrackDownVotes => 0;
+
+    private TimeSpan Elapsed => _nowPlaying is null
+        ? TimeSpan.Zero
+        : DateTime.UtcNow - _nowPlaying.StartedAtUtc;
+
+    private double Progress => _nowPlaying is null || _nowPlaying.DurationSeconds <= 0
+        ? 0
+        : Math.Clamp(Elapsed.TotalSeconds / _nowPlaying.DurationSeconds * 100, 0, 100);
+
+    protected override void OnInitialized()
+    {
+        _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _ = PollAsync();
+        }
+    }
+
+    private async Task PollAsync()
+    {
+        while (!_cts.IsCancellationRequested)
+        {
+            var current = await Api.GetNowPlayingAsync(_cts.Token);
+            if (current?.ItemId != _nowPlaying?.ItemId)
+            {
+                _votes = null;
+                _voteFlash = null;
+            }
+
+            _nowPlaying = current;
+            await InvokeAsync(StateHasChanged);
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+        }
+    }
+
+    private async Task TogglePlayAsync()
+    {
+        if (_playing)
+        {
+            _playing = await Js.InvokeAsync<bool>("whipRadio.pause");
+        }
+        else
+        {
+            _playing = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        }
+    }
+
+    private async Task OnVolumeChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var volume))
+        {
+            _volume = volume;
+            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        }
+    }
+
+    private async Task VoteAsync(int direction)
+    {
+        if (_nowPlaying is null || !CanVote)
+        {
+            return;
+        }
+
+        var result = await Api.VoteAsync(_nowPlaying.ItemId, direction);
+        if (result is not null)
+        {
+            _votes = result;
+            _voteFlash = direction > 0 ? "Vote registered — the llamas approve." : "Vote registered — noted with a sigh.";
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        try
+        {
+            await Js.InvokeVoidAsync("whipRadio.pause");
+        }
+        catch
+        {
+            // circuit already gone
+        }
+    }
+}

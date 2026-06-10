@@ -1,0 +1,60 @@
+@page "/playlog"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+@rendermode InteractiveServer
+
+<PageTitle>WhipRadio — Play Log</PageTitle>
+
+<h1 class="stage-title">Play Log</h1>
+<div class="stage-sub">the last 100 things that went out over the air</div>
+
+<div class="panel reveal">
+    @if (_entries is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> rewinding the tape…</div>
+    }
+    else if (_entries.Count == 0)
+    {
+        <div class="empty-state"><span class="blink">▮</span> Nothing on the log yet — first transmission pending.</div>
+    }
+    else
+    {
+        <table class="console-table">
+            <thead>
+                <tr>
+                    <th>Aired</th>
+                    <th>Type</th>
+                    <th>Title</th>
+                    <th>Host</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _entries)
+                {
+                    <tr>
+                        <td class="dim">@entry.PlayedAt.ToLocalTime().ToString("dd.MM. HH:mm:ss")</td>
+                        <td>
+                            @if (entry.ItemType == "Track")
+                            {
+                                <span class="tag amber">track</span>
+                            }
+                            else
+                            {
+                                <span class="tag">talk</span>
+                            }
+                        </td>
+                        <td>@entry.Title</td>
+                        <td class="dim">@(entry.ModeratorName ?? "—")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<PlayLogEntryDto>? _entries;
+
+    protected override async Task OnInitializedAsync() => _entries = await Api.GetPlayLogAsync();
+}
