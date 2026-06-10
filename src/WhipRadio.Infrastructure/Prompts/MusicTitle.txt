@@ -1,0 +1,1 @@
+Invent a {Genre} song title. Output ONLY the title — no quotes, no explanation, max 6 words.
