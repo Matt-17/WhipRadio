@@ -1,48 +1,38 @@
-# WhipRadio 📻🦙
+# WhipRadio
 
-> *Llamas whipped the radio's mix.*
+> Llamas whipped the radio's mix.
 
 A fully local, AI-driven internet radio station orchestrated with **.NET Aspire**:
-locally generated music (MusicGen, optional ACE-Step vocals), AI moderators with
-distinct personas (two-stage LLM pipeline via Ollama/gemma3), Kokoro TTS,
-Open-Meteo weather reports, and a continuous MP3 stream via Icecast — playable in
-Winamp/VLC **and** in the built-in Blazor web app.
-
-**Phase 2 highlights:** persistent footer player + SignalR real-time updates,
-fictional **artists** with vote-driven rotation, genre/subgenre taxonomy, an
-**AI program director** planning the weekly format schedule, host handovers +
-day-memory talks, listener greetings/requests, multi-provider AI (Ollama/OpenAI
-text, Kokoro/Piper/ElevenLabs TTS — Piper provides German voices), Icecast
-stream metadata, admin master control, statistics and a live console page.
+locally generated music, AI moderators with distinct personas, Kokoro/Piper TTS,
+Open-Meteo weather reports, and a continuous MP3 stream via Icecast. It plays in
+Winamp/VLC and in the built-in Blazor web app.
 
 ## Architecture
 
-```
+```text
 AppHost (Aspire)
-├── ollama        gemma3:4b — ScriptWriter + VoiceDirector + titles/lyrics
-├── icecast       MP3 streaming server (:8000/radio.mp3)
-├── tts           Python/FastAPI + Kokoro (:8001)
-├── music         Python/FastAPI + MusicGen / ACE-Step (:8002)
-├── orchestrator  .NET workers: music & announcement production, show runner,
-│                 ffmpeg playout → Icecast; minimal API for the web app
-└── web           Blazor Server broadcast console (player, library, votes, …)
+|-- ollama        gemma3:4b for scripts, host direction, titles and lyrics
+|-- icecast       MP3 streaming server (:8000/radio.mp3)
+|-- tts           Python/FastAPI + Kokoro/Piper (:8001)
+|-- music         Python/FastAPI + MusicGen (:8002)
+|-- acestep       ACE-Step 1.5 official API (:8002 in container)
+|-- orchestrator  .NET workers: music production, announcements, show runner,
+|                 ffmpeg playout to Icecast, API for the web app
+`-- web           Blazor Server broadcast console
 ```
 
-Audio pipeline: one long-lived ffmpeg encoder pushes MP3 to Icecast; each
-playlist item (track/announcement WAV) is decoded to raw PCM by a short-lived
-ffmpeg and piped into the encoder — a gapless, CD-like stream.
+Audio pipeline: one long-lived ffmpeg encoder pushes MP3 to Icecast. Each
+playlist item is decoded to raw PCM by a short-lived ffmpeg process and piped
+into the encoder.
 
 ## Prerequisites
 
-- **Docker Desktop** (Linux containers)
-- **.NET SDK 10.0.3xx** (see `global.json`)
-- **ffmpeg on PATH** (dev host; e.g. `winget install Gyan.FFmpeg`)
-- ~**10 GB disk** for models (gemma3:4b ≈ 3.3 GB, musicgen-small ≈ 2 GB, Kokoro ≈ 0.4 GB, images)
-- Optional: NVIDIA GPU — **auto-detected**: when `nvidia-smi` is present the
-  AppHost runs Ollama with `--gpus=all` and builds/runs both Python sidecars
-  with CUDA torch (`TORCH_INDEX=cu121` build arg). Disable with
-  `Gpu__Disabled=true`. Everything also runs on CPU, just slowly (the station
-  fills the gaps with talk)
+- Docker Desktop with Linux containers
+- .NET SDK 10.0.3xx, see `global.json`
+- ffmpeg on PATH for development
+- Disk space for model caches. ACE-Step downloads large checkpoints on first use.
+- Optional NVIDIA GPU. The AppHost auto-detects `nvidia-smi` and starts GPU-capable
+  containers with `--gpus=all`. Set `Gpu__Disabled=true` to force CPU.
 
 ## Quickstart
 
@@ -50,36 +40,87 @@ ffmpeg and piped into the encoder — a gapless, CD-like stream.
 dotnet run --project src/WhipRadio.AppHost
 ```
 
-Open the Aspire dashboard URL printed in the console. When all resources are
-healthy:
+Open the Aspire dashboard URL printed in the console.
 
 | What | Where |
 |---|---|
-| Web app (player, library, votes) | `web` endpoint on the dashboard |
-| Direct stream (Winamp/VLC) | http://localhost:8000/radio.mp3 |
+| Web app | `web` endpoint on the dashboard |
+| Direct stream | http://localhost:8000/radio.mp3 |
 | Icecast status | http://localhost:8000 |
-| Orchestrator API | `orchestrator` endpoint, e.g. `/api/nowplaying` |
+| Orchestrator API | `orchestrator` endpoint, for example `/api/nowplaying` |
 
-**First start takes a while**: Ollama pulls gemma3:4b, the sidecars download
-their models on first use. The station starts talking ("warming up the studio")
-before the first track finishes generating — that's by design.
+First start takes a while because local models download on demand.
 
 ## Configuration
 
-Key settings (env vars / `appsettings.json` of the Orchestrator):
+Key settings:
 
 | Key | Default | Meaning |
 |---|---|---|
 | `Llm__Model` | `gemma3:4b` | Ollama chat model |
-| `Weather__Latitude/Longitude` | 51.05 / 13.74 (Dresden) | Open-Meteo location |
-| `Music__TrackDurationSeconds` | 90 | generated track length |
-| `Stream__Bitrate` | 192k | MP3 bitrate |
+| `Weather__Latitude/Longitude` | 51.05 / 13.74 | Open-Meteo location |
+| `Music__ProducerBackoffSeconds` | 30 | music production retry/backoff |
+| `AceStep__Model` | `acestep-v15-turbo` | ACE-Step DiT model |
+| `AceStep__Thinking` | `true` | use ACE-Step LM planning |
+| `AceStep__InferenceSteps` | `8` | ACE-Step diffusion steps |
+| `AceStep__GenerationTimeout` | `00:30:00` | ACE-Step generation timeout |
+| `Stream__Bitrate` | `192k` | MP3 bitrate |
 | `Icecast__SourcePassword` | `hackme-dev` | dev-only default |
 | `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, SQLite |
-| `ENABLE_ACESTEP` (music sidecar) | `0` | opt-in vocal generation |
 
-Station-level settings (name, language, queue length, announcement frequency)
-live in the database and are editable on the web app's **Settings** page.
+Station-level settings live in the database and are editable in the web app.
+`DefaultMusicProvider` accepts `musicgen`, `ace-step`, or `ace-step-1.5`; values
+are normalized to `musicgen` or `ace-step-1.5`.
+
+## Local music providers
+
+### MusicGen
+
+- Existing instrumental provider.
+- Runs in the `music` Docker resource.
+- Uses AudioCraft/MusicGen and keeps the existing model and continuation
+  behavior for tracks longer than MusicGen's native window.
+- Generated tracks are stored with `Backend = "musicgen"`.
+
+### ACE-Step 1.5
+
+- Complete local song generation for instrumentals or vocals.
+- Supports automatic lyrics or provided lyrics.
+- Runs in the separate `acestep` Docker resource.
+- Uses the official ACE-Step async REST API directly.
+- First generation downloads large model weights into the `acestep-models`
+  volume mounted at `/models`.
+- CPU execution is supported. NVIDIA GPU execution is supported when the
+  container receives GPU access.
+- Generated tracks are stored with `Backend = "ace-step-1.5"`.
+
+Build the ACE-Step image:
+
+```bash
+docker build -t whipradio-acestep sidecars/acestep
+```
+
+Run on CPU:
+
+```bash
+docker run --rm \
+  -p 8002:8002 \
+  -v acestep-models:/models \
+  whipradio-acestep
+```
+
+Run with NVIDIA GPU:
+
+```bash
+docker run --rm \
+  --gpus all \
+  -p 8002:8002 \
+  -v acestep-models:/models \
+  whipradio-acestep
+```
+
+Choose the provider through the Settings/Admin page or by setting
+`StationSettings.DefaultMusicProvider`.
 
 ## Tests
 
@@ -89,27 +130,32 @@ dotnet test WhipRadio.slnx
 
 ## CI / Images
 
-- `ci.yml` — build + test on every push/PR.
-- `docker-publish.yml` — manual (`workflow_dispatch`); builds and pushes all four
-  images to GHCR as `ghcr.io/<repo>/whip-radio-{orchestrator,web,tts,music}:latest`.
+- `ci.yml`: build and test on every push/PR.
+- `docker-publish.yml`: manual `workflow_dispatch`; builds and pushes
+  `ghcr.io/<repo>/whip-radio-{orchestrator,web,tts,music,acestep}:latest`.
+
+## Manual Smoke Test
+
+1. Start the Aspire AppHost.
+2. Verify `music` is healthy.
+3. Verify `acestep` is healthy.
+4. Select ACE-Step 1.5 as the music provider.
+5. Submit or wait for one short instrumental generation.
+6. Submit or wait for one short vocal generation with automatic lyrics.
+7. Verify the generated file is valid WAV.
+8. Verify `Track.Backend == "ace-step-1.5"`.
+9. Switch the provider back to MusicGen.
+10. Verify MusicGen still generates successfully.
 
 ## Troubleshooting
 
-- **No sound for several minutes after first start** — model downloads + first
-  CPU music generation take time. Watch the `music`/`tts` logs in the dashboard;
-  the moderators will fill the silence as soon as LLM + TTS are up.
-- **Stream stalls in the browser** — the encoder bridges queue gaps with
-  silence; if the mount dropped entirely, the PlayoutService reconnects within
-  ~5 s. Press Listen again.
-- **German moderators speak English voices** — Kokoro has no German voices;
-  the TTS sidecar falls back to English and logs a warning (swap `ITtsEngine`
-  backends to change this).
-- **`ace-step` shows unavailable** — intentional: heavy vocal backend is off by
-  default; the station produces instrumental tracks only.
-- **Windows: `ffmpeg` not found** — install it and restart the terminal so the
-  AppHost inherits the updated PATH, or set `Stream__FfmpegPath`.
-
-## Repository layout
-
-See `Plan Phase 1.md` and `Plan Phase 2.md` for the implementation plans this
-repo follows (naming: WhipRadio instead of LlamaRadio).
+- No sound for several minutes after first start: model downloads and CPU music
+  generation take time.
+- Stream stalls in the browser: the PlayoutService reconnects to Icecast within
+  a few seconds if the mount drops.
+- German moderators speak English voices: Kokoro has no German voices; use Piper
+  for local German TTS.
+- `acestep` is unavailable: check the `acestep` resource logs and model download
+  progress.
+- `ffmpeg` not found on Windows: install it and restart the terminal, or set
+  `Stream__FfmpegPath`.
