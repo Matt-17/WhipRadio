@@ -25,6 +25,7 @@ public class MusicProductionService(
     GreetingState greetingState,
     MusicProductionControl control,
     StudioCoordinator studios,
+    ProductionGate gate,
     IOptions<RadioOptions> radioOptions,
     IOptions<MusicOptions> musicOptions,
     ILogger<MusicProductionService> logger) : BackgroundService
@@ -123,12 +124,14 @@ public class MusicProductionService(
         }
 
         control.BeginGeneration(artist.Id, artist.Name);
+        await gate.WaitAsync(ct); // analysis backfill yields while we generate
         try
         {
             await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, ct);
         }
         finally
         {
+            gate.Release();
             control.EndGeneration();
         }
     }
@@ -246,6 +249,11 @@ public class MusicProductionService(
         logger.LogInformation(
             "Added \"{Title}\" by {Artist} to the library ({Duration:F0}s, backend {Backend})",
             title, artist.Name, track.DurationSeconds, track.Backend);
+
+        // Mixer analysis (BPM, intro/outro, loudness) — failure stores a stub
+        // and the backfill retries; the track is playable either way.
+        var recorder = scope.ServiceProvider.GetRequiredService<MediaAnalysisRecorder>();
+        await recorder.AnalyzeAndStoreAsync(PlayoutItemType.Track, track.Id, relativePath, ct);
     }
 
     /// <summary>

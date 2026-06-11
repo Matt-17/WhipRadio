@@ -218,6 +218,18 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task RunDirectorAsync(CancellationToken ct = default)
         => await http.PostAsync("/api/admin/director/run", null, ct);
 
+    public async Task<MixerOverviewDto?> GetMixerAsync(CancellationToken ct = default)
+        => await SafeGetAsync<MixerOverviewDto>("/api/mixer", ct);
+
+    public async Task<string?> SaveMixerSettingsAsync(MixerSettingsDto settings, CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync("/api/mixer/settings", settings, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task RunMixerBackfillAsync(CancellationToken ct = default)
+        => await http.PostAsync("/api/mixer/backfill", null, ct);
+
     public async Task<ServerStatsDto?> GetServerStatsAsync(CancellationToken ct = default)
         => await SafeGetAsync<ServerStatsDto>("/api/serverstats", ct);
 

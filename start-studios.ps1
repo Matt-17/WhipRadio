@@ -47,6 +47,26 @@ Write-Host ""
 Write-Host "Voice booths:" -ForegroundColor Cyan
 Ensure-Container "whip-booth-tts-1" "whipradio-tts:local" 8201 8001 "hf-cache:/models"
 
+# Analysis sidecar (CPU-only, mixer Phase 3a): needs the data folder read-only.
+Write-Host ""
+Write-Host "Analysis:" -ForegroundColor Cyan
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$dataDir = Join-Path $root "data"
+if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force $dataDir | Out-Null }
+$existing = docker ps -a --filter "name=^whip-analysis$" --format "{{.Names}}"
+if ($existing) {
+    docker start whip-analysis | Out-Null
+    Write-Host "  whip-analysis -> http://localhost:8301 (existing container started)"
+} else {
+    docker run -d --name whip-analysis --restart unless-stopped -p "8301:8301" `
+        -v "$dataDir`:/data:ro" whipradio-analysis:local | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  whip-analysis FAILED - build it first: docker build -t whipradio-analysis:local sidecars/analysis" -ForegroundColor Red
+    } else {
+        Write-Host "  whip-analysis -> http://localhost:8301 (created)"
+    }
+}
+
 Write-Host ""
 Write-Host "Studios are warming up (model loads can take minutes)." -ForegroundColor Green
 Write-Host "Connect them on the Studios page; the seeded defaults already point at:"

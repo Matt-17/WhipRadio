@@ -17,6 +17,7 @@ public class AnnouncementFactory(
     IScriptWriter scriptWriter,
     IVoiceDirector voiceDirector,
     ITtsEngine ttsEngine,
+    MediaAnalysisRecorder analysisRecorder,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<RadioOptions> radioOptions,
     TimeProvider timeProvider,
@@ -96,6 +97,10 @@ public class AnnouncementFactory(
         }
 
         await db.SaveChangesAsync(ct);
+
+        // Mixer analysis (speech mode: loudness + silence, fast) — best effort.
+        await analysisRecorder.AnalyzeAndStoreAsync(
+            Core.Entities.PlayoutItemType.Announcement, id, relativePath, ct);
 
         logger.LogInformation(
             "Produced {Kind} announcement {Id} ({Duration:F1}s) by {Moderator} [{Engine}]",

@@ -67,6 +67,46 @@ public class StationSettings
     public bool GreetingsEnabled { get; set; } = true;
 
     public int MaxPendingGreetings { get; set; } = 10;
+
+    // --- Mixer (Phase 3a) — hot-reloadable, read once per transition -------------
+
+    /// <summary>Master flag for the real-time mixer; off = legacy sequential playout.</summary>
+    public bool MixerEnabled { get; set; }
+
+    /// <summary>Loudness normalization target (EBU R128 integrated).</summary>
+    public double TargetLufs { get; set; } = -16.0;
+
+    /// <summary>Clamp for makeup gain on quiet items.</summary>
+    public double MaxMakeupGainDb { get; set; } = 6.0;
+
+    /// <summary>Song level under talk.</summary>
+    public double DuckLevelDb { get; set; } = -12.0;
+
+    /// <summary>Duck attack/release ramp.</summary>
+    public int DuckRampMs { get; set; } = 800;
+
+    /// <summary>EnergyFade overlap.</summary>
+    public double DefaultCrossfadeSeconds { get; set; } = 5.0;
+
+    /// <summary>Max ΔBPM for BeatAlignedFade.</summary>
+    public double BeatAlignBpmTolerancePct { get; set; } = 5.0;
+
+    public int HardCutGapAfterTalkMsMin { get; set; } = 200;
+
+    public int HardCutGapAfterTalkMsMax { get; set; } = 600;
+
+    public int HardCutGapSongMsMin { get; set; }
+
+    public int HardCutGapSongMsMax { get; set; } = 150;
+
+    /// <summary>Talk must end this long before the incoming song's IntroEnd.</summary>
+    public int PostHitSafetyMs { get; set; } = 800;
+
+    /// <summary>Per pair-kind strategy weight table; empty = built-in defaults.</summary>
+    public string StrategyWeightsJson { get; set; } = string.Empty;
+
+    /// <summary>If true, the track selector skips unanalysed items.</summary>
+    public bool AnalysisRequired { get; set; }
 }
 
 public static class TextProviders

@@ -29,6 +29,10 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<Studio> Studios => Set<Studio>();
 
+    public DbSet<MediaAnalysis> MediaAnalyses => Set<MediaAnalysis>();
+
+    public DbSet<TransitionLogEntry> TransitionLog => Set<TransitionLogEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Track>(track =>
@@ -97,6 +101,19 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         {
             studio.Property(s => s.Kind).HasConversion<string>();
             studio.HasIndex(s => new { s.Kind, s.IsActive });
+        });
+
+        modelBuilder.Entity<MediaAnalysis>(analysis =>
+        {
+            analysis.Property(a => a.ItemType).HasConversion<string>();
+            analysis.HasIndex(a => new { a.ItemType, a.ItemId }).IsUnique();
+        });
+
+        modelBuilder.Entity<TransitionLogEntry>(entry =>
+        {
+            entry.Property(e => e.OutgoingType).HasConversion<string>();
+            entry.Property(e => e.IncomingType).HasConversion<string>();
+            entry.HasIndex(e => e.OccurredAt);
         });
     }
 }

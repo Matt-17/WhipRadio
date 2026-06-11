@@ -20,6 +20,9 @@ public interface IPlayoutQueue
     /// (priority talk like listener greetings).</summary>
     void EnqueueFront(PlayoutItem item);
 
+    /// <summary>Next item without removing it — mixer lookahead/prefetch.</summary>
+    PlayoutItem? PeekNext();
+
     Task<PlayoutItem> DequeueAsync(CancellationToken ct);
 
     int Count { get; }

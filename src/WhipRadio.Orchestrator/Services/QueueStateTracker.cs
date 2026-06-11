@@ -58,5 +58,7 @@ public class TrackedPlayoutQueue(IPlayoutQueue inner, QueueStateTracker tracker)
         tracker.EnqueuedFront(item);
     }
 
+    public PlayoutItem? PeekNext() => inner.PeekNext();
+
     public Task<PlayoutItem> DequeueAsync(CancellationToken ct) => inner.DequeueAsync(ct);
 }

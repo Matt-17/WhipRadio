@@ -141,6 +141,42 @@ public sealed record TestStudioDto(
 
 public sealed record StudioTestResultDto(bool Ok, string? Provider, string? Detail);
 
+public sealed record MixerSettingsDto(
+    bool MixerEnabled,
+    double TargetLufs,
+    double MaxMakeupGainDb,
+    double DuckLevelDb,
+    int DuckRampMs,
+    double DefaultCrossfadeSeconds,
+    double BeatAlignBpmTolerancePct,
+    int HardCutGapAfterTalkMsMin,
+    int HardCutGapAfterTalkMsMax,
+    int HardCutGapSongMsMin,
+    int HardCutGapSongMsMax,
+    int PostHitSafetyMs,
+    string StrategyWeightsJson,
+    bool AnalysisRequired);
+
+public sealed record TransitionLogEntryDto(
+    DateTime OccurredAt,
+    string Strategy,
+    string OutgoingTitle,
+    string IncomingTitle,
+    double OverlapSeconds,
+    int GapMs,
+    int ClipCount,
+    string? ReasonTrace);
+
+public sealed record MixerStatusDto(
+    int AnalyzedTracks,
+    int TotalTracks,
+    int AnalyzedAnnouncements,
+    IReadOnlyDictionary<string, int> TransitionsByStrategy,
+    int TotalClips,
+    IReadOnlyList<TransitionLogEntryDto> RecentTransitions);
+
+public sealed record MixerOverviewDto(MixerSettingsDto Settings, MixerStatusDto Status);
+
 public sealed record VoteRequestDto(Guid TrackId, int Direction);
 
 public sealed record VoteResultDto(Guid TrackId, int UpVotes, int DownVotes, bool IsRetired);

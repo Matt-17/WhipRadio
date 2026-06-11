@@ -17,6 +17,7 @@ namespace WhipRadio.Orchestrator.Services;
 public class PlayoutService(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
+    AudioMixerEngine mixerEngine,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
@@ -87,6 +88,18 @@ public class PlayoutService(
                 logger.LogInformation("Back on air");
             }
 
+            // Phase 3a: the real-time mixer takes over the feed while enabled;
+            // it returns at an item boundary when the flag flips off and the
+            // legacy sequential loop below resumes (shared encoder).
+            if (await IsMixerEnabledAsync(ct))
+            {
+                logger.LogInformation("Mixer engaged");
+                await mixerEngine.RunSessionAsync(encoder, encoderInput,
+                    async token => await IsPlayoutEnabledAsync(token) && await IsMixerEnabledAsync(token), ct);
+                logger.LogInformation("Mixer disengaged — legacy playout resumes");
+                continue;
+            }
+
             var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
             if (item is null)
             {
@@ -97,6 +110,23 @@ public class PlayoutService(
 
             await reporter.ReportStartedAsync(item, ct);
             await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
+        }
+    }
+
+    private async Task<bool> IsMixerEnabledAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            return (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.MixerEnabled ?? false;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch
+        {
+            return false; // db hiccup → safe legacy path
         }
     }
 

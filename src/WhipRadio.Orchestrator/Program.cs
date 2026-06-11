@@ -34,6 +34,8 @@ builder.Services.AddScoped<RadioDbContext>(sp =>
 builder.Services.AddScoped<MusicCopywriter>();
 builder.Services.AddScoped<AnnouncementFactory>();
 builder.Services.AddScoped<MessageModerator>();
+builder.Services.AddScoped<MediaAnalysisRecorder>();
+builder.Services.AddSingleton<ProductionGate>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ScheduleService>();
@@ -50,6 +52,9 @@ builder.Services.AddSingleton<MusicProductionControl>();
 builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();
+builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
+    _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
+builder.Services.AddSingleton<AudioMixerEngine>();
 
 builder.Services.AddSignalR();
 
@@ -63,6 +68,7 @@ builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();
+builder.Services.AddHostedService<AnalysisBackfillService>();
 
 var app = builder.Build();
 

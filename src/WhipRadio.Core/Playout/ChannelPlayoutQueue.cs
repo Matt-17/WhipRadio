@@ -44,6 +44,14 @@ public class ChannelPlayoutQueue : IPlayoutQueue
         _available.Release();
     }
 
+    public PlayoutItem? PeekNext()
+    {
+        lock (_lock)
+        {
+            return _items.First?.Value;
+        }
+    }
+
     public async Task<PlayoutItem> DequeueAsync(CancellationToken ct)
     {
         await _available.WaitAsync(ct);

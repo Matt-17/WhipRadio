@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
@@ -76,6 +77,14 @@ public static class HttpClientsServiceCollectionExtensions
             client.BaseAddress = new Uri(configuration["Weather:Endpoint"] ?? "https://api.open-meteo.com");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+
+        // Mixer audio analysis sidecar (CPU-only; started by start-studios.ps1).
+        services.AddHttpClient<IAudioAnalysisClient, HttpAudioAnalysisClient>(client =>
+            {
+                client.BaseAddress = new Uri(configuration["Analysis:Endpoint"] ?? "http://localhost:8301");
+                client.Timeout = TimeSpan.FromSeconds(60);
+            })
+            .RemoveAllResilienceHandlers();
 
         services.AddScoped<IScriptWriter, ScriptWriter>();
         services.AddScoped<IVoiceDirector, VoiceDirector>();

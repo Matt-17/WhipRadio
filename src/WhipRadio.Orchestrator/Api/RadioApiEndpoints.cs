@@ -398,6 +398,7 @@ public static class RadioApiEndpoints
         });
 
         MapStudios(api);
+        MapMixer(api);
 
         api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db,
             HostLanguageAligner aligner, CancellationToken ct) =>
@@ -568,6 +569,111 @@ public static class RadioApiEndpoints
                     .OrderByDescending(x => x.Value)
                     .ToList(),
                 TracksPerGenre: tracksPerGenre));
+        });
+    }
+
+    private static void MapMixer(RouteGroupBuilder api)
+    {
+        api.MapGet("/mixer", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var s = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+            var settings = new MixerSettingsDto(
+                s.MixerEnabled, s.TargetLufs, s.MaxMakeupGainDb, s.DuckLevelDb, s.DuckRampMs,
+                s.DefaultCrossfadeSeconds, s.BeatAlignBpmTolerancePct,
+                s.HardCutGapAfterTalkMsMin, s.HardCutGapAfterTalkMsMax,
+                s.HardCutGapSongMsMin, s.HardCutGapSongMsMax,
+                s.PostHitSafetyMs, s.StrategyWeightsJson, s.AnalysisRequired);
+
+            var analyzedTracks = await db.MediaAnalyses
+                .CountAsync(a => a.ItemType == PlayoutItemType.Track && a.AnalyzerVersion > 0, ct);
+            var totalTracks = await db.Tracks.CountAsync(t => !t.IsRetired, ct);
+            var analyzedAnnouncements = await db.MediaAnalyses
+                .CountAsync(a => a.ItemType == PlayoutItemType.Announcement && a.AnalyzerVersion > 0, ct);
+
+            var byStrategy = await db.TransitionLog.AsNoTracking()
+                .GroupBy(e => e.Strategy)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+            var totalClips = await db.TransitionLog.AsNoTracking().SumAsync(e => (int?)e.ClipCount, ct) ?? 0;
+
+            var recent = await db.TransitionLog.AsNoTracking()
+                .OrderByDescending(e => e.OccurredAt)
+                .Take(20)
+                .ToListAsync(ct);
+
+            var trackTitles = await db.Tracks.AsNoTracking()
+                .Where(t => recent.Select(r => r.OutgoingId).Concat(recent.Select(r => r.IncomingId)).Contains(t.Id))
+                .ToDictionaryAsync(t => t.Id, t => t.Title, ct);
+            var announcementKinds = await db.Announcements.AsNoTracking()
+                .Where(a => recent.Select(r => r.OutgoingId).Concat(recent.Select(r => r.IncomingId)).Contains(a.Id))
+                .ToDictionaryAsync(a => a.Id, a => a.Kind.ToString(), ct);
+
+            string Title(PlayoutItemType type, Guid id) => type == PlayoutItemType.Track
+                ? trackTitles.GetValueOrDefault(id, "track")
+                : $"{announcementKinds.GetValueOrDefault(id, "talk")} (talk)";
+
+            string? Trace(string parametersJson)
+            {
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(parametersJson);
+                    return doc.RootElement.TryGetProperty("reasonTrace", out var t) ? t.GetString() : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            var status = new MixerStatusDto(
+                analyzedTracks, totalTracks, analyzedAnnouncements, byStrategy, totalClips,
+                recent.Select(e => new TransitionLogEntryDto(
+                    e.OccurredAt, e.Strategy,
+                    Title(e.OutgoingType, e.OutgoingId), Title(e.IncomingType, e.IncomingId),
+                    e.OverlapSeconds, e.GapMs, e.ClipCount, Trace(e.ParametersJson))).ToList());
+
+            return Results.Ok(new MixerOverviewDto(settings, status));
+        });
+
+        api.MapPut("/mixer/settings", async (MixerSettingsDto request, RadioDbContext db, CancellationToken ct) =>
+        {
+            if (!WhipRadio.Core.Audio.MixPlanner.TryValidateWeightsJson(request.StrategyWeightsJson, out var error))
+            {
+                return Results.BadRequest($"Strategy weights: {error}");
+            }
+
+            var s = await db.StationSettings.FirstOrDefaultAsync(ct);
+            if (s is null)
+            {
+                return Results.NotFound();
+            }
+
+            s.MixerEnabled = request.MixerEnabled;
+            s.TargetLufs = Math.Clamp(request.TargetLufs, -30, -8);
+            s.MaxMakeupGainDb = Math.Clamp(request.MaxMakeupGainDb, 0, 12);
+            s.DuckLevelDb = Math.Clamp(request.DuckLevelDb, -30, 0);
+            s.DuckRampMs = Math.Clamp(request.DuckRampMs, 50, 5000);
+            s.DefaultCrossfadeSeconds = Math.Clamp(request.DefaultCrossfadeSeconds, 1, 15);
+            s.BeatAlignBpmTolerancePct = Math.Clamp(request.BeatAlignBpmTolerancePct, 0, 20);
+            s.HardCutGapAfterTalkMsMin = Math.Clamp(request.HardCutGapAfterTalkMsMin, 0, 5000);
+            s.HardCutGapAfterTalkMsMax = Math.Clamp(
+                Math.Max(request.HardCutGapAfterTalkMsMax, request.HardCutGapAfterTalkMsMin), 0, 5000);
+            s.HardCutGapSongMsMin = Math.Clamp(request.HardCutGapSongMsMin, 0, 5000);
+            s.HardCutGapSongMsMax = Math.Clamp(
+                Math.Max(request.HardCutGapSongMsMax, request.HardCutGapSongMsMin), 0, 5000);
+            s.PostHitSafetyMs = Math.Clamp(request.PostHitSafetyMs, 0, 5000);
+            s.StrategyWeightsJson = request.StrategyWeightsJson;
+            s.AnalysisRequired = request.AnalysisRequired;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok();
+        });
+
+        // "Re-run backfill": drop stub rows (failed analyses) so the backfill
+        // service picks them up on its next cycle.
+        api.MapPost("/mixer/backfill", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var removed = await db.MediaAnalyses.Where(a => a.AnalyzerVersion == 0).ExecuteDeleteAsync(ct);
+            return Results.Ok(new { removedStubs = removed });
         });
     }
 
