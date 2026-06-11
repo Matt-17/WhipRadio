@@ -45,7 +45,15 @@ public sealed record ArtistDto(
     int TrackCount,
     int UpVotes,
     int DownVotes,
-    bool IsRetired);
+    bool IsRetired,
+    string? Biography = null);
+
+public sealed record MusicProductionStatusDto(
+    Guid? ArtistId,
+    string? ArtistName,
+    string? TrackTitle,
+    DateTime? StartedAtUtc,
+    IReadOnlyList<Guid> QueuedArtistIds);
 
 public sealed record PlayLogEntryDto(
     DateTime PlayedAt,
@@ -96,12 +104,42 @@ public sealed record StationSettingsDto(
     bool EnableBreathMarkers,
     double FrequencyMhz,
     int FirstDayOfWeek,
+    string DefaultMusicProvider,
     string TextProvider,
     string OpenAiApiKey,
     string OpenAiModel,
     bool ElevenLabsEnabled,
     string ElevenLabsApiKey,
     bool GreetingsEnabled = true);
+
+public sealed record MusicProviderStatusDto(
+    string Id,
+    string DisplayName,
+    bool IsAvailable,
+    string? Model);
+
+public sealed record StudioDto(
+    Guid Id,
+    string Name,
+    string Kind,
+    string Url,
+    string Provider,
+    bool IsActive,
+    DateTime CreatedAt,
+    DateTime? LastUsedAt,
+    int JobsCompleted,
+    int JobsFailed,
+    string? CurrentJob = null,
+    DateTime? JobStartedAtUtc = null);
+
+/// <summary>Source "local" needs Url; source "api" needs Provider + ApiKey.</summary>
+public sealed record SaveStudioDto(
+    string? Name, string Kind, string Source, string? Url, string? Provider, string? ApiKey);
+
+public sealed record TestStudioDto(
+    string Kind, string Source, string? Url, string? Provider, string? ApiKey);
+
+public sealed record StudioTestResultDto(bool Ok, string? Provider, string? Detail);
 
 public sealed record VoteRequestDto(Guid TrackId, int Direction);
 
@@ -189,4 +227,7 @@ public sealed record ListenerMessageDto(
     string? RequestMood,
     DateTime SubmittedAt,
     string Status,
-    string? DismissalReason = null);
+    string? DismissalReason = null,
+    DateTime? AiredAt = null);
+
+public sealed record PagedListenerMessagesDto(int TotalCount, List<ListenerMessageDto> Items);

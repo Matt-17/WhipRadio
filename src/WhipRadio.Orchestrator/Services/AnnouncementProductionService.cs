@@ -21,6 +21,9 @@ public class AnnouncementProductionService(
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
 
+    /// <summary>After this, an unfulfilled request goes to the mailbag with an honest "not available".</summary>
+    private const int RequestFulfillmentTimeoutMinutes = 20;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -96,11 +99,19 @@ public class AnnouncementProductionService(
         var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator.Talkativeness, context.Format?.Talkativeness);
         var batchSize = TalkPlanner.PickGreetingBatchSize(Random.Shared, talkativeness);
 
+        // Requests whose track is in production are NOT read here — they air as a
+        // dedication right before their song. Only greetings, requests nobody could
+        // pin a genre on, and stale requests (production too slow) hit the mailbag.
+        var staleCutoff = DateTime.UtcNow.AddMinutes(-RequestFulfillmentTimeoutMinutes);
         List<ListenerMessage> messages;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             messages = await db.ListenerMessages
-                .Where(m => m.Status == ListenerMessageStatus.Queued)
+                .Where(m => m.Status == ListenerMessageStatus.Queued
+                    && m.FulfilledByTrackId == null
+                    && (m.Kind == ListenerMessageKind.Greeting
+                        || m.RequestGenre == null || m.RequestGenre == ""
+                        || m.SubmittedAt < staleCutoff))
                 .OrderBy(m => m.SubmittedAt)
                 .Take(batchSize)
                 .ToListAsync(ct);
@@ -138,11 +149,14 @@ public class AnnouncementProductionService(
 
     private static string FormatMessageFact(ListenerMessage m)
     {
-        var kind = m.Kind == ListenerMessageKind.Request
-            ? string.IsNullOrWhiteSpace(m.RequestGenre)
-                ? " (music request)"
-                : $" (music request, genre wish: {m.RequestGenre})"
-            : string.Empty;
-        return $"- {m.SenderName}{kind}: \"{m.MessageText}\"";
+        // Requests only reach the mailbag when their song could NOT be delivered
+        // (no recognizable genre, or production didn't finish in time).
+        if (m.Kind == ListenerMessageKind.Request)
+        {
+            var wish = string.IsNullOrWhiteSpace(m.RequestGenre) ? "" : $", wished for {m.RequestGenre}";
+            return $"- {m.SenderName} (music request{wish} — the song is NOT available): \"{m.MessageText}\"";
+        }
+
+        return $"- {m.SenderName}: \"{m.MessageText}\"";
     }
 }

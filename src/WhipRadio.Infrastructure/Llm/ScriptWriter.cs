@@ -48,6 +48,7 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
                 ? "- a listener: \"Greetings to everyone listening!\""
                 : request.Facts,
         }),
+        AnnouncementKind.RequestDedication => PromptTemplates.Render("ScriptWriter.RequestDedication", ParseDedicationFacts(request)),
         AnnouncementKind.StationId => PromptTemplates.Render("ScriptWriter.StationId", new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
@@ -55,6 +56,20 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }),
         _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown announcement kind"),
     };
+
+    /// <summary>Dedication facts arrive as "SenderName|MessageText|Genre"; the track rides on the request.</summary>
+    private static Dictionary<string, string> ParseDedicationFacts(AnnouncementRequest request)
+    {
+        var parts = (request.Facts ?? string.Empty).Split('|', 3);
+        return new Dictionary<string, string>
+        {
+            ["SenderName"] = parts.ElementAtOrDefault(0) is { Length: > 0 } name ? name : "a listener",
+            ["MessageText"] = parts.ElementAtOrDefault(1) ?? "a song wish",
+            ["Genre"] = parts.ElementAtOrDefault(2) is { Length: > 0 } genre ? genre : "something special",
+            ["Title"] = request.Track?.Title ?? "a brand-new tune",
+            ["Artist"] = request.Track?.Artist?.Name ?? "one of our studio artists",
+        };
+    }
 
     private static Dictionary<string, string> TrackValues(AnnouncementRequest request) => new()
     {

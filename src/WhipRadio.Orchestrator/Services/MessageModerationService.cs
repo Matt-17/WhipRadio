@@ -62,23 +62,30 @@ public class MessageModerationService(
 
         foreach (var message in pending)
         {
-            var (approved, reason) = await moderator.ModerateAsync(message, context, settings.StationName, ct);
+            var result = await moderator.ModerateAsync(message, context, settings.StationName, ct);
 
-            if (approved)
+            if (result.Approved)
             {
                 message.Status = ListenerMessageStatus.Queued;
                 if (message.Kind == ListenerMessageKind.Request)
                 {
-                    greetingState.SetGenreHint(message.RequestGenre);
+                    // The listener's explicit genre wins; otherwise the LLM's read of the message.
+                    if (string.IsNullOrWhiteSpace(message.RequestGenre))
+                    {
+                        message.RequestGenre = result.ExtractedGenre;
+                    }
+
+                    greetingState.EnqueueRequestHint(message.Id, message.RequestGenre);
                 }
 
                 logger.LogInformation(
-                    "Approved {Kind} from {Sender}", message.Kind, message.SenderName);
+                    "Approved {Kind} from {Sender}{Genre}", message.Kind, message.SenderName,
+                    message.RequestGenre is null ? "" : $" (genre: {message.RequestGenre})");
             }
             else
             {
                 message.Status = ListenerMessageStatus.Dismissed;
-                message.DismissalReason = reason ?? "Rejected by auto-moderation";
+                message.DismissalReason = result.Reason ?? "Rejected by auto-moderation";
                 logger.LogInformation(
                     "Dismissed {Kind} from {Sender}: {Reason}", message.Kind, message.SenderName, message.DismissalReason);
             }

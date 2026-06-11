@@ -1,0 +1,164 @@
+@page "/messages"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Messages</PageTitle>
+
+<h1 class="stage-title">Listener Messages</h1>
+<div class="stage-sub">greetings &amp; music requests · auto-moderated by the LLM host · refreshes every 10 s</div>
+
+<div class="panel reveal">
+    <div class="seg" role="radiogroup" aria-label="Message kind filter" style="margin-bottom:14px">
+        <button type="button" class="seg-btn @(_kindFilter is null ? "active" : null)"
+                @onclick="@(() => FilterAsync(null))">All</button>
+        <button type="button" class="seg-btn @(_kindFilter == "Greeting" ? "active" : null)"
+                @onclick="@(() => FilterAsync("Greeting"))">
+            <Icon Name="heart" /> Greetings
+        </button>
+        <button type="button" class="seg-btn @(_kindFilter == "Request" ? "active" : null)"
+                @onclick="@(() => FilterAsync("Request"))">
+            <Icon Name="note" /> Requests
+        </button>
+    </div>
+
+    @if (_page is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> opening the mailbag…</div>
+    }
+    else if (_page.Items.Count == 0)
+    {
+        <div class="empty-state">no messages@(_kindFilter is null ? "" : " of this kind") yet</div>
+    }
+    else
+    {
+        <table class="console-table">
+            <thead>
+                <tr>
+                    <th style="width:36px" title="Kind"></th>
+                    <th style="width:120px">From</th>
+                    <th>Message</th>
+                    <th style="width:110px">Status</th>
+                    <th style="width:60px" class="num" title="Received"><Icon Name="inbox" /></th>
+                    <th style="width:60px" class="num" title="On air"><Icon Name="antenna" /></th>
+                    <th style="width:170px"></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var message in _page.Items)
+                {
+                    <tr>
+                        <td title="@(message.Kind == "Request" ? "Music request" : "Greeting")">
+                            <Icon Name="@(message.Kind == "Request" ? "note" : "heart")" />
+                        </td>
+                        <td><strong>@message.SenderName</strong></td>
+                        <td>@message.MessageText
+                            @if (message.RequestGenre is not null)
+                            {
+                                <span class="tag amber">wants @message.RequestGenre</span>
+                            }
+                        </td>
+                        <td>
+                            @if (message.Status == "Pending")
+                            {
+                                <span class="tag"><span class="blink">▮</span> checking…</span>
+                            }
+                            else if (message.Status == "Dismissed")
+                            {
+                                <span class="tag red" title="@(message.DismissalReason ?? "dismissed")">Dismissed</span>
+                            }
+                            else if (message.Status == "OnAir")
+                            {
+                                <span class="tag green">On air</span>
+                            }
+                            else
+                            {
+                                <span class="tag amber">@message.Status</span>
+                            }
+                        </td>
+                        <td class="num dim" title="received @message.SubmittedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")">
+                            @ShortTime(message.SubmittedAt)
+                        </td>
+                        <td class="num dim" title="@(message.AiredAt is { } aired ? $"aired {aired.ToLocalTime():dd.MM.yyyy HH:mm:ss}" : "not aired yet")">
+                            @(message.AiredAt is { } a ? ShortTime(a) : "—")
+                        </td>
+                        <td style="white-space:nowrap">
+                            @if (message.Status == "Dismissed")
+                            {
+                                <button class="btn small" @onclick="() => QueueAsync(message.Id)">override → on air</button>
+                            }
+                            @if (message.Status == "Queued")
+                            {
+                                <button class="btn small vote-down" @onclick="() => DismissAsync(message.Id)">remove</button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <div class="btn-row" style="margin-top:14px">
+            <button class="btn small" disabled="@(_pageNumber <= 1)" @onclick="() => GoToPageAsync(_pageNumber - 1)">‹ newer</button>
+            <span class="dim">page @_pageNumber of @TotalPages (@_page.TotalCount messages)</span>
+            <button class="btn small" disabled="@(_pageNumber >= TotalPages)" @onclick="() => GoToPageAsync(_pageNumber + 1)">older ›</button>
+        </div>
+    }
+</div>
+
+@code {
+    private const int PageSize = 25;
+
+    private PagedListenerMessagesDto? _page;
+    private int _pageNumber = 1;
+    private string? _kindFilter;
+    private Timer? _timer;
+
+    private int TotalPages => _page is null ? 1 : Math.Max(1, (int)Math.Ceiling(_page.TotalCount / (double)PageSize));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    private static string ShortTime(DateTime utc)
+    {
+        var local = utc.ToLocalTime();
+        return local.Date == DateTime.Today ? local.ToString("HH:mm") : local.ToString("dd.MM.");
+    }
+
+    private async Task LoadAsync()
+        => _page = await Api.GetGreetingsAsync(_pageNumber, PageSize, _kindFilter);
+
+    private async Task FilterAsync(string? kind)
+    {
+        _kindFilter = kind;
+        _pageNumber = 1;
+        await LoadAsync();
+    }
+
+    private async Task GoToPageAsync(int page)
+    {
+        _pageNumber = page;
+        await LoadAsync();
+    }
+
+    private async Task QueueAsync(Guid id)
+    {
+        await Api.QueueGreetingAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DismissAsync(Guid id)
+    {
+        await Api.DismissGreetingAsync(id);
+        await LoadAsync();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

@@ -2,15 +2,20 @@ using System.Collections.Concurrent;
 
 namespace WhipRadio.Orchestrator.Services;
 
+/// <summary>A music request waiting for production: which message asked for which genre.</summary>
+public sealed record RequestHint(Guid MessageId, string Genre);
+
 /// <summary>
-/// In-memory listener-interaction state: a trivial per-IP submission guard
-/// (3 per hour) and a one-shot genre hint that a music request leaves for the
-/// next generation cycle.
+/// In-memory listener-interaction state: a per-client submission guard
+/// (10 per hour) and the queue of music-request hints that production
+/// consumes one per generation cycle.
 /// </summary>
 public class GreetingState
 {
+    private const int MaxSubmissionsPerHour = 10;
+
     private readonly ConcurrentDictionary<string, List<DateTime>> _submissions = new();
-    private string? _nextGenreHint;
+    private readonly ConcurrentQueue<RequestHint> _requestHints = new();
 
     public bool TryRegisterSubmission(string clientHint)
     {
@@ -19,7 +24,7 @@ public class GreetingState
         lock (history)
         {
             history.RemoveAll(t => now - t > TimeSpan.FromHours(1));
-            if (history.Count >= 3)
+            if (history.Count >= MaxSubmissionsPerHour)
             {
                 return false;
             }
@@ -29,14 +34,15 @@ public class GreetingState
         }
     }
 
-    public void SetGenreHint(string? genre)
+    public void EnqueueRequestHint(Guid messageId, string? genre)
     {
         if (!string.IsNullOrWhiteSpace(genre))
         {
-            Volatile.Write(ref _nextGenreHint, genre);
+            _requestHints.Enqueue(new RequestHint(messageId, genre));
         }
     }
 
-    /// <summary>Returns the pending hint once, then clears it.</summary>
-    public string? ConsumeGenreHint() => Interlocked.Exchange(ref _nextGenreHint, null);
+    /// <summary>Hands the oldest pending request to the production cycle.</summary>
+    public RequestHint? ConsumeRequestHint()
+        => _requestHints.TryDequeue(out var hint) ? hint : null;
 }

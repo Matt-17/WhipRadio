@@ -12,9 +12,12 @@ Message: {MessageText}
 
 Rules:
 - GREETING: Approve if friendly and safe for radio broadcast. Reject if it contains profanity, hate speech, personal attacks, spam, or anything inappropriate for a general audience.
-- REQUEST: Approve if the requested genre is plausible for this station's style (be generous — adjacent genres are fine). Reject only if completely unrelated to the station's music style or if the message itself is inappropriate.
+- MUSIC REQUEST: Approve if the wish is plausible for this station's style (be generous — adjacent genres are fine). Reject only if completely unrelated to the station's music style or if the message itself is inappropriate.
+- For MUSIC REQUESTS also extract the wished genre: use the stated genre wish if given, otherwise infer it from the message text (e.g. "play something chill for the night shift" → "lofi"). Use a short lowercase genre term. If no genre can be inferred at all, omit the field.
 
 Respond with ONLY valid JSON, no other text:
 {"approved": true}
+or for an approved music request with a recognizable genre:
+{"approved": true, "genre": "techno"}
 or
 {"approved": false, "reason": "one short sentence explaining why"}

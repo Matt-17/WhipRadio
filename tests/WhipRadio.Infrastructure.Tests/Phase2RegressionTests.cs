@@ -89,7 +89,7 @@ public class Phase2RegressionTests
 
         Assert.Contains("Mia", llm.UserPrompt);
         Assert.Contains("night owls", llm.UserPrompt);
-        Assert.Contains("do NOT promise a specific song", llm.UserPrompt);
+        Assert.Contains("Do NOT promise a specific song", llm.UserPrompt);
         Assert.Contains("Relay each message's actual content", llm.UserPrompt);
     }
 

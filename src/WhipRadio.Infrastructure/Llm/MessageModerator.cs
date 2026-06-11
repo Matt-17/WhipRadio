@@ -4,11 +4,11 @@ using WhipRadio.Core.Entities;
 
 namespace WhipRadio.Infrastructure.Llm;
 
+public sealed record ModerationResult(bool Approved, string? Reason = null, string? ExtractedGenre = null);
+
 public class MessageModerator(ITextGenerationService llm)
 {
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
-
-    public async Task<(bool Approved, string? Reason)> ModerateAsync(
+    public async Task<ModerationResult> ModerateAsync(
         ListenerMessage message,
         ShowContext context,
         string stationName,
@@ -48,19 +48,26 @@ public class MessageModerator(ITextGenerationService llm)
 
             using var doc = JsonDocument.Parse(trimmed);
             var approved = doc.RootElement.GetProperty("approved").GetBoolean();
+
             string? reason = null;
             if (!approved && doc.RootElement.TryGetProperty("reason", out var reasonEl))
             {
                 reason = reasonEl.GetString();
             }
 
-            return (approved, reason);
+            string? genre = null;
+            if (approved && doc.RootElement.TryGetProperty("genre", out var genreEl))
+            {
+                genre = genreEl.GetString()?.Trim().ToLowerInvariant();
+            }
+
+            return new ModerationResult(approved, reason, string.IsNullOrWhiteSpace(genre) ? null : genre);
         }
         catch
         {
             // If moderation fails (LLM unavailable, bad JSON), approve by default
             // so the station doesn't silently drop messages.
-            return (true, null);
+            return new ModerationResult(Approved: true);
         }
     }
 }

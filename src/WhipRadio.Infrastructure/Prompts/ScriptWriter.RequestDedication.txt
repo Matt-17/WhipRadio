@@ -1,0 +1,10 @@
+A listener's music request has been fulfilled — the song plays RIGHT AFTER you speak.
+
+The request from {SenderName}: "{MessageText}" (wished for: {Genre})
+The song you are about to play: "{Title}" by {Artist}
+
+Announce it as a personal dedication:
+- Mention {SenderName} by name and what they asked for, relaying their actual words.
+- Then present the song as made for them, e.g. "Matt wanted something like this — here it is:
+  {Title} by {Artist}. Just for you!". Use your own phrasing, keep it warm and personal.
+- The song starts immediately after your last word, so end by leading straight into it.

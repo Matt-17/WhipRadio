@@ -28,9 +28,12 @@ public class ShowRunnerService(
     private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(90);
 
     private readonly Queue<Guid> _recentlyEnqueued = new();
+    private readonly HashSet<Guid> _frontPushedGreetingIds = [];
     private int _tracksSinceAnnouncement;
     private int _previousModeratorId = -1;
     private Track? _lastEnqueuedTrack;
+
+    private sealed record ReadyDedication(ListenerMessage Message, Track Track);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -75,16 +78,12 @@ public class ShowRunnerService(
 
         _previousModeratorId = context.Moderator.Id;
 
-        var track = await PickTrackAsync(selector, context, ct);
+        // Fresh greeting segments jump the whole queue: right after the current item.
+        await FrontPushGreetingSegmentsAsync(context.Moderator, ct);
 
-        // Produced listener greetings jump the cadence: force a talk gap before
-        // the next track instead of waiting for the regular announcement slot.
-        bool greetingWaiting;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
-        {
-            greetingWaiting = await db.Announcements.AsNoTracking()
-                .AnyAsync(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed, ct);
-        }
+        // A fulfilled music request takes over the next slot: dedication talk + THE track.
+        var dedication = await FindReadyDedicationAsync(ct);
+        var track = dedication?.Track ?? await PickTrackAsync(selector, context, ct);
 
         var action = ShowPlanner.Decide(new ShowPlannerInput(
             playoutQueue.Count,
@@ -92,7 +91,7 @@ public class ShowRunnerService(
             TrackAvailable: track is not null,
             _tracksSinceAnnouncement,
             settings.AnnouncementEveryNTracks,
-            PriorityTalkPending: greetingWaiting));
+            PriorityTalkPending: dedication is not null));
 
         switch (action)
         {
@@ -104,6 +103,13 @@ public class ShowRunnerService(
                 return ColdStartDelay;
 
             case ShowAction.EnqueueTrackWithIntro:
+                if (dedication is not null)
+                {
+                    await EnqueueDedicationAsync(scope, dedication, context.Moderator, settings.StationName, ct);
+                    _tracksSinceAnnouncement = 0;
+                    return TimeSpan.Zero;
+                }
+
                 var talks = await PlanGapTalksAsync(scope, track!, context, settings.StationName, ct);
                 foreach (var talk in talks)
                 {
@@ -122,6 +128,103 @@ public class ShowRunnerService(
             default:
                 return IdleDelay;
         }
+    }
+
+    /// <summary>
+    /// Pushes unplayed greeting segments to the FRONT of the playout queue so they
+    /// air right after the current item — listeners shouldn't wait three songs to
+    /// hear their name. The id set guards against double-enqueueing across cycles.
+    /// </summary>
+    private async Task FrontPushGreetingSegmentsAsync(Moderator moderator, CancellationToken ct)
+    {
+        List<Announcement> unplayed;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            unplayed = await db.Announcements.AsNoTracking()
+                .Where(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed)
+                .OrderByDescending(a => a.CreatedAt) // newest pushed first → oldest ends up frontmost
+                .ToListAsync(ct);
+        }
+
+        _frontPushedGreetingIds.RemoveWhere(id => unplayed.All(a => a.Id != id)); // aired → forget
+
+        foreach (var greeting in unplayed.Where(g => _frontPushedGreetingIds.Add(g.Id)))
+        {
+            playoutQueue.EnqueueFront(ToPlayoutItem(greeting, moderator));
+            logger.LogInformation("Greeting segment {Id} jumps to the front of the queue", greeting.Id);
+        }
+    }
+
+    /// <summary>Oldest queued request whose track has been produced — ready for a dedication.</summary>
+    private async Task<ReadyDedication?> FindReadyDedicationAsync(CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var message = await db.ListenerMessages.AsNoTracking()
+            .Where(m => m.Status == ListenerMessageStatus.Queued && m.FulfilledByTrackId != null)
+            .OrderBy(m => m.SubmittedAt)
+            .FirstOrDefaultAsync(ct);
+        if (message is null)
+        {
+            return null;
+        }
+
+        var track = await db.Tracks.AsNoTracking()
+            .Include(t => t.Artist)
+            .FirstOrDefaultAsync(t => t.Id == message.FulfilledByTrackId && !t.IsRetired, ct);
+        if (track is null)
+        {
+            // Track vanished/retired — release the request back to the mailbag path.
+            await db.ListenerMessages
+                .Where(m => m.Id == message.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.FulfilledByTrackId, (Guid?)null), ct);
+            return null;
+        }
+
+        return new ReadyDedication(message, track);
+    }
+
+    /// <summary>
+    /// Airs a fulfilled request: dedication talk immediately followed by the
+    /// requested track. If the talk fails to produce, the track still plays.
+    /// </summary>
+    private async Task EnqueueDedicationAsync(
+        IServiceScope scope, ReadyDedication dedication, Moderator moderator, string stationName, CancellationToken ct)
+    {
+        var (message, track) = dedication;
+        try
+        {
+            var factory = scope.ServiceProvider.GetRequiredService<AnnouncementFactory>();
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(SyncProductionBudget);
+
+            var talk = await factory.ProduceAsync(
+                AnnouncementKind.RequestDedication, moderator, track,
+                $"{message.SenderName}|{message.MessageText}|{message.RequestGenre}",
+                stationName, budget.Token);
+
+            playoutQueue.Enqueue(ToPlayoutItem(talk, moderator));
+            await MarkRequestOnAirAsync(message.Id, moderator.Id, talk.Id, ct);
+            logger.LogInformation(
+                "Dedication: \"{Title}\" airs for {Sender} right after the announcement", track.Title, message.SenderName);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Dedication talk failed; playing the requested track without it");
+            await MarkRequestOnAirAsync(message.Id, moderator.Id, announcementId: null, ct);
+        }
+
+        EnqueueTrack(track, moderator);
+    }
+
+    private async Task MarkRequestOnAirAsync(Guid messageId, int moderatorId, Guid? announcementId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        await db.ListenerMessages
+            .Where(m => m.Id == messageId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(m => m.Status, ListenerMessageStatus.OnAir)
+                .SetProperty(m => m.ModeratorId, moderatorId)
+                .SetProperty(m => m.AnnouncementId, announcementId), ct);
     }
 
     private async Task<StationSettings> GetSettingsAsync(CancellationToken ct)
@@ -162,11 +265,11 @@ public class ShowRunnerService(
 
     /// <summary>
     /// Plans the talk chain for the gap before the next track. Talks are produced
-    /// FRESH for this gap — nothing stale from a pool. Mandatory items come first
-    /// (queued listener greetings; the hourly weather report at the top of the
-    /// hour), then the host's mood decides 0–3 free talks ("that was …", a
-    /// greeting reaction, a coffee story, "up next …") with varying lengths.
-    /// How chatty the gap gets depends on the host's and format's talkativeness.
+    /// FRESH for this gap — nothing stale from a pool. The hourly weather report
+    /// comes first when due (listener greetings don't pass through here anymore;
+    /// they jump straight to the queue front), then the host's mood decides 0–3
+    /// free talks ("that was …", a coffee story, "up next …") with varying
+    /// lengths, scaled by the host's and format's talkativeness.
     /// </summary>
     private async Task<List<Announcement>> PlanGapTalksAsync(
         IServiceScope scope, Track nextTrack, ShowContext context, string stationName, CancellationToken ct)
@@ -176,17 +279,6 @@ public class ShowRunnerService(
 
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            // Queued listener greetings — someone is waiting to hear their name.
-            // (Produced fresh on queue; any host's recording airs.)
-            var greeting = await db.Announcements.AsNoTracking()
-                .Where(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed)
-                .OrderBy(a => a.CreatedAt)
-                .FirstOrDefaultAsync(ct);
-            if (greeting is not null)
-            {
-                talks.Add(greeting);
-            }
-
             // Weather: once per hour, first talk slot after the full hour — and only
             // a freshly prepared report (≤ 30 min old), never a stale one.
             var localNow = timeProvider.GetLocalNow();

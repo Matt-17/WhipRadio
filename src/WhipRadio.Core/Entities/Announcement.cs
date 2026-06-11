@@ -17,6 +17,9 @@ public enum AnnouncementKind
 
     /// <summary>The host reads and reacts to a listener's greeting or request.</summary>
     ListenerGreeting,
+
+    /// <summary>The host announces a track produced for a listener's request ("just for you").</summary>
+    RequestDedication,
 }
 
 /// <summary>A produced spoken segment (two-stage LLM pipeline + TTS).</summary>

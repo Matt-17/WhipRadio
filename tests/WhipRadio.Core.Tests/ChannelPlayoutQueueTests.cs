@@ -40,6 +40,39 @@ public class ChannelPlayoutQueueTests
     }
 
     [Fact]
+    public async Task EnqueueFront_JumpsTheLine()
+    {
+        var queue = new ChannelPlayoutQueue();
+        var track = Item("track");
+        var nextTrack = Item("next-track");
+        var greeting = Item("greeting");
+
+        queue.Enqueue(track);
+        queue.Enqueue(nextTrack);
+        queue.EnqueueFront(greeting);
+
+        Assert.Equal(3, queue.Count);
+        Assert.Equal(greeting, await queue.DequeueAsync(CancellationToken.None));
+        Assert.Equal(track, await queue.DequeueAsync(CancellationToken.None));
+        Assert.Equal(nextTrack, await queue.DequeueAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task EnqueueFront_TalkThenTrackStayAdjacent()
+    {
+        // Dedication pattern: talk enqueued normally, then its track — FIFO keeps them paired.
+        var queue = new ChannelPlayoutQueue();
+        var talk = Item("dedication-talk");
+        var requested = Item("requested-track");
+
+        queue.Enqueue(talk);
+        queue.Enqueue(requested);
+
+        Assert.Equal(talk, await queue.DequeueAsync(CancellationToken.None));
+        Assert.Equal(requested, await queue.DequeueAsync(CancellationToken.None));
+    }
+
+    [Fact]
     public async Task DequeueAsync_CancellationThrows()
     {
         var queue = new ChannelPlayoutQueue();

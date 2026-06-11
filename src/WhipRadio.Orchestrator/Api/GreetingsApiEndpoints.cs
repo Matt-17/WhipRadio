@@ -60,19 +60,44 @@ public static class GreetingsApiEndpoints
             return Results.Ok(ToDto(message));
         });
 
-        // Returns active messages (Pending/Queued/OnAir) plus recent dismissed history.
-        api.MapGet("/", async (RadioDbContext db, CancellationToken ct) =>
+        // Full message history, newest first — paged, optionally filtered by kind.
+        // AiredAt comes from the play log of the linked announcement.
+        api.MapGet("/", async (RadioDbContext db, int page, int pageSize, string? kind, CancellationToken ct) =>
         {
-            var cutoff = DateTime.UtcNow.AddHours(-24);
-            var messages = await db.ListenerMessages.AsNoTracking()
-                .Where(m => m.Status == ListenerMessageStatus.Pending
-                    || m.Status == ListenerMessageStatus.Queued
-                    || m.Status == ListenerMessageStatus.OnAir
-                    || (m.Status == ListenerMessageStatus.Dismissed && m.SubmittedAt >= cutoff))
+            page = Math.Max(1, page);
+            pageSize = Math.Clamp(pageSize == 0 ? 25 : pageSize, 1, 100);
+
+            var query = db.ListenerMessages.AsNoTracking();
+            if (Enum.TryParse<ListenerMessageKind>(kind, ignoreCase: true, out var parsedKind))
+            {
+                query = query.Where(m => m.Kind == parsedKind);
+            }
+
+            var total = await query.CountAsync(ct);
+            var messages = await query
                 .OrderByDescending(m => m.SubmittedAt)
-                .Take(100)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync(ct);
-            return Results.Ok(messages.Select(ToDto).ToList());
+
+            var announcementIds = messages
+                .Where(m => m.AnnouncementId != null)
+                .Select(m => m.AnnouncementId!.Value)
+                .ToList();
+            var airTimes = await db.PlayLog.AsNoTracking()
+                .Where(e => e.ItemType == PlayoutItemType.Announcement && announcementIds.Contains(e.ItemId))
+                .GroupBy(e => e.ItemId)
+                .Select(g => new { g.Key, PlayedAt = g.Min(e => e.PlayedAt) })
+                .ToDictionaryAsync(x => x.Key, x => x.PlayedAt, ct);
+
+            var items = messages.Select(m => ToDto(m) with
+            {
+                AiredAt = m.AnnouncementId is { } annId && airTimes.TryGetValue(annId, out var played)
+                    ? played
+                    : null,
+            }).ToList();
+
+            return Results.Ok(new PagedListenerMessagesDto(total, items));
         });
 
         // Manual override endpoints so an admin can still intervene if needed.
@@ -88,7 +113,7 @@ public static class GreetingsApiEndpoints
             message.DismissalReason = null;
             if (message.Kind == ListenerMessageKind.Request)
             {
-                state.SetGenreHint(message.RequestGenre);
+                state.EnqueueRequestHint(message.Id, message.RequestGenre);
             }
 
             await db.SaveChangesAsync(ct);
