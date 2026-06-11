@@ -3,29 +3,50 @@
 @implements IAsyncDisposable
 @inject RadioLiveClient Live
 @inject RadioApiClient Api
+@inject PlayerState Player
 @inject IJSRuntime Js
-@inject IConfiguration Configuration
+
+<div class="player-area">
+    <div class="transcript-drawer @(ShowTranscript ? "open" : null)">
+        <div class="panel-label">On the mic — @(Live.NowPlaying?.ModeratorName ?? "host")</div>
+        <div class="transcript">@_lastTranscript</div>
+    </div>
 
 <footer class="player-bar">
-    <button class="btn primary play-btn" @onclick="TogglePlayAsync">@(_playing ? "■" : "►")</button>
+    <button class="btn primary play-btn" @onclick="TogglePlayAsync" title="@(IsAudible ? "stop" : "play")">
+        <Icon Name="@(IsAudible ? "stop" : "play")" Size="18" />
+    </button>
 
     <div class="player-info">
-        @if (Live.NowPlaying is { } np)
+        @if (Player.CurrentTrack is { } track)
         {
             <div class="player-title">
-                @np.Title
-                @if (np.ArtistName is not null)
-                {
-                    <span class="dim"> — @np.ArtistName</span>
-                }
+                @track.ArtistName<span class="dim"> — </span>@track.Title
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
             </div>
             <div class="player-meta">
-                @(np.ModeratorName ?? "WhipRadio")
-                @if (np.FormatName is not null)
+                Preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+            </div>
+            <div class="player-progress seekable">
+                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+                <input type="range" class="seek-overlay"
+                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="OnSeekAsync" title="drag to seek" />
+            </div>
+        }
+        else if (Live.NowPlaying is { } np)
+        {
+            <div class="player-title">
+                @if (np.ArtistName is not null)
                 {
-                    <span> · @np.FormatName</span>
+                    @np.ArtistName<span class="dim"> — </span>
                 }
-                <span> · @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))</span>
+                @np.Title
+            </div>
+            <div class="player-meta">
+                @(np.FormatName ?? "WhipRadio")@(np.ModeratorName is not null ? $" with {np.ModeratorName}" : "")
+                · @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))
             </div>
             <div class="player-progress"><div class="fill" style="width:@($"{Progress:F1}%")"></div></div>
         }
@@ -38,20 +59,49 @@
     </div>
 
     <div class="player-votes">
-        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @(Live.NowPlaying?.UpVotes ?? 0)</button>
-        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @(Live.NowPlaying?.DownVotes ?? 0)</button>
+        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @VoteUp</button>
+        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @VoteDown</button>
     </div>
+
+    <button class="btn transcript-toggle @(_transcriptEnabled ? "active" : null)"
+            @onclick="ToggleTranscriptAsync" title="@(_transcriptEnabled ? "transcripts on" : "transcripts off")">
+        <Icon Name="transcript" />
+    </button>
 
     <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeChanged" title="Volume" />
 </footer>
+</div>
 
 @code {
-    private bool _playing;
+    private bool _livePlaying;
+    private bool _songPlaying;
+    private double _songPos;
+    private double _songDur;
     private int _volume = 80;
     private string _streamUrl = "";
+    private bool _transcriptEnabled;
+    private string? _lastTranscript;
     private Timer? _ticker;
 
-    private bool CanVote => Live.NowPlaying?.ItemType == "Track";
+    private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
+
+    private bool IsAudible => Player.CurrentTrack is null ? _livePlaying : _songPlaying;
+
+    // Drawer slides up only for live announcements with the toggle on; keeping
+    // the last transcript lets the close animation show text while sliding down.
+    private bool ShowTranscript => _transcriptEnabled
+        && Player.CurrentTrack is null
+        && Live.NowPlaying is { Transcript: not null };
+
+    private double SongDuration => _songDur > 0 ? _songDur : Player.CurrentTrack?.DurationSeconds ?? 0;
+
+    private double SongProgress => SongDuration > 0 ? Math.Clamp(_songPos / SongDuration * 100, 0, 100) : 0;
+
+    private bool CanVote => Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track";
+
+    private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
+
+    private int VoteDown => Player.CurrentTrack?.DownVotes ?? Live.NowPlaying?.DownVotes ?? 0;
 
     private TimeSpan Elapsed => Live.NowPlaying is { } np
         ? DateTime.UtcNow - np.StartedAtUtc
@@ -63,8 +113,10 @@
 
     protected override void OnInitialized()
     {
-        _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
+        // Same-origin proxy: works on http and https pages alike (no mixed content).
+        _streamUrl = "/media/live";
         Live.Changed += OnLiveChanged;
+        Player.Changed += OnPlayerModeChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -72,23 +124,126 @@
         if (firstRender)
         {
             await Live.EnsureStartedAsync();
-            _ticker = new Timer(_ => _ = InvokeAsync(StateHasChanged), null,
+            _ticker = new Timer(_ => _ = InvokeAsync(TickAsync), null,
                 TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+            var saved = await Js.InvokeAsync<string?>("localStorage.getItem", "whipradio.transcript");
+            if (saved == "on")
+            {
+                _transcriptEnabled = true;
+                StateHasChanged();
+            }
         }
     }
 
-    private void OnLiveChanged() => _ = InvokeAsync(StateHasChanged);
+    private async Task ToggleTranscriptAsync()
+    {
+        _transcriptEnabled = !_transcriptEnabled;
+        await Js.InvokeVoidAsync("localStorage.setItem", "whipradio.transcript", _transcriptEnabled ? "on" : "off");
+    }
+
+    private async Task TickAsync()
+    {
+        if (Player.CurrentTrack is not null && _songPlaying)
+        {
+            var status = await Js.InvokeAsync<AudioStatus>("whipRadio.getStatus");
+            _songPos = status.Position;
+            _songDur = status.Duration;
+
+            if (status.Ended)
+            {
+                await BackToLiveAsync();
+                return;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private void OnLiveChanged()
+    {
+        if (Live.NowPlaying?.Transcript is { } transcript)
+        {
+            _lastTranscript = transcript;
+        }
+
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void OnPlayerModeChanged() => _ = InvokeAsync(async () =>
+    {
+        if (Player.CurrentTrack is { } track)
+        {
+            await StartSongAsync(track);
+        }
+
+        StateHasChanged();
+    });
+
+    private async Task StartSongAsync(TrackDto track)
+    {
+        _livePlaying = false;
+        _songPos = 0;
+        _songDur = track.DurationSeconds;
+        _songPlaying = await Js.InvokeAsync<bool>("whipRadio.playTrack", Api.TrackAudioUrl(track.Id));
+        await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+    }
+
+    private async Task BackToLiveAsync()
+    {
+        // Song playing → carry the listening straight into the live stream.
+        // Song stopped → arrive in stop mode; the listener wasn't listening.
+        var keepListening = _songPlaying;
+
+        await Js.InvokeVoidAsync("whipRadio.pause");
+        _songPlaying = false;
+        _songPos = 0;
+        _songDur = 0;
+        Player.BackToLive();
+
+        if (keepListening)
+        {
+            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+        }
+
+        StateHasChanged();
+    }
 
     private async Task TogglePlayAsync()
     {
-        if (_playing)
+        if (Player.CurrentTrack is not null)
         {
-            _playing = await Js.InvokeAsync<bool>("whipRadio.pause");
+            if (_songPlaying)
+            {
+                await Js.InvokeVoidAsync("whipRadio.pause");
+                _songPlaying = false;
+            }
+            else
+            {
+                _songPlaying = await Js.InvokeAsync<bool>("whipRadio.resumeTrack");
+            }
+
+            return;
+        }
+
+        if (_livePlaying)
+        {
+            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.pause");
         }
         else
         {
-            _playing = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
             await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        }
+    }
+
+    private async Task OnSeekAsync(ChangeEventArgs e)
+    {
+        if (double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var position))
+        {
+            _songPos = position;
+            await Js.InvokeVoidAsync("whipRadio.seek", position);
         }
     }
 
@@ -103,7 +258,11 @@
 
     private async Task VoteAsync(int direction)
     {
-        if (Live.NowPlaying is { ItemType: "Track" } np)
+        if (Player.CurrentTrack is { } track)
+        {
+            await Api.VoteAsync(track.Id, direction);
+        }
+        else if (Live.NowPlaying is { ItemType: "Track" } np)
         {
             await Api.VoteAsync(np.ItemId, direction);
         }
@@ -112,6 +271,7 @@
     public ValueTask DisposeAsync()
     {
         Live.Changed -= OnLiveChanged;
+        Player.Changed -= OnPlayerModeChanged;
         _ticker?.Dispose();
         return ValueTask.CompletedTask;
     }

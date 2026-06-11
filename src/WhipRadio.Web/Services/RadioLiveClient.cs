@@ -12,6 +12,7 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
 {
     private HubConnection? _connection;
     private bool _started;
+    private bool _disposed;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public NowPlayingDto? NowPlaying { get; private set; }
@@ -67,6 +68,31 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
 
             _connection.Reconnected += async _ => await RefreshSnapshotAsync();
 
+            // WithAutomaticReconnect gives up after ~30 s. Orchestrator restarts
+            // (AI model loads) can take minutes — keep knocking until the studio
+            // answers, or every open page stays frozen on stale data forever.
+            _connection.Closed += async _ =>
+            {
+                while (!_disposed)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                    try
+                    {
+                        await _connection.StartAsync();
+                        await RefreshSnapshotAsync();
+                        return;
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return;
+                    }
+                    catch
+                    {
+                        // studio still rebooting — try again
+                    }
+                }
+            };
+
             try
             {
                 await _connection.StartAsync();
@@ -94,6 +120,7 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         if (_connection is not null)
         {
             await _connection.DisposeAsync();

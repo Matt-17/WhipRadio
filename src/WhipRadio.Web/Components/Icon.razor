@@ -1,0 +1,43 @@
+@* Reusable monochrome SVG icons. Stroke/fill = currentColor, so they inherit
+   the surrounding text color (amber chips, dim table cells, …). *@
+<svg class="ico @Class" viewBox="0 0 16 16" aria-hidden="true"
+     style="@(Size is { } s ? $"width:{s}px;height:{s}px" : null)">
+    @switch (Name)
+    {
+        case "heart": @* greeting *@
+            <path d="M8 13.4 C4.8 10.9 2.3 8.9 2.3 6.4 A2.9 2.9 0 0 1 8 5.4 A2.9 2.9 0 0 1 13.7 6.4 C13.7 8.9 11.2 10.9 8 13.4 Z"/>
+            break;
+        case "note": @* music request / song *@
+            <path d="M6.3 12.3 V4.2 L12.7 2.7 V10.8"/>
+            <circle cx="4.5" cy="12.3" r="1.8" fill="currentColor" stroke="none"/>
+            <circle cx="10.9" cy="10.8" r="1.8" fill="currentColor" stroke="none"/>
+            break;
+        case "inbox": @* received / created *@
+            <path d="M8 1.8v7M5.4 6.3 8 8.9l2.6-2.6"/>
+            <path d="M2 9.5v3a1.2 1.2 0 0 0 1.2 1.2h9.6A1.2 1.2 0 0 0 14 12.5v-3"/>
+            break;
+        case "antenna": @* aired / played *@
+            <circle cx="8" cy="4.6" r="1.5" fill="currentColor" stroke="none"/>
+            <path d="M8 6.6V14"/>
+            <path d="M5 7.4a4.1 4.1 0 0 1 0-5.6M11 1.8a4.1 4.1 0 0 1 0 5.6"/>
+            break;
+        case "play":
+            <path d="M4.5 2.8 13 8 4.5 13.2 Z" fill="currentColor" stroke="currentColor"/>
+            break;
+        case "transcript": @* speech bubble with text lines *@
+            <path d="M2 3.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 14 3.5v6a1.5 1.5 0 0 1-1.5 1.5H8l-3 3v-3H3.5A1.5 1.5 0 0 1 2 9.5Z"/>
+            <path d="M4.8 5.2h6.4M4.8 7.8h4.2"/>
+            break;
+        case "stop":
+            <rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.2" fill="currentColor" stroke="none"/>
+            break;
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+
+    [Parameter] public string? Class { get; set; }
+
+    [Parameter] public int? Size { get; set; }
+}

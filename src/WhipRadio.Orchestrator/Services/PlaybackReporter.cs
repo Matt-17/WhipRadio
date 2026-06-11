@@ -33,7 +33,51 @@ public class PlaybackReporter(
     IOptions<StreamOptions> streamOptions,
     ILogger<PlaybackReporter> logger) : IPlaybackReporter
 {
-    public async Task ReportStartedAsync(PlayoutItem item, CancellationToken ct)
+    private readonly SemaphoreSlim _reportGate = new(1, 1);
+    private int _epoch;
+
+    /// <summary>
+    /// The encoder feed runs DisplayLatencySeconds ahead of what listeners hear
+    /// (pipes, Icecast burst, browser buffer). The visible flip — now-playing,
+    /// queue, play log, metadata — is therefore scheduled, not immediate, so the
+    /// UI matches the ears. ReportIdle bumps the epoch so a pending flip from a
+    /// just-aborted item can't resurrect after the station goes off air.
+    /// </summary>
+    public Task ReportStartedAsync(PlayoutItem item, CancellationToken ct)
+    {
+        var delay = TimeSpan.FromSeconds(Math.Max(0, streamOptions.Value.DisplayLatencySeconds));
+        var epoch = Volatile.Read(ref _epoch);
+        _ = DelayedReportAsync(item, delay, epoch);
+        return Task.CompletedTask;
+    }
+
+    private async Task DelayedReportAsync(PlayoutItem item, TimeSpan delay, int epoch)
+    {
+        try
+        {
+            await Task.Delay(delay);
+            await _reportGate.WaitAsync();
+            try
+            {
+                if (Volatile.Read(ref _epoch) != epoch)
+                {
+                    return; // station went idle/off-air in the meantime
+                }
+
+                await ReportNowAsync(item, CancellationToken.None);
+            }
+            finally
+            {
+                _reportGate.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Delayed now-playing report failed for \"{Title}\"", item.Title);
+        }
+    }
+
+    private async Task ReportNowAsync(PlayoutItem item, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
@@ -111,6 +155,7 @@ public class PlaybackReporter(
 
     public void ReportIdle()
     {
+        Interlocked.Increment(ref _epoch); // cancel pending delayed flips
         nowPlaying.SetCurrent(null);
         _ = hub.Clients.All.SendAsync("NowPlayingChanged", (NowPlayingDto?)null);
     }

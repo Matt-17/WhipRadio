@@ -13,7 +13,19 @@ builder.Services.AddHttpClient<RadioApiClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+
+// Media proxy clients: audio must be served same-origin (the page is https;
+// browsers block plain-http media as mixed content). Infinite timeout — the
+// live stream is endless by design.
+builder.Services.AddHttpClient("orchestrator-media", client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
+builder.Services.AddHttpClient("live-stream", client => client.Timeout = Timeout.InfiniteTimeSpan);
+
 builder.Services.AddScoped<RadioLiveClient>();
+builder.Services.AddScoped<PlayerState>();
 
 var app = builder.Build();
 
@@ -32,4 +44,62 @@ app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
+// --- same-origin media proxy --------------------------------------------------
+// All audio the browser touches is served from THIS origin: the page may be
+// https while Icecast/orchestrator speak plain http (mixed content would be
+// blocked), and internal service names aren't browser-resolvable anyway.
+
+app.MapGet("/media/track/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/library/{id}/audio"));
+
+app.MapGet("/media/announcement/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/announcements/{id}/audio"));
+
+app.MapGet("/media/live", (IHttpClientFactory factory, IConfiguration config, HttpContext context) =>
+    ProxyMediaAsync(
+        context,
+        factory.CreateClient("live-stream"),
+        config["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3"));
+
 app.Run();
+
+static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl)
+{
+    using var request = new HttpRequestMessage(HttpMethod.Get, upstreamUrl);
+    if (context.Request.Headers.TryGetValue("Range", out var range))
+    {
+        request.Headers.TryAddWithoutValidation("Range", (string)range!);
+    }
+
+    using var response = await client.SendAsync(
+        request, HttpCompletionOption.ResponseHeadersRead, context.RequestAborted);
+
+    context.Response.StatusCode = (int)response.StatusCode;
+    context.Response.ContentType = response.Content.Headers.ContentType?.ToString() ?? "audio/mpeg";
+    if (response.Content.Headers.ContentLength is { } length)
+    {
+        context.Response.ContentLength = length;
+    }
+
+    if (response.Content.Headers.ContentRange is { } contentRange)
+    {
+        context.Response.Headers.ContentRange = contentRange.ToString();
+    }
+
+    if (response.Headers.AcceptRanges.Count > 0)
+    {
+        context.Response.Headers.AcceptRanges = string.Join(",", response.Headers.AcceptRanges);
+    }
+
+    // Live streams are endless — no buffering between Icecast and the listener.
+    context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()?.DisableBuffering();
+
+    try
+    {
+        await response.Content.CopyToAsync(context.Response.Body, context.RequestAborted);
+    }
+    catch (OperationCanceledException)
+    {
+        // listener tuned out — normal for streams
+    }
+}

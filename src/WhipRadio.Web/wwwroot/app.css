@@ -193,14 +193,31 @@ h1, h2, h3 { margin: 0; font-weight: 400; }
 }
 
 .rack a .key {
-    font-size: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 26px;
+    flex-shrink: 0;
     color: #6b5b45;
     border: 1px solid var(--line);
-    border-radius: 3px;
-    padding: 1px 5px;
-    min-width: 24px;
-    text-align: center;
+    border-radius: 4px;
+    transition: color .15s, border-color .15s;
 }
+
+.rack a .key svg {
+    width: 16px;
+    height: 16px;
+    display: block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.rack a.active .key,
+.rack a:hover .key { color: var(--amber); border-color: var(--amber-dim); }
 
 .rack a:hover { color: var(--text); background: rgba(255, 180, 84, 0.04); }
 
@@ -656,6 +673,154 @@ table.console-table {
 
 .seg-icon { font-size: 14px; margin-right: 4px; }
 
+/* shared inline SVG icons (Icon.razor) */
+.ico {
+    width: 15px;
+    height: 15px;
+    display: inline-block;
+    vertical-align: -3px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.seg-btn .ico { margin-right: 5px; }
+
+/* ---------- library: artist split view ---------- */
+
+.library-split {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .library-split { grid-template-columns: 1fr; }
+}
+
+.library-artists { position: sticky; top: 12px; max-height: calc(100vh - 40px); overflow-y: auto; }
+
+.artist-list { display: flex; flex-direction: column; gap: 4px; }
+
+.artist-item {
+    appearance: none;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    padding: 8px 11px;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    transition: background .15s, border-color .15s;
+}
+
+.artist-item:hover { border-color: var(--line); background: rgba(255, 217, 160, 0.04); }
+
+.artist-item.active {
+    border-color: var(--amber-dim);
+    background: rgba(255, 180, 84, 0.08);
+}
+
+.artist-item .artist-name { color: var(--amber-hot); letter-spacing: 1px; }
+
+.artist-item .artist-meta { font-size: 11px; }
+
+.artist-header { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+
+.artist-title {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    letter-spacing: 2px;
+    color: var(--amber-hot);
+    margin-bottom: 6px;
+}
+
+.artist-style {
+    font-style: italic;
+    color: var(--muted);
+    margin-bottom: 8px;
+}
+
+.artist-bio { max-width: 640px; line-height: 1.5; }
+
+.artist-actions { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+
+.generating-box {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: var(--amber-hot);
+    border: 1px solid var(--amber-dim);
+    border-radius: 7px;
+    padding: 10px 16px;
+    text-align: center;
+}
+
+.generating-row td { padding-top: 12px; padding-bottom: 12px; }
+
+.vote-up-text { color: var(--green); }
+.vote-down-text { color: var(--red); }
+
+.library-main > .panel + .panel { margin-top: 22px; }
+
+.rec-dot { color: var(--red); }
+
+/* footer player: song previews reuse the SAME progress bar as the radio —
+   plus an invisible range input on top that only contributes the drag thumb. */
+.player-progress.seekable { overflow: visible; }
+
+.player-progress.seekable .fill { border-radius: 2px; }
+
+.player-progress .seek-overlay {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 100%;
+    height: 16px;          /* generous hit area around the 3px bar */
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.player-progress .seek-overlay::-webkit-slider-runnable-track { background: transparent; }
+
+.player-progress .seek-overlay::-moz-range-track { background: transparent; }
+
+.player-progress .seek-overlay::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--amber-hot);
+    border: 2px solid #0e0c09;
+    cursor: pointer;
+}
+
+/* studios page: connection test indicator + editor block */
+.test-dot { color: var(--muted); margin-right: 4px; }
+.test-dot.ok { color: var(--green); }
+.test-dot.fail { color: var(--red); }
+
+.studio-form {
+    margin-top: 14px;
+    padding: 16px;
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+}
+
+.player-title .live-btn { margin-left: 12px; vertical-align: 2px; }
+.player-title .live-btn:hover { border-color: var(--red); color: var(--red); }
+
 /* ---------- misc ---------- */
 
 .empty-state {
@@ -706,11 +871,36 @@ table.console-table {
     grid-template-areas: "masthead masthead" "rack stage" "player player";
 }
 
-.player-bar {
+.player-area {
     grid-area: player;
     position: sticky;
     bottom: 0;
     z-index: 50;
+}
+
+/* announcement transcript drawer: slides up over the page when the host talks */
+.transcript-drawer {
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+    padding: 0 24px;
+    background: linear-gradient(180deg, var(--bg-panel), var(--bg-2));
+    border-top: 1px solid var(--line);
+    transition: max-height .45s ease, opacity .35s ease, padding .45s ease;
+}
+
+.transcript-drawer.open {
+    max-height: 180px;
+    opacity: 1;
+    padding: 14px 24px;
+    overflow-y: auto;
+}
+
+.transcript-drawer .panel-label { margin-bottom: 8px; }
+
+.transcript-toggle.active { border-color: var(--amber); color: var(--amber-hot); }
+
+.player-bar {
     display: flex;
     align-items: center;
     gap: 18px;
@@ -720,7 +910,14 @@ table.console-table {
     box-shadow: 0 -8px 30px rgba(0,0,0,.5);
 }
 
-.player-bar .play-btn { font-size: 18px; min-width: 56px; }
+.player-bar .play-btn {
+    min-width: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.player-bar .play-btn .ico { vertical-align: 0; }
 
 .player-info { flex: 1; min-width: 0; }
 
@@ -742,8 +939,10 @@ table.console-table {
 }
 
 .player-progress {
+    position: relative;
     margin-top: 6px;
     height: 3px;
+    max-width: 500px;
     border-radius: 2px;
     background: #33291c;
     overflow: hidden;

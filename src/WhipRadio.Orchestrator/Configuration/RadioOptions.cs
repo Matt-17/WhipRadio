@@ -40,6 +40,14 @@ public class StreamOptions
     public string Bitrate { get; set; } = "192k";
 
     public string FfmpegPath { get; set; } = "ffmpeg";
+
+    /// <summary>
+    /// Seconds between feeding an item into the encoder and the listener actually
+    /// hearing it (ffmpeg pipes + Icecast burst + browser buffer). Now-playing,
+    /// queue and play-log updates are delayed by this much so the display matches
+    /// the ears, not the encoder. Tune if titles still flip early/late.
+    /// </summary>
+    public double DisplayLatencySeconds { get; set; } = 8;
 }
 
 public class MusicOptions
