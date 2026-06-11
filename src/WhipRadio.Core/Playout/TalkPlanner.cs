@@ -69,6 +69,17 @@ public static class TalkPlanner
         };
     }
 
+    /// <summary>
+    /// How many waiting listener messages the host reads in one mailbag segment (1–10).
+    /// A reserved host takes them one at a time; a chatty one may clear the whole pile.
+    /// </summary>
+    public static int PickGreetingBatchSize(Random random, double talkativeness)
+    {
+        talkativeness = Math.Clamp(talkativeness, 0, 1);
+        var maxBatch = 1 + (int)Math.Round(9 * talkativeness);
+        return 1 + random.Next(maxBatch);
+    }
+
     /// <summary>What the host talks about in a free slot.</summary>
     public static AnnouncementKind PickFreeTalkKind(Random random, bool hasNextTrack, bool hasPreviousTrack)
     {

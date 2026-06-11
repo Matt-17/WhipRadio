@@ -60,7 +60,7 @@ public class AnnouncementProductionService(
         }
 
         // Queued listener greetings jump the line — listeners are waiting.
-        if (await TryProduceGreetingAsync(factory, moderator, stationName, ct))
+        if (await TryProduceGreetingAsync(factory, context, stationName, ct))
         {
             return;
         }
@@ -84,38 +84,65 @@ public class AnnouncementProductionService(
             a => a.Kind == AnnouncementKind.Weather && !a.WasPlayed && a.CreatedAt >= freshCutoff, ct);
     }
 
+    /// <summary>
+    /// Reads the mailbag: the host's mood (talkativeness) decides how many queued
+    /// messages (1–10) get woven into ONE on-air segment. The rest wait for the
+    /// next cycle, so a reserved host hands them out one by one.
+    /// </summary>
     private async Task<bool> TryProduceGreetingAsync(
-        AnnouncementFactory factory, Moderator moderator, string stationName, CancellationToken ct)
+        AnnouncementFactory factory, ShowContext context, string stationName, CancellationToken ct)
     {
-        ListenerMessage? message;
+        var moderator = context.Moderator;
+        var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator.Talkativeness, context.Format?.Talkativeness);
+        var batchSize = TalkPlanner.PickGreetingBatchSize(Random.Shared, talkativeness);
+
+        List<ListenerMessage> messages;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            message = await db.ListenerMessages
+            messages = await db.ListenerMessages
                 .Where(m => m.Status == ListenerMessageStatus.Queued)
                 .OrderBy(m => m.SubmittedAt)
-                .FirstOrDefaultAsync(ct);
+                .Take(batchSize)
+                .ToListAsync(ct);
         }
 
-        if (message is null)
+        if (messages.Count == 0)
         {
             return false;
         }
 
+        var facts = string.Join("\n", messages.Select(FormatMessageFact));
+        var lengthHint = messages.Count == 1
+            ? "3-5 sentences."
+            : $"Cover all {messages.Count} messages, roughly 2-3 sentences each.";
+
         var announcement = await factory.ProduceAsync(
-            AnnouncementKind.ListenerGreeting, moderator, null,
-            $"{message.SenderName}|{message.MessageText}", stationName, ct);
+            AnnouncementKind.ListenerGreeting, moderator, null, facts, stationName, ct, lengthHint);
 
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
+            var ids = messages.Select(m => m.Id).ToList();
             await db.ListenerMessages
-                .Where(m => m.Id == message.Id)
+                .Where(m => ids.Contains(m.Id))
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(m => m.Status, ListenerMessageStatus.OnAir)
                     .SetProperty(m => m.ModeratorId, moderator.Id)
                     .SetProperty(m => m.AnnouncementId, announcement.Id), ct);
         }
 
-        logger.LogInformation("Listener greeting from {Sender} produced for air", message.SenderName);
+        logger.LogInformation(
+            "Greeting segment produced: {Count} message(s) read by {Moderator}",
+            messages.Count, moderator.Name);
         return true;
+    }
+
+    private static string FormatMessageFact(ListenerMessage m)
+    {
+        var kind = m.Kind == ListenerMessageKind.Request
+            ? string.IsNullOrWhiteSpace(m.RequestGenre)
+                ? " (music request)"
+                : $" (music request, genre wish: {m.RequestGenre})"
+            : string.Empty;
+        return $"- {m.SenderName}{kind}: \"{m.MessageText}\"";
     }
 }

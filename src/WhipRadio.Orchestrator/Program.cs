@@ -33,6 +33,7 @@ builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
 builder.Services.AddScoped<AnnouncementFactory>();
+builder.Services.AddScoped<MessageModerator>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ScheduleService>();
@@ -60,6 +61,7 @@ builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddHostedService<ProgramDirectorService>();
+builder.Services.AddHostedService<MessageModerationService>();
 
 var app = builder.Build();
 

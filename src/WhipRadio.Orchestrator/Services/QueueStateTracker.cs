@@ -16,6 +16,14 @@ public class QueueStateTracker
         }
     }
 
+    public void EnqueuedFront(PlayoutItem item)
+    {
+        lock (_lock)
+        {
+            _items.Insert(0, item);
+        }
+    }
+
     public void Started(Guid itemId)
     {
         lock (_lock)
@@ -42,6 +50,12 @@ public class TrackedPlayoutQueue(IPlayoutQueue inner, QueueStateTracker tracker)
     {
         inner.Enqueue(item);
         tracker.Enqueued(item);
+    }
+
+    public void EnqueueFront(PlayoutItem item)
+    {
+        inner.EnqueueFront(item);
+        tracker.EnqueuedFront(item);
     }
 
     public Task<PlayoutItem> DequeueAsync(CancellationToken ct) => inner.DequeueAsync(ct);

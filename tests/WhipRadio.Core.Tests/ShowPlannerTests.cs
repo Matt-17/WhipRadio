@@ -66,4 +66,32 @@ public class ShowPlannerTests
             ShowAction.EnqueueTrackOnly,
             ShowPlanner.Decide(Input(tracksSinceAnnouncement: 99, announcementEveryNTracks: 0)));
     }
+
+    [Fact]
+    public void PriorityTalk_ForcesIntroEvenBeforeCadence()
+    {
+        Assert.Equal(
+            ShowAction.EnqueueTrackWithIntro,
+            ShowPlanner.Decide(Input(tracksSinceAnnouncement: 0, announcementEveryNTracks: 3) with
+            {
+                PriorityTalkPending = true,
+            }));
+    }
+
+    [Fact]
+    public void PriorityTalk_OverridesDisabledAnnouncements()
+    {
+        // A queued listener greeting airs even when regular announcements are off.
+        Assert.Equal(
+            ShowAction.EnqueueTrackWithIntro,
+            ShowPlanner.Decide(Input(announcementEveryNTracks: 0) with { PriorityTalkPending = true }));
+    }
+
+    [Fact]
+    public void PriorityTalk_DoesNotOverrideFullQueue()
+    {
+        Assert.Equal(
+            ShowAction.Wait,
+            ShowPlanner.Decide(Input(queueCount: 2) with { PriorityTalkPending = true }));
+    }
 }

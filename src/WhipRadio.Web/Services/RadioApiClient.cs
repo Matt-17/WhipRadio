@@ -120,14 +120,22 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
 
     public async Task<(bool Ok, string Message)> SubmitGreetingAsync(SubmitGreetingDto request, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("/api/greetings/", request, ct);
-        return response.StatusCode switch
+        try
         {
-            HttpStatusCode.OK => (true, "Your message is in the queue!"),
-            HttpStatusCode.TooManyRequests => (false, "Easy there — try again a bit later."),
-            HttpStatusCode.Forbidden => (false, "Greetings are currently disabled."),
-            _ => (false, "Something went wrong — try again."),
-        };
+            using var response = await http.PostAsJsonAsync("/api/greetings/", request, ct);
+            return response.StatusCode switch
+            {
+                HttpStatusCode.OK => (true, "Your message is in the queue!"),
+                HttpStatusCode.TooManyRequests => (false, "Easy there — try again a bit later."),
+                HttpStatusCode.Forbidden => (false, "Greetings are currently disabled."),
+                _ => (false, "Something went wrong — try again."),
+            };
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogWarning(ex, "Greeting submission failed (orchestrator unreachable?)");
+            return (false, "The studio isn't answering — try again in a moment.");
+        }
     }
 
     public async Task<List<ListenerMessageDto>> GetGreetingsAsync(CancellationToken ct = default)

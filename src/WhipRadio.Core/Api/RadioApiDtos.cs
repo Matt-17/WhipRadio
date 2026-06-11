@@ -188,4 +188,5 @@ public sealed record ListenerMessageDto(
     string? RequestGenre,
     string? RequestMood,
     DateTime SubmittedAt,
-    string Status);
+    string Status,
+    string? DismissalReason = null);

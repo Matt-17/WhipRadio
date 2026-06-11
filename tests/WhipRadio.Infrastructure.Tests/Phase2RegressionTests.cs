@@ -84,11 +84,28 @@ public class Phase2RegressionTests
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.ListenerGreeting, "WhipRadio", "en",
-                Facts: "Mia|Hello to the night owls, play something chill!"),
+                Facts: "- Mia (music request): \"Hello to the night owls, play something chill!\""),
             CancellationToken.None);
 
         Assert.Contains("Mia", llm.UserPrompt);
         Assert.Contains("night owls", llm.UserPrompt);
         Assert.Contains("do NOT promise a specific song", llm.UserPrompt);
+        Assert.Contains("Relay each message's actual content", llm.UserPrompt);
+    }
+
+    [Fact]
+    public async Task ScriptWriter_ListenerGreeting_CarriesMultipleMessages()
+    {
+        var llm = new CapturingLlm();
+        var writer = new ScriptWriter(llm);
+
+        await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.ListenerGreeting, "WhipRadio", "en",
+                Facts: "- Matt: \"Greetings to John and Mom!\"\n- Anna: \"Is it cold in the studio?\""),
+            CancellationToken.None);
+
+        Assert.Contains("Matt", llm.UserPrompt);
+        Assert.Contains("Anna", llm.UserPrompt);
+        Assert.Contains("weave them into one flowing segment", llm.UserPrompt);
     }
 }

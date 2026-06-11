@@ -99,15 +99,21 @@
 {
 <div class="panel reveal">
     <div class="panel-label">Send a Greeting</div>
+    <div class="field" style="margin-bottom:14px">
+        <label>Kind</label>
+        <div class="seg" role="radiogroup" aria-label="Message kind">
+            <button type="button" class="seg-btn @(_greetKind == "Greeting" ? "active" : null)"
+                    @onclick="@(() => _greetKind = "Greeting")">
+                <span class="seg-icon">👋</span> Greeting
+            </button>
+            <button type="button" class="seg-btn @(_greetKind == "Request" ? "active" : null)"
+                    @onclick="@(() => _greetKind = "Request")">
+                <span class="seg-icon">🎵</span> Music request
+            </button>
+        </div>
+    </div>
     <div class="form-grid">
         <div class="field"><label>Your name</label><input maxlength="30" @bind="_greetName" /></div>
-        <div class="field">
-            <label>Kind</label>
-            <select @bind="_greetKind">
-                <option value="Greeting">Greeting</option>
-                <option value="Request">Music request</option>
-            </select>
-        </div>
         @if (_greetKind == "Request")
         {
             <div class="field"><label>Genre wish (optional)</label><input @bind="_greetGenre" placeholder="techno, lofi, …" /></div>
@@ -115,7 +121,8 @@
     </div>
     <div class="field" style="margin-bottom:14px">
         <label>Message</label>
-        <input maxlength="200" @bind="_greetText" placeholder="Hello to the night shift!" />
+        <input maxlength="200" @bind="_greetText" @bind:event="oninput" @onkeydown="OnMessageKeyDownAsync"
+               placeholder="Hello to the night shift!" />
     </div>
     <div class="btn-row">
         <button class="btn primary" @onclick="SendGreetingAsync">Send to the Studio</button>
@@ -168,10 +175,25 @@
             await Live.EnsureStartedAsync();
             _ticker = new Timer(_ => _ = InvokeAsync(StateHasChanged), null,
                 TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+
+            var savedName = await Js.InvokeAsync<string?>("localStorage.getItem", "whipradio.senderName");
+            if (!string.IsNullOrWhiteSpace(savedName))
+            {
+                _greetName = savedName;
+                StateHasChanged();
+            }
         }
     }
 
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task OnMessageKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendGreetingAsync();
+        }
+    }
 
     private async Task SendGreetingAsync()
     {
@@ -187,6 +209,7 @@
         if (ok)
         {
             _greetText = "";
+            await Js.InvokeVoidAsync("localStorage.setItem", "whipradio.senderName", _greetName.Trim());
         }
     }
 

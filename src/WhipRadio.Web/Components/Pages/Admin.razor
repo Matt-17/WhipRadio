@@ -48,9 +48,10 @@ else
             </div>
             <div class="switch big @(_settings.GreetingsEnabled ? "on" : null)" @onclick="ToggleGreetingsAsync"></div>
         </div>
+        <div class="dim" style="margin-bottom:8px;font-size:0.82rem">Auto-moderated by the LLM host. Override below if needed.</div>
         @if (_messages.Count == 0)
         {
-            <div class="empty-state">no pending messages</div>
+            <div class="empty-state">no messages in the last 24 hours</div>
         }
         else
         {
@@ -65,13 +66,29 @@ else
                                 {
                                     <span class="tag amber">wants @message.RequestGenre</span>
                                 }
+                                @if (message.DismissalReason is not null)
+                                {
+                                    <div class="dim" style="font-size:0.8rem;margin-top:2px">reason: @message.DismissalReason</div>
+                                }
                             </td>
-                            <td style="width:90px"><span class="tag">@message.Status</span></td>
-                            <td style="width:170px; white-space:nowrap">
+                            <td style="width:110px">
                                 @if (message.Status == "Pending")
                                 {
-                                    <button class="btn small" @onclick="() => QueueMessageAsync(message.Id)">on air</button>
-                                    <button class="btn small vote-down" @onclick="() => DismissMessageAsync(message.Id)">dismiss</button>
+                                    <span class="tag"><span class="blink">▮</span> checking…</span>
+                                }
+                                else
+                                {
+                                    <span class="tag @(message.Status == "Dismissed" ? "vote-down" : message.Status == "Queued" ? "amber" : "")">@message.Status</span>
+                                }
+                            </td>
+                            <td style="width:170px; white-space:nowrap">
+                                @if (message.Status == "Dismissed")
+                                {
+                                    <button class="btn small" @onclick="() => QueueMessageAsync(message.Id)">override → on air</button>
+                                }
+                                @if (message.Status == "Queued")
+                                {
+                                    <button class="btn small vote-down" @onclick="() => DismissMessageAsync(message.Id)">remove</button>
                                 }
                             </td>
                         </tr>

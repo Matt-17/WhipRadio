@@ -1,28 +1,57 @@
-using System.Threading.Channels;
 using WhipRadio.Core.Abstractions;
 
 namespace WhipRadio.Core.Playout;
 
-/// <summary>Unbounded channel-backed FIFO; single consumer (the PlayoutService).</summary>
+/// <summary>
+/// Deque-backed playout queue; single consumer (the PlayoutService).
+/// Normal items append FIFO; priority items (listener greetings, dedications)
+/// jump to the front so they air right after the current item.
+/// </summary>
 public class ChannelPlayoutQueue : IPlayoutQueue
 {
-    private readonly Channel<PlayoutItem> _channel = Channel.CreateUnbounded<PlayoutItem>();
-    private int _count;
+    private readonly LinkedList<PlayoutItem> _items = new();
+    private readonly SemaphoreSlim _available = new(0);
+    private readonly object _lock = new();
 
-    public int Count => Volatile.Read(ref _count);
+    public int Count
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _items.Count;
+            }
+        }
+    }
 
     public void Enqueue(PlayoutItem item)
     {
-        if (_channel.Writer.TryWrite(item))
+        lock (_lock)
         {
-            Interlocked.Increment(ref _count);
+            _items.AddLast(item);
         }
+
+        _available.Release();
+    }
+
+    public void EnqueueFront(PlayoutItem item)
+    {
+        lock (_lock)
+        {
+            _items.AddFirst(item);
+        }
+
+        _available.Release();
     }
 
     public async Task<PlayoutItem> DequeueAsync(CancellationToken ct)
     {
-        var item = await _channel.Reader.ReadAsync(ct);
-        Interlocked.Decrement(ref _count);
-        return item;
+        await _available.WaitAsync(ct);
+        lock (_lock)
+        {
+            var item = _items.First!.Value;
+            _items.RemoveFirst();
+            return item;
+        }
     }
 }

@@ -77,12 +77,22 @@ public class ShowRunnerService(
 
         var track = await PickTrackAsync(selector, context, ct);
 
+        // Produced listener greetings jump the cadence: force a talk gap before
+        // the next track instead of waiting for the regular announcement slot.
+        bool greetingWaiting;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            greetingWaiting = await db.Announcements.AsNoTracking()
+                .AnyAsync(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed, ct);
+        }
+
         var action = ShowPlanner.Decide(new ShowPlannerInput(
             playoutQueue.Count,
             MaxQueueDepth,
             TrackAvailable: track is not null,
             _tracksSinceAnnouncement,
-            settings.AnnouncementEveryNTracks));
+            settings.AnnouncementEveryNTracks,
+            PriorityTalkPending: greetingWaiting));
 
         switch (action)
         {

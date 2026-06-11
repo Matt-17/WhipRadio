@@ -20,7 +20,8 @@ public sealed record ShowPlannerInput(
     int MaxQueueDepth,
     bool TrackAvailable,
     int TracksSinceAnnouncement,
-    int AnnouncementEveryNTracks);
+    int AnnouncementEveryNTracks,
+    bool PriorityTalkPending = false);
 
 /// <summary>Pure decision logic for the ShowRunner loop (unit-testable, Plan.md §M6.6).</summary>
 public static class ShowPlanner
@@ -38,8 +39,11 @@ public static class ShowPlanner
         }
 
         var announcementsEnabled = input.AnnouncementEveryNTracks > 0;
-        var announcementDue = announcementsEnabled
-            && input.TracksSinceAnnouncement + 1 >= input.AnnouncementEveryNTracks;
+
+        // A waiting listener greeting overrides the cadence — someone wants to
+        // hear their name on air, so the very next gap gets a talk slot.
+        var announcementDue = input.PriorityTalkPending
+            || (announcementsEnabled && input.TracksSinceAnnouncement + 1 >= input.AnnouncementEveryNTracks);
 
         return announcementDue ? ShowAction.EnqueueTrackWithIntro : ShowAction.EnqueueTrackOnly;
     }

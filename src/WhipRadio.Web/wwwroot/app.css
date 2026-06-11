@@ -621,6 +621,41 @@ table.console-table {
     animation: rise .3s both;
 }
 
+/* segmented radio panel (message kind picker) */
+.seg {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+    background: #0b0a07;
+}
+
+.seg-btn {
+    appearance: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    padding: 10px 18px;
+    transition: color .15s, background .15s;
+}
+
+.seg-btn + .seg-btn { border-left: 1px solid var(--line); }
+
+.seg-btn:hover { color: var(--amber-hot); }
+
+.seg-btn.active {
+    color: #14100a;
+    background: linear-gradient(180deg, var(--amber-hot), var(--amber));
+    font-weight: 600;
+}
+
+.seg-icon { font-size: 14px; margin-right: 4px; }
+
 /* ---------- misc ---------- */
 
 .empty-state {

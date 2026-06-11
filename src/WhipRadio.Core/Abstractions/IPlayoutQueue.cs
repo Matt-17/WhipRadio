@@ -16,6 +16,10 @@ public interface IPlayoutQueue
 {
     void Enqueue(PlayoutItem item);
 
+    /// <summary>Jumps the line: the item plays right after the current one
+    /// (priority talk like listener greetings).</summary>
+    void EnqueueFront(PlayoutItem item);
+
     Task<PlayoutItem> DequeueAsync(CancellationToken ct);
 
     int Count { get; }

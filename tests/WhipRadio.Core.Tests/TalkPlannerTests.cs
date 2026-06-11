@@ -62,6 +62,29 @@ public class TalkPlannerTests
     }
 
     [Fact]
+    public void PickGreetingBatchSize_QuietHostReadsOneAtATime()
+    {
+        var random = new Random(7);
+        var sizes = Enumerable.Range(0, 200)
+            .Select(_ => TalkPlanner.PickGreetingBatchSize(random, talkativeness: 0.0))
+            .ToList();
+
+        Assert.All(sizes, s => Assert.Equal(1, s));
+    }
+
+    [Fact]
+    public void PickGreetingBatchSize_TalkyHostCanClearTheMailbag()
+    {
+        var random = new Random(7);
+        var sizes = Enumerable.Range(0, 500)
+            .Select(_ => TalkPlanner.PickGreetingBatchSize(random, talkativeness: 1.0))
+            .ToList();
+
+        Assert.All(sizes, s => Assert.InRange(s, 1, 10));
+        Assert.Contains(sizes, s => s >= 8); // in the mood: many greetings in one go
+    }
+
+    [Fact]
     public void PickFreeTalkKind_RespectsAvailableContext()
     {
         var random = new Random(7);

@@ -36,4 +36,9 @@ public class ListenerMessage
     public int? ModeratorId { get; set; }
 
     public Guid? AnnouncementId { get; set; }
+
+    public string? DismissalReason { get; set; }
+
+    /// <summary>Track produced to fulfill this music request (aired as a dedication).</summary>
+    public Guid? FulfilledByTrackId { get; set; }
 }
