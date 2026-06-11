@@ -18,6 +18,9 @@ public class Artist
     /// <summary>Prompt fragment describing the artist's signature sound.</summary>
     public string StyleDescriptor { get; set; } = string.Empty;
 
+    /// <summary>Short fictional backstory shown in the library and fed into generation prompts.</summary>
+    public string? Biography { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>Disliked artists stop getting new tracks and rotate out.</summary>

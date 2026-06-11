@@ -1,0 +1,8 @@
+Write a short fictional backstory for this music artist (2-3 sentences: where they're from,
+what drives their music, a memorable quirk). Stay consistent with their sound.
+
+Artist: {ArtistName}
+Genre: {Genre} ({Subgenre})
+Signature sound: {Style}
+
+Answer with ONLY the backstory text, nothing else.

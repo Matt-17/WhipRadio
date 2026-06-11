@@ -11,7 +11,7 @@ public class MusicCopywriter(ITextGenerationService llm)
         "You are a creative assistant for a radio station's music department. " +
         "Answer exactly as instructed, with no extra commentary.";
 
-    public async Task<(string Name, string Style)> InventArtistAsync(
+    public async Task<(string Name, string Style, string? Biography)> InventArtistAsync(
         string genre, string subgenre, IReadOnlyCollection<string> existingNames, CancellationToken ct)
     {
         var prompt = PromptTemplates.Render("ArtistMaker", new Dictionary<string, string>
@@ -22,7 +22,7 @@ public class MusicCopywriter(ITextGenerationService llm)
         });
 
         var reply = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
-        string? name = null, style = null;
+        string? name = null, style = null, bio = null;
         foreach (var line in reply.Split('\n', StringSplitOptions.TrimEntries))
         {
             if (line.StartsWith("NAME:", StringComparison.OrdinalIgnoreCase))
@@ -33,11 +33,32 @@ public class MusicCopywriter(ITextGenerationService llm)
             {
                 style = line["STYLE:".Length..].Trim();
             }
+            else if (line.StartsWith("BIO:", StringComparison.OrdinalIgnoreCase))
+            {
+                bio = line["BIO:".Length..].Trim();
+            }
         }
 
         name = string.IsNullOrWhiteSpace(name) ? $"The {subgenre} Collective" : name;
         style = string.IsNullOrWhiteSpace(style) ? $"{subgenre}, catchy and radio-friendly" : style;
-        return (name, style);
+        return (name, style, string.IsNullOrWhiteSpace(bio) ? null : bio);
+    }
+
+    /// <summary>Backfills a biography for artists created before bios existed.</summary>
+    public async Task<string> WriteArtistBiographyAsync(Artist artist, CancellationToken ct)
+    {
+        var prompt = PromptTemplates.Render("ArtistBio", new Dictionary<string, string>
+        {
+            ["ArtistName"] = artist.Name,
+            ["Genre"] = artist.Genre,
+            ["Subgenre"] = string.IsNullOrEmpty(artist.Subgenre) ? artist.Genre : artist.Subgenre,
+            ["Style"] = artist.StyleDescriptor,
+        });
+
+        var bio = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        return string.IsNullOrWhiteSpace(bio)
+            ? $"{artist.Name} keep their past a mystery — the {artist.Subgenre} speaks for itself."
+            : bio.Trim();
     }
 
     public async Task<string> InventTitleAsync(
