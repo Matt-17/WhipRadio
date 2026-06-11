@@ -27,6 +27,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<StationSettings> StationSettings => Set<StationSettings>();
 
+    public DbSet<Studio> Studios => Set<Studio>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Track>(track =>
@@ -89,6 +91,12 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             message.Property(m => m.Kind).HasConversion<string>();
             message.Property(m => m.Status).HasConversion<string>();
             message.HasIndex(m => m.Status);
+        });
+
+        modelBuilder.Entity<Studio>(studio =>
+        {
+            studio.Property(s => s.Kind).HasConversion<string>();
+            studio.HasIndex(s => new { s.Kind, s.IsActive });
         });
     }
 }

@@ -1,7 +1,7 @@
-"""WhipRadio music sidecar — FastAPI wrapper around MusicGen and ACE-Step.
+"""WhipRadio music sidecar - FastAPI wrapper around MusicGen.
 
-Contract (Plan.md §7.2):
-  GET  /health    -> {"status":"ok","backends":{"musicgen":true,"ace-step":false}}
+Contract:
+  GET  /health    -> {"status":"ok","backends":{"musicgen":true}}
   POST /generate  -> audio/wav (long-running; clients use generous timeouts)
 """
 
@@ -15,7 +15,6 @@ import soundfile as sf
 from fastapi import FastAPI, HTTPException, Response
 from pydantic import BaseModel
 
-from .backends.acestep_backend import AceStepBackend
 from .backends.musicgen_backend import MusicGenBackend
 
 logging.basicConfig(level=logging.INFO)
@@ -25,7 +24,6 @@ app = FastAPI(title="WhipRadio music sidecar")
 
 BACKENDS = {
     "musicgen": MusicGenBackend(),
-    "ace-step": AceStepBackend(),
 }
 
 # One generation at a time: model inference saturates the machine anyway.

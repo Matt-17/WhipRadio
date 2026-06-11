@@ -16,7 +16,8 @@ jobs:
           - { name: orchestrator, context: ., dockerfile: src/WhipRadio.Orchestrator/Dockerfile }
           - { name: web, context: ., dockerfile: src/WhipRadio.Web/Dockerfile }
           - { name: tts, context: sidecars/tts, dockerfile: sidecars/tts/Dockerfile }
-          - { name: music, context: sidecars/music, dockerfile: sidecars/music/Dockerfile }
+          - { name: musicgen, context: sidecars/musicgen, dockerfile: sidecars/musicgen/Dockerfile }
+          - { name: acestep, context: sidecars/acestep, dockerfile: sidecars/acestep/Dockerfile }
     steps:
       - uses: actions/checkout@v4
 

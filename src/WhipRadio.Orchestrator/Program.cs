@@ -46,6 +46,7 @@ builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<VoiceCatalogService>();
 builder.Services.AddSingleton<GreetingState>();
+builder.Services.AddSingleton<MusicProductionControl>();
 builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();

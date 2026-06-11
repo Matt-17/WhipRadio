@@ -4,6 +4,7 @@ using WhipRadio.Core.Abstractions;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Infrastructure.Studios;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Infrastructure.Weather;
 
@@ -21,6 +22,7 @@ public static class HttpClientsServiceCollectionExtensions
     {
         services.Configure<LlmOptions>(configuration.GetSection(LlmOptions.SectionName));
         services.Configure<WeatherOptions>(configuration.GetSection(WeatherOptions.SectionName));
+        services.Configure<AceStepOptions>(configuration.GetSection(AceStepOptions.SectionName));
         services.AddSingleton<StationSettingsCache>();
 
         // The AI clients are long-running (model loads, CPU inference). Aspire's default
@@ -44,14 +46,6 @@ public static class HttpClientsServiceCollectionExtensions
 
         services.AddScoped<ITextGenerationService, TextGenerationRouter>();
 
-        services.AddHttpClient<HttpTtsEngine>(client =>
-            {
-                client.BaseAddress = ResolveEndpoint(configuration, "Tts:Endpoint", "tts", "http://tts");
-                client.Timeout = TimeSpan.FromMinutes(10);
-            })
-            .RemoveAllResilienceHandlers()
-            .HardenForLongRunningCalls();
-
         services.AddHttpClient(TtsEngineRouter.ElevenLabsClientName, client =>
             {
                 client.BaseAddress = new Uri(configuration["ElevenLabs:Endpoint"] ?? "https://api.elevenlabs.io");
@@ -59,15 +53,23 @@ public static class HttpClientsServiceCollectionExtensions
             })
             .RemoveAllResilienceHandlers();
 
-        services.AddScoped<ITtsEngine, TtsEngineRouter>();
-
-        services.AddHttpClient<IMusicGenerator, HttpMusicGenerator>(client =>
-            {
-                client.BaseAddress = ResolveEndpoint(configuration, "Music:Endpoint", "music", "http://music");
-                client.Timeout = TimeSpan.FromMinutes(30); // music generation is long-running by design
-            })
+        // Studios: music AIs and TTS booths are user-configured endpoints (DB),
+        // not fixed sidecars. The "studio" client gets its BaseAddress per booking;
+        // the probe client runs the connection test on the studios page.
+        services.AddHttpClient(StudioProviderFactory.StudioClientName, client =>
+                client.Timeout = Timeout.InfiniteTimeSpan) // providers own their generation timeouts
             .RemoveAllResilienceHandlers()
             .HardenForLongRunningCalls();
+
+        services.AddHttpClient(StudioCoordinator.ProbeClientName, client =>
+                client.Timeout = TimeSpan.FromSeconds(10))
+            .RemoveAllResilienceHandlers();
+
+        services.AddSingleton<AceStepPromptBuilder>();
+        services.AddSingleton<StudioCoordinator>();
+        services.AddSingleton<StudioProviderFactory>();
+        services.AddScoped<ITtsEngine, TtsEngineRouter>();
+        services.AddScoped<IMusicGenerator, StudioMusicGenerator>();
 
         services.AddHttpClient<IAnnouncementDataSource, OpenMeteoWeatherSource>(client =>
         {

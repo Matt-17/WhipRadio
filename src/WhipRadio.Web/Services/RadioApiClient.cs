@@ -51,6 +51,21 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task<List<ArtistDto>> GetArtistsAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ArtistDto>>("/api/artists", ct) ?? [];
 
+    public async Task<ArtistDto?> GetArtistAsync(Guid id, CancellationToken ct = default)
+        => await SafeGetAsync<ArtistDto>($"/api/artists/{id}", ct);
+
+    public async Task<bool> ProduceTrackForArtistAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/artists/{id}/produce", null, ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<MusicProductionStatusDto?> GetMusicProductionStatusAsync(CancellationToken ct = default)
+        => await SafeGetAsync<MusicProductionStatusDto>("/api/music/status", ct);
+
+    /// <summary>Same-origin media proxy URL — browser-safe regardless of scheme/host.</summary>
+    public string TrackAudioUrl(Guid id) => $"/media/track/{id}";
+
     public async Task<List<PlayLogEntryDto>> GetPlayLogAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<PlayLogEntryDto>>("/api/playlog", ct) ?? [];
 
@@ -74,10 +89,54 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task<List<PlayLogEntryDto>> GetModeratorTalksAsync(int id, CancellationToken ct = default)
         => await SafeGetAsync<List<PlayLogEntryDto>>($"/api/moderators/{id}/talks", ct) ?? [];
 
-    public string AnnouncementAudioUrl(Guid id) => $"{BaseAddress?.ToString().TrimEnd('/')}/api/announcements/{id}/audio";
+    /// <summary>Same-origin media proxy URL — browser-safe regardless of scheme/host.</summary>
+    public string AnnouncementAudioUrl(Guid id) => $"/media/announcement/{id}";
 
     public async Task<StationSettingsDto?> GetSettingsAsync(CancellationToken ct = default)
         => await SafeGetAsync<StationSettingsDto>("/api/settings", ct);
+
+    public async Task<List<StudioDto>> GetStudiosAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<StudioDto>>("/api/studios", ct) ?? [];
+
+    public async Task<StudioTestResultDto?> TestStudioAsync(TestStudioDto request, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.PostAsJsonAsync("/api/studios/test", request, ct);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<StudioTestResultDto>(ct)
+                : new StudioTestResultDto(false, null, $"Test endpoint returned {(int)response.StatusCode}.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return new StudioTestResultDto(false, null, "Orchestrator not reachable.");
+        }
+    }
+
+    public async Task<(StudioDto? Studio, string? Error)> CreateStudioAsync(SaveStudioDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/studios", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<StudioDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<(StudioDto? Studio, string? Error)> UpdateStudioAsync(Guid id, SaveStudioDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync($"/api/studios/{id}", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<StudioDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task ToggleStudioAsync(Guid id, CancellationToken ct = default)
+        => await http.PostAsync($"/api/studios/{id}/toggle", null, ct);
+
+    public async Task<string?> DeleteStudioAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/studios/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
 
     public async Task<StationSettingsDto?> SaveSettingsAsync(StationSettingsDto settings, CancellationToken ct = default)
     {
@@ -138,8 +197,17 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
         }
     }
 
-    public async Task<List<ListenerMessageDto>> GetGreetingsAsync(CancellationToken ct = default)
-        => await SafeGetAsync<List<ListenerMessageDto>>("/api/greetings/", ct) ?? [];
+    public async Task<PagedListenerMessagesDto> GetGreetingsAsync(
+        int page = 1, int pageSize = 25, string? kind = null, CancellationToken ct = default)
+    {
+        var url = $"/api/greetings/?page={page}&pageSize={pageSize}";
+        if (!string.IsNullOrEmpty(kind))
+        {
+            url += $"&kind={Uri.EscapeDataString(kind)}";
+        }
+
+        return await SafeGetAsync<PagedListenerMessagesDto>(url, ct) ?? new PagedListenerMessagesDto(0, []);
+    }
 
     public async Task QueueGreetingAsync(Guid id, CancellationToken ct = default)
         => await http.PostAsync($"/api/greetings/{id}/queue", null, ct);

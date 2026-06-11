@@ -27,7 +27,6 @@ COPY app ./app
 # Model weights download on first generation into the mounted cache volume.
 ENV HF_HOME=/models
 ENV MUSICGEN_MODEL=facebook/musicgen-small
-ENV ENABLE_ACESTEP=0
 EXPOSE 8002
 
 # Generous start period: dependency import alone takes a while on first boot.

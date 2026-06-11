@@ -44,58 +44,13 @@ else
         <div class="admin-row">
             <div>
                 <strong>Greetings &amp; Requests</strong>
-                <div class="dim">Listeners can send messages from the live page; queued ones are read on air.</div>
+                <div class="dim">
+                    Listeners can send messages from the live page; queued ones are read on air.
+                    History and overrides live on the <a href="/messages">Messages page</a>.
+                </div>
             </div>
             <div class="switch big @(_settings.GreetingsEnabled ? "on" : null)" @onclick="ToggleGreetingsAsync"></div>
         </div>
-        <div class="dim" style="margin-bottom:8px;font-size:0.82rem">Auto-moderated by the LLM host. Override below if needed.</div>
-        @if (_messages.Count == 0)
-        {
-            <div class="empty-state">no messages in the last 24 hours</div>
-        }
-        else
-        {
-            <table class="console-table">
-                <tbody>
-                    @foreach (var message in _messages)
-                    {
-                        <tr>
-                            <td style="width:120px"><strong>@message.SenderName</strong></td>
-                            <td>@message.MessageText
-                                @if (message.RequestGenre is not null)
-                                {
-                                    <span class="tag amber">wants @message.RequestGenre</span>
-                                }
-                                @if (message.DismissalReason is not null)
-                                {
-                                    <div class="dim" style="font-size:0.8rem;margin-top:2px">reason: @message.DismissalReason</div>
-                                }
-                            </td>
-                            <td style="width:110px">
-                                @if (message.Status == "Pending")
-                                {
-                                    <span class="tag"><span class="blink">▮</span> checking…</span>
-                                }
-                                else
-                                {
-                                    <span class="tag @(message.Status == "Dismissed" ? "vote-down" : message.Status == "Queued" ? "amber" : "")">@message.Status</span>
-                                }
-                            </td>
-                            <td style="width:170px; white-space:nowrap">
-                                @if (message.Status == "Dismissed")
-                                {
-                                    <button class="btn small" @onclick="() => QueueMessageAsync(message.Id)">override → on air</button>
-                                }
-                                @if (message.Status == "Queued")
-                                {
-                                    <button class="btn small vote-down" @onclick="() => DismissMessageAsync(message.Id)">remove</button>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
     </div>
 
     <div class="panel reveal">
@@ -105,6 +60,9 @@ else
             <div class="field"><label>Max library size</label><input type="number" min="5" max="5000" @bind="_settings_MaxLibrarySize" /></div>
             <div class="field"><label>Min track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MinDuration" /></div>
             <div class="field"><label>Max track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MaxDuration" /></div>
+        </div>
+        <div class="dim" style="margin-bottom:12px; font-size:12.5px">
+            Music AIs and voice booths are managed on the <a href="/studios">Studios page</a>.
         </div>
         <div class="btn-row">
             <button class="btn primary" @onclick="SavePacingAsync">Apply</button>
@@ -118,7 +76,6 @@ else
 
 @code {
     private StationSettingsDto? _settings;
-    private List<ListenerMessageDto> _messages = [];
     private bool _saved;
     private int _settings_TargetQueueLength;
     private int _settings_MaxLibrarySize;
@@ -133,7 +90,6 @@ else
     private async Task LoadAsync()
     {
         _settings = await Api.GetSettingsAsync();
-        _messages = await Api.GetGreetingsAsync();
         if (_settings is not null)
         {
             _settings_TargetQueueLength = _settings.TargetQueueLength;
@@ -183,18 +139,6 @@ else
         }
 
         _settings = await Api.SaveSettingsAsync(fresh with { GreetingsEnabled = !fresh.GreetingsEnabled });
-    }
-
-    private async Task QueueMessageAsync(Guid id)
-    {
-        await Api.QueueGreetingAsync(id);
-        _messages = await Api.GetGreetingsAsync();
-    }
-
-    private async Task DismissMessageAsync(Guid id)
-    {
-        await Api.DismissGreetingAsync(id);
-        _messages = await Api.GetGreetingsAsync();
     }
 
     private async Task SavePacingAsync()

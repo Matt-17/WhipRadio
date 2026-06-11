@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 
 namespace WhipRadio.Infrastructure.Persistence;
@@ -37,6 +38,34 @@ public static class DbInitializer
         {
             await PatchSettingsAsync(db, ct);
         }
+
+        // Default studios matching start-studios.ps1 — the station produces out
+        // of the box; users manage the list on the Studios page.
+        if (!await db.Studios.AnyAsync(ct))
+        {
+            db.Studios.AddRange(
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Studio #1",
+                    Kind = StudioKind.Recording,
+                    Url = "http://localhost:8101",
+                    Provider = MusicBackends.AceStep,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                },
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Booth #1",
+                    Kind = StudioKind.VoiceBooth,
+                    Url = "http://localhost:8201",
+                    Provider = "local-tts",
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                });
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     /// <summary>
@@ -47,8 +76,20 @@ public static class DbInitializer
     private static async Task PatchSettingsAsync(RadioDbContext db, CancellationToken ct)
     {
         var settings = await db.StationSettings.FirstAsync(ct);
+        var patched = false;
+        if (string.IsNullOrWhiteSpace(settings.DefaultMusicProvider))
+        {
+            settings.DefaultMusicProvider = MusicBackends.MusicGen;
+            patched = true;
+        }
+
         if (settings.MaxLibrarySize > 0)
         {
+            if (patched)
+            {
+                await db.SaveChangesAsync(ct);
+            }
+
             return; // already initialized
         }
 
@@ -64,6 +105,7 @@ public static class DbInitializer
         settings.OpenAiModel = defaults.OpenAiModel;
         settings.GreetingsEnabled = defaults.GreetingsEnabled;
         settings.MaxPendingGreetings = defaults.MaxPendingGreetings;
+        settings.DefaultMusicProvider = defaults.DefaultMusicProvider;
         await db.SaveChangesAsync(ct);
     }
 

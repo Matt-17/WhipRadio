@@ -5,12 +5,16 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
+using WhipRadio.Infrastructure.Llm;
+using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Infrastructure.Studios;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
 
@@ -128,8 +132,86 @@ public static class RadioApiEndpoints
             {
                 var agg = aggregates.GetValueOrDefault(a.Id);
                 return new ArtistDto(a.Id, a.Name, a.Genre, a.Subgenre, a.StyleDescriptor,
-                    agg?.Count ?? 0, agg?.Up ?? 0, agg?.Down ?? 0, a.IsRetired);
+                    agg?.Count ?? 0, agg?.Up ?? 0, agg?.Down ?? 0, a.IsRetired, a.Biography);
             }).ToList());
+        });
+
+        // Artist detail; writes the biography on first view for artists that
+        // predate biographies (LLM call — can take a moment).
+        api.MapGet("/artists/{id:guid}", async (
+            Guid id, RadioDbContext db, MusicCopywriter copywriter, CancellationToken ct) =>
+        {
+            var artist = await db.Artists.FirstOrDefaultAsync(a => a.Id == id, ct);
+            if (artist is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (string.IsNullOrWhiteSpace(artist.Biography))
+            {
+                try
+                {
+                    artist.Biography = await copywriter.WriteArtistBiographyAsync(artist, ct);
+                    await db.SaveChangesAsync(ct);
+                }
+                catch
+                {
+                    // Bio is decoration — never fail the detail view over it.
+                }
+            }
+
+            var stats = await db.Tracks.AsNoTracking()
+                .Where(t => t.ArtistId == id)
+                .GroupBy(t => t.ArtistId)
+                .Select(g => new { Count = g.Count(), Up = g.Sum(t => t.UpVotes), Down = g.Sum(t => t.DownVotes) })
+                .FirstOrDefaultAsync(ct);
+
+            return Results.Ok(new ArtistDto(artist.Id, artist.Name, artist.Genre, artist.Subgenre,
+                artist.StyleDescriptor, stats?.Count ?? 0, stats?.Up ?? 0, stats?.Down ?? 0,
+                artist.IsRetired, artist.Biography));
+        });
+
+        // "Create new song" — queued for the production loop, generated in the
+        // artist's signature style. 202: poll /music/status for progress.
+        api.MapPost("/artists/{id:guid}/produce", async (
+            Guid id, RadioDbContext db, MusicProductionControl control, CancellationToken ct) =>
+        {
+            var exists = await db.Artists.AnyAsync(a => a.Id == id && !a.IsRetired, ct);
+            if (!exists)
+            {
+                return Results.NotFound();
+            }
+
+            control.RequestTrackFor(id);
+            return Results.Accepted();
+        });
+
+        api.MapGet("/music/status", (MusicProductionControl control) =>
+        {
+            var current = control.Current;
+            return Results.Ok(new MusicProductionStatusDto(
+                current?.ArtistId, current?.ArtistName, current?.TrackTitle,
+                current?.StartedAtUtc, control.QueuedArtistIds()));
+        });
+
+        // In-library preview playback — intentionally does NOT touch PlayCount;
+        // only broadcast plays count.
+        api.MapGet("/library/{id:guid}/audio", async (
+            Guid id, RadioDbContext db, IOptions<RadioOptions> radioOptions, CancellationToken ct) =>
+        {
+            var track = await db.Tracks.AsNoTracking().FirstOrDefaultAsync(t => t.Id == id, ct);
+            if (track is null)
+            {
+                return Results.NotFound();
+            }
+
+            var absolutePath = Path.Combine(radioOptions.Value.DataRoot, track.FilePath);
+            if (!System.IO.File.Exists(absolutePath))
+            {
+                return Results.NotFound();
+            }
+
+            return Results.File(absolutePath, "audio/wav", enableRangeProcessing: true);
         });
     }
 
@@ -315,6 +397,8 @@ public static class RadioApiEndpoints
             return Results.Ok(ToDto(settings));
         });
 
+        MapStudios(api);
+
         api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db,
             HostLanguageAligner aligner, CancellationToken ct) =>
         {
@@ -338,6 +422,9 @@ public static class RadioApiEndpoints
             settings.EnableBreathMarkers = request.EnableBreathMarkers;
             settings.FrequencyMhz = Math.Clamp(request.FrequencyMhz, 76, 108);
             settings.FirstDayOfWeek = request.FirstDayOfWeek is 0 or 1 ? request.FirstDayOfWeek : 1;
+            settings.DefaultMusicProvider = MusicBackends.IsKnown(request.DefaultMusicProvider)
+                ? MusicBackends.Normalize(request.DefaultMusicProvider)
+                : MusicBackends.MusicGen;
             settings.TextProvider = request.TextProvider == TextProviders.OpenAi ? TextProviders.OpenAi : TextProviders.Ollama;
             settings.OpenAiApiKey = request.OpenAiApiKey ?? string.Empty;
             settings.OpenAiModel = string.IsNullOrWhiteSpace(request.OpenAiModel) ? settings.OpenAiModel : request.OpenAiModel.Trim();
@@ -484,6 +571,124 @@ public static class RadioApiEndpoints
         });
     }
 
+    private static void MapStudios(RouteGroupBuilder api)
+    {
+        api.MapGet("/studios", async (RadioDbContext db, StudioCoordinator coordinator, CancellationToken ct) =>
+        {
+            var studios = await db.Studios.AsNoTracking().OrderBy(s => s.CreatedAt).ToListAsync(ct);
+            var jobs = coordinator.ActiveJobs;
+            return Results.Ok(studios.Select(s =>
+            {
+                var job = jobs.TryGetValue(s.Id, out var j) ? j : null;
+                return ToStudioDto(s, job);
+            }).ToList());
+        });
+
+        api.MapPost("/studios/test", async (TestStudioDto request, StudioCoordinator coordinator, CancellationToken ct) =>
+        {
+            var (ok, provider, detail) = await coordinator.TestAsync(
+                ParseStudioKind(request.Kind), request.Source, request.Url, request.Provider, request.ApiKey, ct);
+            return Results.Ok(new StudioTestResultDto(ok, provider, detail));
+        });
+
+        api.MapPost("/studios", async (SaveStudioDto request, RadioDbContext db,
+            StudioCoordinator coordinator, CancellationToken ct) =>
+        {
+            var kind = ParseStudioKind(request.Kind);
+            var (ok, provider, detail) = await coordinator.TestAsync(
+                kind, request.Source, request.Url, request.Provider, request.ApiKey, ct);
+            if (!ok)
+            {
+                return Results.BadRequest(detail ?? "Connection test failed.");
+            }
+
+            var isApi = string.Equals(request.Source, "api", StringComparison.OrdinalIgnoreCase);
+            var count = await db.Studios.CountAsync(s => s.Kind == kind, ct);
+            var studio = new Studio
+            {
+                Id = Guid.NewGuid(),
+                Name = string.IsNullOrWhiteSpace(request.Name)
+                    ? DefaultStudioName(kind, count + 1)
+                    : request.Name.Trim(),
+                Kind = kind,
+                Url = isApi ? string.Empty : request.Url!.TrimEnd('/'),
+                Provider = provider!,
+                ApiKey = isApi ? request.ApiKey : null,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            };
+
+            db.Studios.Add(studio);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToStudioDto(studio, null));
+        });
+
+        api.MapPut("/studios/{id:guid}", async (Guid id, SaveStudioDto request, RadioDbContext db,
+            StudioCoordinator coordinator, CancellationToken ct) =>
+        {
+            var studio = await db.Studios.FirstOrDefaultAsync(s => s.Id == id, ct);
+            if (studio is null)
+            {
+                return Results.NotFound();
+            }
+
+            var (ok, provider, detail) = await coordinator.TestAsync(
+                studio.Kind, request.Source, request.Url, request.Provider, request.ApiKey, ct);
+            if (!ok)
+            {
+                return Results.BadRequest(detail ?? "Connection test failed.");
+            }
+
+            var isApi = string.Equals(request.Source, "api", StringComparison.OrdinalIgnoreCase);
+            if (!string.IsNullOrWhiteSpace(request.Name))
+            {
+                studio.Name = request.Name.Trim();
+            }
+
+            studio.Url = isApi ? string.Empty : request.Url!.TrimEnd('/');
+            studio.Provider = provider!;
+            studio.ApiKey = isApi ? request.ApiKey : null;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToStudioDto(studio, null));
+        });
+
+        api.MapPost("/studios/{id:guid}/toggle", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        {
+            var studio = await db.Studios.FirstOrDefaultAsync(s => s.Id == id, ct);
+            if (studio is null)
+            {
+                return Results.NotFound();
+            }
+
+            studio.IsActive = !studio.IsActive;
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToStudioDto(studio, null));
+        });
+
+        api.MapDelete("/studios/{id:guid}", async (Guid id, RadioDbContext db,
+            StudioCoordinator coordinator, CancellationToken ct) =>
+        {
+            if (coordinator.ActiveJobs.ContainsKey(id))
+            {
+                return Results.Conflict("Studio is recording right now — wait for the job to finish.");
+            }
+
+            var deleted = await db.Studios.Where(s => s.Id == id).ExecuteDeleteAsync(ct);
+            return deleted > 0 ? Results.NoContent() : Results.NotFound();
+        });
+    }
+
+    private static StudioKind ParseStudioKind(string kind)
+        => Enum.TryParse<StudioKind>(kind, ignoreCase: true, out var parsed) ? parsed : StudioKind.Recording;
+
+    private static string DefaultStudioName(StudioKind kind, int number)
+        => kind == StudioKind.VoiceBooth ? $"Booth #{number}" : $"Studio #{number}";
+
+    private static StudioDto ToStudioDto(Studio s, StudioJob? job) => new(
+        s.Id, s.Name, s.Kind.ToString(), s.Url, s.Provider, s.IsActive,
+        s.CreatedAt, s.LastUsedAt, s.JobsCompleted, s.JobsFailed,
+        job?.Label, job?.StartedAtUtc);
+
     private static void MapConsole(RouteGroupBuilder api)
     {
         api.MapGet("/console", (InMemoryLogBuffer buffer) =>
@@ -534,7 +739,8 @@ public static class RadioApiEndpoints
         s.StationName, s.DefaultLanguage, s.TargetQueueLength, s.AnnouncementEveryNTracks,
         s.MusicProductionEnabled, s.PlayoutEnabled, s.MaxLibrarySize,
         s.MinTrackDurationSeconds, s.MaxTrackDurationSeconds, s.EnableBreathMarkers,
-        s.FrequencyMhz, s.FirstDayOfWeek, s.TextProvider, s.OpenAiApiKey, s.OpenAiModel,
+        s.FrequencyMhz, s.FirstDayOfWeek, MusicBackends.Normalize(s.DefaultMusicProvider),
+        s.TextProvider, s.OpenAiApiKey, s.OpenAiModel,
         s.ElevenLabsEnabled, s.ElevenLabsApiKey, s.GreetingsEnabled);
 
     private static string HashClient(string value)

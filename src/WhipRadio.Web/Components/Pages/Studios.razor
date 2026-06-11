@@ -1,0 +1,253 @@
+@page "/studios"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio — Studios</PageTitle>
+
+<h1 class="stage-title">Studios</h1>
+<div class="stage-sub">recording studios &amp; voice booths · artists queue for the first free one</div>
+
+@foreach (var kind in new[] { "Recording", "VoiceBooth" })
+{
+    var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
+    <div class="panel reveal">
+        <div class="panel-label">@(kind == "Recording" ? "Recording Studios — music AI" : "Voice Booths — announcements")</div>
+
+        @if (kindStudios.Count == 0)
+        {
+            <div class="empty-state">none connected yet</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <tbody>
+                    @foreach (var studio in kindStudios)
+                    {
+                        <tr>
+                            <td style="width:160px">
+                                <strong>@studio.Name</strong>
+                                <div class="dim" style="font-size:11px">@studio.Provider</div>
+                            </td>
+                            <td class="dim" style="width:220px">@(string.IsNullOrEmpty(studio.Url) ? "online API" : studio.Url)</td>
+                            <td>
+                                @if (studio.CurrentJob is { } job)
+                                {
+                                    <span class="tag red"><span class="blink rec-dot">●</span> REC</span>
+                                    <span> @job</span>
+                                    <span class="dim"> · @JobElapsed(studio)</span>
+                                }
+                                else if (studio.IsActive)
+                                {
+                                    <span class="tag green">idle</span>
+                                }
+                                else
+                                {
+                                    <span class="tag">off</span>
+                                }
+                            </td>
+                            <td class="dim" style="width:210px; font-size:11.5px">
+                                @studio.JobsCompleted jobs@(studio.JobsFailed > 0 ? $" · {studio.JobsFailed} failed" : "")
+                                @if (studio.LastUsedAt is { } last)
+                                {
+                                    <span> · last @last.ToLocalTime().ToString("dd.MM. HH:mm")</span>
+                                }
+                            </td>
+                            <td style="width:220px; white-space:nowrap; text-align:right">
+                                <div class="switch @(studio.IsActive ? "on" : null)" title="active"
+                                     style="display:inline-block; vertical-align:middle"
+                                     @onclick="() => ToggleAsync(studio.Id)"></div>
+                                <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
+                                <button class="btn small vote-down" @onclick="() => DeleteAsync(studio.Id)">delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        @if (_formKind == kind)
+        {
+            <div class="studio-form">
+                <div class="seg" role="radiogroup" style="margin-bottom:12px">
+                    <button type="button" class="seg-btn @(_formSource == "local" ? "active" : null)"
+                            @onclick="@(() => SetSource("local"))">Local container</button>
+                    <button type="button" class="seg-btn @(_formSource == "api" ? "active" : null)"
+                            @onclick="@(() => SetSource("api"))">Online API</button>
+                </div>
+                <div class="form-grid">
+                    <div class="field">
+                        <label>Name</label>
+                        <input @bind="_formName" placeholder="@DefaultName(kind)" />
+                    </div>
+                    @if (_formSource == "local")
+                    {
+                        <div class="field">
+                            <label>URL</label>
+                            <input @bind="_formUrl" placeholder="http://localhost:8101" />
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="field">
+                            <label>Provider</label>
+                            <select @bind="_formProvider">
+                                <option value="elevenlabs">ElevenLabs</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label>API key</label>
+                            <input type="password" @bind="_formApiKey" placeholder="xi-…" />
+                        </div>
+                    }
+                </div>
+                <div class="btn-row">
+                    <button class="btn" @onclick="TestAsync">
+                        <span class="test-dot @(_testResult is null ? "" : _testResult.Ok ? "ok" : "fail")">●</span>
+                        Test
+                    </button>
+                    @if (_testResult is not null)
+                    {
+                        <span class="@(_testResult.Ok ? "flash" : "dim")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
+                    }
+                    <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
+                        @(_editId is null ? "Create" : "Save")
+                    </button>
+                    <button class="btn small" @onclick="CloseForm">cancel</button>
+                    @if (_saveError is not null)
+                    {
+                        <span class="dim">@_saveError</span>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="btn-row" style="margin-top:12px">
+                <button class="btn" @onclick="() => OpenCreate(kind)">+ connect @(kind == "Recording" ? "studio" : "booth")</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<StudioDto> _studios = [];
+    private Timer? _timer;
+
+    private string? _formKind;
+    private Guid? _editId;
+    private string _formSource = "local";
+    private string _formName = "";
+    private string _formUrl = "";
+    private string _formProvider = "elevenlabs";
+    private string _formApiKey = "";
+    private StudioTestResultDto? _testResult;
+    private string? _saveError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        _timer = new Timer(async _ =>
+        {
+            await LoadAsync();
+            await InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(2.5), TimeSpan.FromSeconds(2.5));
+    }
+
+    private async Task LoadAsync() => _studios = await Api.GetStudiosAsync();
+
+    private string DefaultName(string kind)
+        => kind == "VoiceBooth"
+            ? $"Booth #{_studios.Count(s => s.Kind == "VoiceBooth") + 1}"
+            : $"Studio #{_studios.Count(s => s.Kind == "Recording") + 1}";
+
+    private static string JobElapsed(StudioDto studio)
+        => studio.JobStartedAtUtc is { } started
+            ? $"{(DateTime.UtcNow - started).TotalMinutes:F0} min {(DateTime.UtcNow - started).Seconds} s"
+            : "";
+
+    private void OpenCreate(string kind)
+    {
+        _formKind = kind;
+        _editId = null;
+        _formSource = "local";
+        _formName = "";
+        _formUrl = "";
+        _formApiKey = "";
+        _testResult = null;
+        _saveError = null;
+    }
+
+    private void StartEdit(StudioDto studio)
+    {
+        _formKind = studio.Kind;
+        _editId = studio.Id;
+        _formSource = string.IsNullOrEmpty(studio.Url) ? "api" : "local";
+        _formName = studio.Name;
+        _formUrl = studio.Url;
+        _formProvider = _formSource == "api" ? studio.Provider : "elevenlabs";
+        _formApiKey = "";
+        _testResult = null;
+        _saveError = null;
+    }
+
+    private void SetSource(string source)
+    {
+        _formSource = source;
+        _testResult = null; // changed config invalidates the previous test
+    }
+
+    private void CloseForm()
+    {
+        _formKind = null;
+        _editId = null;
+    }
+
+    private async Task TestAsync()
+    {
+        _saveError = null;
+        _testResult = await Api.TestStudioAsync(new TestStudioDto(
+            _formKind!, _formSource,
+            _formSource == "local" ? _formUrl : null,
+            _formSource == "api" ? _formProvider : null,
+            _formSource == "api" ? _formApiKey : null));
+    }
+
+    private async Task SaveAsync()
+    {
+        var dto = new SaveStudioDto(
+            string.IsNullOrWhiteSpace(_formName) ? null : _formName,
+            _formKind!, _formSource,
+            _formSource == "local" ? _formUrl : null,
+            _formSource == "api" ? _formProvider : null,
+            _formSource == "api" ? _formApiKey : null);
+
+        var (studio, error) = _editId is { } id
+            ? await Api.UpdateStudioAsync(id, dto)
+            : await Api.CreateStudioAsync(dto);
+
+        if (studio is null)
+        {
+            _saveError = error ?? "save failed";
+            return;
+        }
+
+        CloseForm();
+        await LoadAsync();
+    }
+
+    private async Task ToggleAsync(Guid id)
+    {
+        await Api.ToggleStudioAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        _saveError = await Api.DeleteStudioAsync(id);
+        await LoadAsync();
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

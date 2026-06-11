@@ -29,7 +29,7 @@ public class HttpMusicGeneratorTests
     }
 
     [Fact]
-    public async Task GenerateAsync_VocalRequest_TargetsAceStepWithLyrics()
+    public async Task GenerateAsync_VocalRequest_StillTargetsMusicGenCompatibilityClient()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(HttpStatusCode.OK, new ByteArrayContent([1]));
         var generator = new HttpMusicGenerator(handler.CreateClient());
@@ -39,7 +39,7 @@ public class HttpMusicGeneratorTests
             CancellationToken.None);
 
         using var body = JsonDocument.Parse(handler.LastRequestBody!);
-        Assert.Equal("ace-step", body.RootElement.GetProperty("backend").GetString());
+        Assert.Equal("musicgen", body.RootElement.GetProperty("backend").GetString());
         Assert.Equal("la la la", body.RootElement.GetProperty("lyrics").GetString());
     }
 
@@ -53,12 +53,11 @@ public class HttpMusicGeneratorTests
             () => generator.GenerateAsync(
                 new MusicRequest("p", "g", WantVocals: true, Lyrics: "l", DurationSeconds: 30), CancellationToken.None));
 
-        Assert.Equal("ace-step", ex.Backend);
+        Assert.Equal("musicgen", ex.Backend);
     }
 
     [Theory]
     [InlineData("musicgen", true)]
-    [InlineData("ace-step", false)]
     public async Task IsBackendAvailableAsync_ParsesHealthResponse(string backend, bool expected)
     {
         var json = """{"status":"ok","backends":{"musicgen":true,"ace-step":false}}""";

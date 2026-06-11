@@ -37,30 +37,15 @@ var icecast = builder.AddContainer("icecast", "libretime/icecast", "latest")
     .WithHttpEndpoint(port: 8000, targetPort: 8000, name: "http");
 var icecastEndpoint = icecast.GetEndpoint("http");
 
-// --- Python sidecars (model cache shared via hf-cache volume) -----------------
-var torchIndex = useGpu ? "cu121" : "cpu";
-
-var tts = builder.AddDockerfile("tts", "../../sidecars/tts")
-    .WithBuildArg("TORCH_INDEX", torchIndex)
-    .WithVolume("hf-cache", "/models")
-    .WithHttpEndpoint(port: 8001, targetPort: 8001, name: "http");
-
-var music = builder.AddDockerfile("music", "../../sidecars/music")
-    .WithBuildArg("TORCH_INDEX", torchIndex)
-    .WithVolume("hf-cache", "/models")
-    .WithHttpEndpoint(port: 8002, targetPort: 8002, name: "http");
-
-if (useGpu)
-{
-    tts.WithContainerRuntimeArgs("--gpus=all");
-    music.WithContainerRuntimeArgs("--gpus=all");
-}
+// --- Studios -------------------------------------------------------------------
+// Music AIs and TTS booths are NOT managed by Aspire anymore: they run as
+// standalone containers (start-studios.ps1) or online APIs, configured on the
+// Studios page. They survive WhipRadio restarts and can be scaled to several
+// instances of the same model.
 
 // --- Orchestrator: pipelines + playout -----------------------------------------
 var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestrator")
     .WithReference(ollama)
-    .WithReference(tts.GetEndpoint("http"))
-    .WithReference(music.GetEndpoint("http"))
     .WaitFor(icecast)
     .WithEnvironment("Radio__DataRoot", dataRoot)
     .WithEnvironment("Stream__Mount", "/radio.mp3")
