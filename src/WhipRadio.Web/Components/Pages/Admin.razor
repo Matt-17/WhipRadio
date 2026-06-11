@@ -1,6 +1,7 @@
 @page "/admin"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
+@implements IDisposable
 @inject RadioApiClient Api
 
 <PageTitle>WhipRadio — Admin</PageTitle>
@@ -67,6 +68,31 @@ else
                     <div class="dim">Crossfades, beat-aligned blends, talk-overs. Off = classic sequential playout.</div>
                 </div>
                 <div class="switch big @(_mx_enabled ? "on" : null)" @onclick="ToggleMixerAsync"></div>
+            </div>
+
+            <div class="dim" style="margin-bottom:12px; font-family:var(--font-mono); font-size:12px">
+                @if (_mixer.Live.SessionActive)
+                {
+                    <span class="tag green">session active</span>
+                    <span> master clock @TimeSpan.FromSeconds(_mixer.Live.MasterSeconds).ToString(@"hh\:mm\:ss")
+                        · @_mixer.Live.TransitionsThisSession transitions this session</span>
+                    @foreach (var item in _mixer.Live.ActiveItems)
+                    {
+                        <div style="margin-left:8px">▸ @item</div>
+                    }
+                    @if (_mixer.Live.LastDecision is { } decision)
+                    {
+                        <div style="margin-left:8px; margin-top:4px">last decision: @decision</div>
+                    }
+                }
+                else if (_mx_enabled)
+                {
+                    <span class="tag amber">enabled — engaging at the next item boundary…</span>
+                }
+                else
+                {
+                    <span class="tag">off — legacy sequential playout</span>
+                }
             </div>
             <div class="form-grid">
                 <div class="field"><label>Target loudness (LUFS)</label><input type="number" step="0.5" @bind="_mx_targetLufs" /></div>
@@ -175,10 +201,25 @@ else
     private int _mx_gapSongMax;
     private string _mx_weights = "";
 
+    private Timer? _mixerTimer;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
+        // Live mixer state only — the editable fields are not reloaded so a
+        // refresh never wipes in-progress edits.
+        _mixerTimer = new Timer(async _ =>
+        {
+            var fresh = await Api.GetMixerAsync();
+            if (fresh is not null && _mixer is not null)
+            {
+                _mixer = _mixer with { Live = fresh.Live, Status = fresh.Status };
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
     }
+
+    public void Dispose() => _mixerTimer?.Dispose();
 
     private async Task LoadAsync()
     {

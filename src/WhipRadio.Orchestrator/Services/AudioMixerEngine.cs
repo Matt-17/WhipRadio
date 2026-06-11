@@ -20,6 +20,7 @@ public sealed class AudioMixerEngine(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
     IMixPlanner planner,
+    MixerDiagnostics diagnostics,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<RadioOptions> radioOptions,
@@ -65,7 +66,11 @@ public sealed class AudioMixerEngine(
         var pendingLogs = new List<PendingLog>();
         MixerSettings settings = await LoadSettingsAsync(ct);
 
-        logger.LogInformation("Mixer session started (target {Lufs} LUFS)", settings.TargetLufs);
+        diagnostics.SessionStarted();
+        logger.LogInformation(
+            "Mixer session started: target {Lufs} LUFS, crossfade {Fade}s, duck {Duck} dB, talk gap {GMin}-{GMax} ms",
+            settings.TargetLufs, settings.DefaultCrossfadeSeconds, settings.DuckLevelDb,
+            settings.HardCutGapAfterTalkMsMin, settings.HardCutGapAfterTalkMsMax);
 
         try
         {
@@ -76,7 +81,7 @@ public sealed class AudioMixerEngine(
                     throw new InvalidOperationException($"Encoder ffmpeg exited with code {encoder.ExitCode}.");
                 }
 
-                // Flag checks every ~2 s of audio.
+                // Flag checks + live diagnostics every ~2 s of audio.
                 if (++framesSinceCheck >= 86)
                 {
                     framesSinceCheck = 0;
@@ -84,6 +89,10 @@ public sealed class AudioMixerEngine(
                     {
                         stopScheduling = true; // finish what's playing, then hand back
                     }
+
+                    diagnostics.Update(
+                        Format.SamplesToSeconds(masterPos),
+                        actives.Select(a => $"{a.Item.Title} [{DescribePhase(a, masterPos)}]"));
                 }
 
                 if (actives.Count == 0)
@@ -140,6 +149,18 @@ public sealed class AudioMixerEngine(
                     var a = actives[i];
                     if (a.Slot.Finished || masterPos > a.EndAtMaster)
                     {
+                        // A source that hits EOF well before its planned end means
+                        // the FILE is shorter than its duration metadata — the
+                        // "is the song broken or is it the mixer?" question, answered.
+                        var earlySeconds = Format.SamplesToSeconds(a.EndAtMaster - masterPos);
+                        if (a.Slot.Finished && earlySeconds > 2)
+                        {
+                            logger.LogWarning(
+                                "Mixer: \"{Title}\" audio ended {Early:F1}s before its expected end — "
+                                + "file shorter than duration metadata (broken/truncated file?)",
+                                a.Item.Title, earlySeconds);
+                        }
+
                         a.Reader.Dispose();
                         actives.RemoveAt(i);
                         if (actives.Count > 0 && i == actives.Count)
@@ -157,11 +178,49 @@ public sealed class AudioMixerEngine(
         }
         finally
         {
+            diagnostics.SessionEnded();
             foreach (var active in actives)
             {
                 active.Reader.Dispose();
             }
         }
+    }
+
+    private static string DescribePhase(ActiveSource source, long masterPos)
+    {
+        if (masterPos < source.Slot.StartAtMasterSample)
+        {
+            return $"starts in {(source.Slot.StartAtMasterSample - masterPos) / (double)Format.SampleRate:F0}s";
+        }
+
+        var remaining = (source.EndAtMaster - masterPos) / (double)Format.SampleRate;
+        return $"{remaining:F0}s left";
+    }
+
+    private static string DescribeAnalysis(ItemInfo info)
+    {
+        if (info.Analysis is not { AnalyzerVersion: > 0 } a)
+        {
+            return "NOT ANALYZED";
+        }
+
+        var parts = new List<string> { $"{a.IntegratedLufs:F1} LUFS" };
+        if (a.Bpm is { } bpm)
+        {
+            parts.Add($"bpm {bpm:F0} c{a.BpmConfidence:F2}");
+        }
+
+        if (a.IntroEndSeconds is { } intro)
+        {
+            parts.Add($"intro {intro:F1}s c{a.IntroConfidence:F2}");
+        }
+
+        if (a.OutroStartSeconds is { } outro)
+        {
+            parts.Add($"outro {outro:F1}s c{a.OutroConfidence:F2}");
+        }
+
+        return string.Join(", ", parts);
     }
 
     // --- item scheduling ---------------------------------------------------------
@@ -178,6 +237,11 @@ public sealed class AudioMixerEngine(
             var songInfo = await BuildItemInfoAsync(peeked, ct);
             var plan = planner.Plan(talkInfo, songInfo, settings);
 
+            logger.LogInformation(
+                "Mixer decision: \"{Out}\" → \"{In}\" | in: {InAnalysis} | {Trace}",
+                item.Title, peeked.Title, DescribeAnalysis(songInfo), plan.ReasonTrace);
+            diagnostics.DecisionMade($"{item.Title} → {peeked.Title}: {plan.ReasonTrace}");
+
             if (plan.Strategy == MixStrategy.IntroTalkOver)
             {
                 var song = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
@@ -191,7 +255,10 @@ public sealed class AudioMixerEngine(
 
         var info = await BuildItemInfoAsync(item, ct);
         actives.Add(CreateSource(item, info, masterPos, settings, EnvelopeKind.Full, reportAt: masterPos));
-        logger.LogInformation("Mixer: \"{Title}\" starts at {Pos}s", item.Title, Format.SamplesToSeconds(masterPos));
+        logger.LogInformation(
+            "Mixer: \"{Title}\" starts ({Duration:F0}s, {Analysis}, makeup {Makeup:F1} dB)",
+            item.Title, info.DurationSeconds, DescribeAnalysis(info),
+            20 * Math.Log10(Makeup(info, settings)));
     }
 
     private void ScheduleIntroTalkOver(
@@ -259,6 +326,12 @@ public sealed class AudioMixerEngine(
         var outgoingInfo = await BuildItemInfoAsync(outgoing.Item, ct);
         var incomingInfo = await BuildItemInfoAsync(incoming, ct);
         var plan = planner.Plan(outgoingInfo, incomingInfo, settings);
+
+        logger.LogInformation(
+            "Mixer decision: \"{Out}\" → \"{In}\" | out: {OutAnalysis} | in: {InAnalysis} | {Trace}",
+            outgoing.Item.Title, incoming.Title,
+            DescribeAnalysis(outgoingInfo), DescribeAnalysis(incomingInfo), plan.ReasonTrace);
+        diagnostics.DecisionMade($"{outgoing.Item.Title} → {incoming.Title}: {plan.ReasonTrace}");
         var rate = Format.SampleRate;
         var outgoingEnd = outgoing.EndAtMaster;
         var leadIn = incomingInfo.Analysis?.LeadingSilenceSeconds ?? 0;

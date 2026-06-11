@@ -574,7 +574,7 @@ public static class RadioApiEndpoints
 
     private static void MapMixer(RouteGroupBuilder api)
     {
-        api.MapGet("/mixer", async (RadioDbContext db, CancellationToken ct) =>
+        api.MapGet("/mixer", async (RadioDbContext db, MixerDiagnostics diagnostics, CancellationToken ct) =>
         {
             var s = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
             var settings = new MixerSettingsDto(
@@ -632,7 +632,10 @@ public static class RadioApiEndpoints
                     Title(e.OutgoingType, e.OutgoingId), Title(e.IncomingType, e.IncomingId),
                     e.OverlapSeconds, e.GapMs, e.ClipCount, Trace(e.ParametersJson))).ToList());
 
-            return Results.Ok(new MixerOverviewDto(settings, status));
+            var live = diagnostics.Snapshot();
+            return Results.Ok(new MixerOverviewDto(settings, status, new MixerLiveDto(
+                live.Active, live.EngagedAtUtc, live.MasterSeconds, live.ActiveItems,
+                live.LastDecision, live.LastDecisionAtUtc, live.Transitions)));
         });
 
         api.MapPut("/mixer/settings", async (MixerSettingsDto request, RadioDbContext db, CancellationToken ct) =>

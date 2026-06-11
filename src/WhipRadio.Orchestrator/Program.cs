@@ -54,6 +54,7 @@ builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();
 builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
+builder.Services.AddSingleton<MixerDiagnostics>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 
 builder.Services.AddSignalR();

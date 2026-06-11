@@ -175,7 +175,16 @@ public sealed record MixerStatusDto(
     int TotalClips,
     IReadOnlyList<TransitionLogEntryDto> RecentTransitions);
 
-public sealed record MixerOverviewDto(MixerSettingsDto Settings, MixerStatusDto Status);
+public sealed record MixerLiveDto(
+    bool SessionActive,
+    DateTime? EngagedAtUtc,
+    double MasterSeconds,
+    IReadOnlyList<string> ActiveItems,
+    string? LastDecision,
+    DateTime? LastDecisionAtUtc,
+    int TransitionsThisSession);
+
+public sealed record MixerOverviewDto(MixerSettingsDto Settings, MixerStatusDto Status, MixerLiveDto Live);
 
 public sealed record VoteRequestDto(Guid TrackId, int Direction);
 
