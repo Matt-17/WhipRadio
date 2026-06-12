@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 VOICES_DIR = Path(os.environ.get("QWEN_VOICES_DIR", "/models/qwen-voices"))
 SYNTH_MODEL = os.environ.get("QWEN_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base")
 DESIGN_MODEL = os.environ.get("QWEN_TTS_DESIGN_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign")
+# sdpa = PyTorch built-in fused attention: meaningfully faster than eager
+# ("manual") without the flash-attn build dependency. Falls back if rejected.
+ATTN_IMPL = os.environ.get("QWEN_TTS_ATTN", "sdpa")
 
 # ITtsEngine speaks ISO codes; Qwen wants language names.
 LANGUAGE_NAMES = {
@@ -74,18 +77,29 @@ class QwenEngine(EngineBase):
                 import torch
                 from qwen_tts import Qwen3TTSModel
 
-                logger.info("Loading Qwen3-TTS synth model %s", SYNTH_MODEL)
-                try:
-                    self._model = Qwen3TTSModel.from_pretrained(
-                        SYNTH_MODEL,
-                        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
-                        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                    )
-                except torch.cuda.OutOfMemoryError:
-                    logger.warning("CUDA full — loading synth model on CPU (slower, still fine)")
-                    self._model = Qwen3TTSModel.from_pretrained(
-                        SYNTH_MODEL, device_map="cpu", dtype=torch.float32)
+                logger.info("Loading Qwen3-TTS synth model %s (attn=%s)", SYNTH_MODEL, ATTN_IMPL)
+                self._model = self._load(SYNTH_MODEL, torch)
         return self._model
+
+    @staticmethod
+    def _load(model_id: str, torch):
+        from qwen_tts import Qwen3TTSModel
+
+        cuda = torch.cuda.is_available()
+        base_kwargs = {
+            "device_map": "cuda:0" if cuda else "cpu",
+            "dtype": torch.bfloat16 if cuda else torch.float32,
+        }
+        try:
+            try:
+                return Qwen3TTSModel.from_pretrained(
+                    model_id, attn_implementation=ATTN_IMPL, **base_kwargs)
+            except (TypeError, ValueError) as exc:
+                logger.warning("attn=%s rejected (%s) — loading with default attention", ATTN_IMPL, exc)
+                return Qwen3TTSModel.from_pretrained(model_id, **base_kwargs)
+        except torch.cuda.OutOfMemoryError:
+            logger.warning("CUDA full — loading %s on CPU (slower, still fine)", model_id)
+            return Qwen3TTSModel.from_pretrained(model_id, device_map="cpu", dtype=torch.float32)
 
     # --- engine contract --------------------------------------------------------
 
@@ -171,21 +185,7 @@ class QwenEngine(EngineBase):
             logger.info("Designing Qwen voice (transient %s): %s", DESIGN_MODEL, instruct[:120])
             design_model = None
             try:
-                try:
-                    design_model = Qwen3TTSModel.from_pretrained(
-                        DESIGN_MODEL,
-                        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
-                        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-                    )
-                except torch.cuda.OutOfMemoryError:
-                    # The GPU is busy with music/LLM. Designing is rare — a few
-                    # minutes on CPU beats failing the whole flow.
-                    logger.warning("CUDA full — designing on CPU (takes a few minutes)")
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    design_model = Qwen3TTSModel.from_pretrained(
-                        DESIGN_MODEL, device_map="cpu", dtype=torch.float32)
-
+                design_model = self._load(DESIGN_MODEL, torch)
                 wavs, sr = design_model.generate_voice_design(
                     text=text, language=_language_name(language), instruct=instruct)
             finally:
