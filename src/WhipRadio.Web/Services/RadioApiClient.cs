@@ -5,9 +5,12 @@ using WhipRadio.Core.Api;
 namespace WhipRadio.Web.Services;
 
 /// <summary>Typed client for the Orchestrator's /api endpoints (via service discovery).</summary>
-public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
+public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactory, ILogger<RadioApiClient> logger)
 {
     public Uri? BaseAddress => http.BaseAddress;
+
+    /// <summary>Minutes-long calls (voice design): no retry pipeline, 12 min timeout.</summary>
+    private HttpClient LongClient => httpClientFactory.CreateClient("orchestrator-long");
 
     public async Task<NowPlayingDto?> GetNowPlayingAsync(CancellationToken ct = default)
     {
@@ -233,19 +236,33 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task<(DesignedVoiceDto? Voice, string? Error)> DesignVoiceAsync(
         DesignVoiceDto request, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("/api/voices/design", request, ct);
-        return response.IsSuccessStatusCode
-            ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
-            : (null, await response.Content.ReadAsStringAsync(ct));
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/voices/design", request, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Voice design timed out or the studio is unreachable.");
+        }
     }
 
     public async Task<(DesignedVoiceDto? Voice, string? Error)> RedesignVoiceAsync(
         int moderatorId, CancellationToken ct = default)
     {
-        using var response = await http.PostAsync($"/api/moderators/{moderatorId}/redesign-voice", null, ct);
-        return response.IsSuccessStatusCode
-            ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
-            : (null, await response.Content.ReadAsStringAsync(ct));
+        try
+        {
+            using var response = await LongClient.PostAsync($"/api/moderators/{moderatorId}/redesign-voice", null, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Voice design timed out or the studio is unreachable.");
+        }
     }
 
     public async Task<bool> ApplyVoiceAsync(int moderatorId, ApplyVoiceDto request, CancellationToken ct = default)

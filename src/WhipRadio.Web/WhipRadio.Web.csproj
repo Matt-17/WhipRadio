@@ -15,6 +15,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- EXTEXP0001: RemoveAllResilienceHandlers is the supported opt-out for the
+         standard resilience handler on long-running calls (voice design). -->
+    <NoWarn>$(NoWarn);EXTEXP0001</NoWarn>
   </PropertyGroup>
 
 </Project>

@@ -14,6 +14,16 @@ builder.Services.AddHttpClient<RadioApiClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 
+// Voice design runs for minutes (transient 1.7B model; first call downloads
+// weights). The default 10 s timeout + Polly retries would cancel and then
+// QUEUE THREE designs — this client has neither.
+builder.Services.AddHttpClient("orchestrator-long", client =>
+    {
+        client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
+        client.Timeout = TimeSpan.FromMinutes(12);
+    })
+    .RemoveAllResilienceHandlers();
+
 // Media proxy clients: audio must be served same-origin (the page is https;
 // browsers block plain-http media as mixed content). Infinite timeout — the
 // live stream is endless by design.
