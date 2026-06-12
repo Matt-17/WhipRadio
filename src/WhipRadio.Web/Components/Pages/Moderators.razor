@@ -59,7 +59,7 @@
             </button>
             @if (_newDesigned is not null)
             {
-                <button class="btn small" @onclick="() => PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, _newDesigned)">▶ preview</button>
+                <button class="btn small" @onclick="PlayNewPreview">▶ preview</button>
                 <span class="flash">✓ voice @_newDesigned.Handle ready</span>
             }
             @if (_designError is not null)
@@ -259,6 +259,14 @@ else
     /// <summary>Voice previews play in the footer player like song previews.</summary>
     private void PlayPreview(string name, DesignedVoiceDto voice)
         => Player.PlayVoice($"{name} — designed voice", Api.VoicePreviewUrl(voice.Handle), voice.DurationSeconds);
+
+    private void PlayNewPreview()
+    {
+        if (_newDesigned is not null)
+        {
+            PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, _newDesigned);
+        }
+    }
 
     private async Task ToggleAsync(int id)
     {
