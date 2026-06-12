@@ -25,7 +25,9 @@ public class ShowRunnerService(
 
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan ColdStartDelay = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(90);
+    // Generous enough for Qwen TTS at ~1.7x realtime on a busy GPU: a 60 s
+    // story talk renders in ~100 s — the budget must not cancel it.
+    private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(150);
 
     private readonly Queue<Guid> _recentlyEnqueued = new();
     private readonly HashSet<Guid> _frontPushedGreetingIds = [];
