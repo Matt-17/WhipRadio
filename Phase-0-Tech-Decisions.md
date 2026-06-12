@@ -48,6 +48,7 @@ The 12 GB ceiling drives the model and VRAM-budget decisions below.
 | TTS (Kokoro/Piper, local) | resident if room | ~0.5–1 GB |
 | ElevenLabs TTS | API — no VRAM | 0 |
 | Music (ACE-Step) | **on-demand / evictable** | ~remaining 6–7 GB |
+| Image (FLUX.2 Klein 4B, Phase 6b) | **lowest priority; evicts everything else** | ~whole card (quantized) |
 
 **Firm rules from this budget:**
 1. **LLM + local TTS stay resident** (responsiveness is the priority the user named).
@@ -56,6 +57,22 @@ The 12 GB ceiling drives the model and VRAM-budget decisions below.
    generation semaphore (already specified in Phase 3a's backfill) so both don't spike
    VRAM simultaneously.
 4. Use a **Q4_K_M** (or similar) quant for the LLM; don't run full precision on 12 GB.
+5. **Image generation (FLUX.2 Klein 4B, Phase 6b) is the lowest-priority GPU workload** —
+   it never co-resides with LLM/TTS/music. It runs only when the GPU has been idle of
+   "studio work" for a cooldown, by evicting everything, draining an image-queue batch,
+   then reloading LLM+TTS. The live stream never stalls for it; entities show a skeleton
+   placeholder until their image exists. See `Phase-6b-Photography.md`.
+
+---
+
+## Image generation: FLUX.2 Klein 4B (Phase 6b)
+
+- **FLUX.2 Klein 4B**, quantized (GGUF Q4/Q5) for the 12 GB card, Apache 2.0 licensed.
+  Photorealistic, with multi-reference identity preservation so a person stays
+  recognisable across photos. Behind an `IImageGenerationService` sidecar, same pattern as
+  TTS/music.
+- **Not real-time, lowest VRAM priority** — see the VRAM rules above and
+  `Phase-6b-Photography.md`. Photos are produced on demand at entity creation and cached.
 
 ---
 

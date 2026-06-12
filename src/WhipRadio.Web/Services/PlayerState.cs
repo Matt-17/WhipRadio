@@ -7,22 +7,38 @@ namespace WhipRadio.Web.Services;
 /// preview. Pages request a track via <see cref="PlayTrack"/>; the footer
 /// player listens to <see cref="Changed"/> and switches its UI/audio.
 /// </summary>
+public sealed record VoicePreview(string Title, string Url, double DurationSeconds);
+
 public class PlayerState
 {
-    /// <summary>Null = live radio mode.</summary>
+    /// <summary>Track preview mode (library). Null unless previewing a track.</summary>
     public TrackDto? CurrentTrack { get; private set; }
+
+    /// <summary>Designed-voice preview mode (hosts page). Null unless previewing a voice.</summary>
+    public VoicePreview? CurrentVoice { get; private set; }
+
+    public bool IsLive => CurrentTrack is null && CurrentVoice is null;
 
     public event Action? Changed;
 
     public void PlayTrack(TrackDto track)
     {
         CurrentTrack = track;
+        CurrentVoice = null;
+        Changed?.Invoke();
+    }
+
+    public void PlayVoice(string title, string url, double durationSeconds)
+    {
+        CurrentVoice = new VoicePreview(title, url, durationSeconds);
+        CurrentTrack = null;
         Changed?.Invoke();
     }
 
     public void BackToLive()
     {
         CurrentTrack = null;
+        CurrentVoice = null;
         Changed?.Invoke();
     }
 }

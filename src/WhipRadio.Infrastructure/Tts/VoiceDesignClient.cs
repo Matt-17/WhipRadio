@@ -17,7 +17,7 @@ public sealed record DesignedVoice(string Handle, double DurationSeconds);
 public interface IVoiceDesignClient
 {
     Task<DesignedVoice> DesignVoiceAsync(
-        string description, string gender, string language, CancellationToken ct);
+        string description, string gender, string language, string? sampleText, CancellationToken ct);
 
     Task<byte[]> GetPreviewAsync(string handle, CancellationToken ct);
 }
@@ -28,7 +28,7 @@ public class VoiceDesignClient(
     ILogger<VoiceDesignClient> logger) : IVoiceDesignClient
 {
     public async Task<DesignedVoice> DesignVoiceAsync(
-        string description, string gender, string language, CancellationToken ct)
+        string description, string gender, string language, string? sampleText, CancellationToken ct)
     {
         var booth = await GetBoothAsync(ct);
         var client = CreateClient(booth);
@@ -39,6 +39,7 @@ public class VoiceDesignClient(
             description,
             gender,
             language,
+            sample_text = sampleText,
         }, ct);
 
         if (!response.IsSuccessStatusCode)

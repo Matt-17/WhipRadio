@@ -588,7 +588,8 @@ public static class RadioApiEndpoints
             try
             {
                 var voice = await designer.DesignVoiceAsync(
-                    request.Description, request.Gender, request.Language, ct);
+                    request.Description, request.Gender, request.Language,
+                    BuildVoiceIntroSample(request.Name, request.Language), ct);
                 return Results.Ok(new DesignedVoiceDto(voice.Handle, request.Description, voice.DurationSeconds));
             }
             catch (InvalidOperationException ex)
@@ -629,7 +630,9 @@ public static class RadioApiEndpoints
 
             try
             {
-                var voice = await designer.DesignVoiceAsync(description, moderator.Gender, moderator.Language, ct);
+                var voice = await designer.DesignVoiceAsync(
+                    description, moderator.Gender, moderator.Language,
+                    BuildVoiceIntroSample(moderator.Name, moderator.Language), ct);
                 return Results.Ok(new DesignedVoiceDto(voice.Handle, description, voice.DurationSeconds));
             }
             catch (InvalidOperationException ex)
@@ -660,6 +663,15 @@ public static class RadioApiEndpoints
             return Results.Ok();
         });
     }
+
+    /// <summary>The preview introduces the host by name — what you hear is what
+    /// goes on air, including how the voice pronounces its own name.</summary>
+    private static string? BuildVoiceIntroSample(string? name, string language)
+        => string.IsNullOrWhiteSpace(name)
+            ? null
+            : language.StartsWith("de", StringComparison.OrdinalIgnoreCase)
+                ? $"Hi, ich bin {name.Trim()}! Ihr hört WhipRadio — wo jeder Song nur für euch gemacht wird. Bleibt dran!"
+                : $"Hi, I'm {name.Trim()}! You're listening to WhipRadio — where every song is made just for you. Stay tuned!";
 
     private static void MapMixer(RouteGroupBuilder api)
     {

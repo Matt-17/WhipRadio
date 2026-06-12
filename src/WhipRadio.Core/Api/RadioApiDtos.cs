@@ -186,7 +186,7 @@ public sealed record MixerLiveDto(
 
 public sealed record MixerOverviewDto(MixerSettingsDto Settings, MixerStatusDto Status, MixerLiveDto Live);
 
-public sealed record DesignVoiceDto(string Description, string Gender, string Language);
+public sealed record DesignVoiceDto(string Description, string Gender, string Language, string? Name = null);
 
 public sealed record DesignedVoiceDto(string Handle, string Description, double DurationSeconds);
 

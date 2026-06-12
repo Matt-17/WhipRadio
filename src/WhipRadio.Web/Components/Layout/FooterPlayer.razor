@@ -18,7 +18,24 @@
     </button>
 
     <div class="player-info">
-        @if (Player.CurrentTrack is { } track)
+        @if (Player.CurrentVoice is { } voice)
+        {
+            <div class="player-title">
+                🎙 @voice.Title
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
+            </div>
+            <div class="player-meta">
+                Voice preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+            </div>
+            <div class="player-progress seekable">
+                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+                <input type="range" class="seek-overlay"
+                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="OnSeekAsync" title="drag to seek" />
+            </div>
+        }
+        else if (Player.CurrentTrack is { } track)
         {
             <div class="player-title">
                 @track.ArtistName<span class="dim"> — </span>@track.Title
@@ -85,19 +102,22 @@
 
     private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
 
-    private bool IsAudible => Player.CurrentTrack is null ? _livePlaying : _songPlaying;
+    private bool IsAudible => Player.IsLive ? _livePlaying : _songPlaying;
 
     // Drawer slides up only for live announcements with the toggle on; keeping
     // the last transcript lets the close animation show text while sliding down.
     private bool ShowTranscript => _transcriptEnabled
-        && Player.CurrentTrack is null
+        && Player.IsLive
         && Live.NowPlaying is { Transcript: not null };
 
-    private double SongDuration => _songDur > 0 ? _songDur : Player.CurrentTrack?.DurationSeconds ?? 0;
+    private double SongDuration => _songDur > 0
+        ? _songDur
+        : Player.CurrentTrack?.DurationSeconds ?? Player.CurrentVoice?.DurationSeconds ?? 0;
 
     private double SongProgress => SongDuration > 0 ? Math.Clamp(_songPos / SongDuration * 100, 0, 100) : 0;
 
-    private bool CanVote => Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track";
+    private bool CanVote => Player.CurrentVoice is null
+        && (Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track");
 
     private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
 
@@ -144,7 +164,7 @@
 
     private async Task TickAsync()
     {
-        if (Player.CurrentTrack is not null && _songPlaying)
+        if (!Player.IsLive && _songPlaying)
         {
             var status = await Js.InvokeAsync<AudioStatus>("whipRadio.getStatus");
             _songPos = status.Position;
@@ -174,18 +194,22 @@
     {
         if (Player.CurrentTrack is { } track)
         {
-            await StartSongAsync(track);
+            await StartPreviewAsync(Api.TrackAudioUrl(track.Id), track.DurationSeconds);
+        }
+        else if (Player.CurrentVoice is { } voice)
+        {
+            await StartPreviewAsync(voice.Url, voice.DurationSeconds);
         }
 
         StateHasChanged();
     });
 
-    private async Task StartSongAsync(TrackDto track)
+    private async Task StartPreviewAsync(string url, double durationSeconds)
     {
         _livePlaying = false;
         _songPos = 0;
-        _songDur = track.DurationSeconds;
-        _songPlaying = await Js.InvokeAsync<bool>("whipRadio.playTrack", Api.TrackAudioUrl(track.Id));
+        _songDur = durationSeconds;
+        _songPlaying = await Js.InvokeAsync<bool>("whipRadio.playTrack", url);
         await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
     }
 
@@ -211,7 +235,7 @@
 
     private async Task TogglePlayAsync()
     {
-        if (Player.CurrentTrack is not null)
+        if (!Player.IsLive)
         {
             if (_songPlaying)
             {

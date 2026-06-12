@@ -2,6 +2,7 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
+@inject PlayerState Player
 @inject IJSRuntime Js
 
 <PageTitle>WhipRadio — Hosts</PageTitle>
@@ -56,10 +57,10 @@
             <button class="btn" disabled="@_designing" @onclick="DesignNewVoiceAsync">
                 @(_designing ? "designing… (first run downloads the model)" : "🎙 Design & preview voice")
             </button>
-            @if (_newVoiceHandle is not null)
+            @if (_newDesigned is not null)
             {
-                <button class="btn small" @onclick="() => PlayPreviewAsync(_newVoiceHandle)">▶ preview</button>
-                <span class="flash">✓ voice @_newVoiceHandle ready</span>
+                <button class="btn small" @onclick="() => PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, _newDesigned)">▶ preview</button>
+                <span class="flash">✓ voice @_newDesigned.Handle ready</span>
             }
             @if (_designError is not null)
             {
@@ -107,7 +108,7 @@ else
                 @if (_redesignFor == moderator.Id && _redesigned is not null)
                 {
                     <div class="btn-row" style="margin-top:10px">
-                        <button class="btn small" @onclick="() => PlayPreviewAsync(_redesigned.Handle)">▶ preview new voice</button>
+                        <button class="btn small" @onclick="() => PlayPreview(moderator.Name, _redesigned)">▶ preview new voice</button>
                         <button class="btn small primary" @onclick="() => ApplyRedesignAsync(moderator.Id)">apply</button>
                         <button class="btn small" @onclick="() => { _redesignFor = null; _redesigned = null; }">discard</button>
                     </div>
@@ -168,6 +169,7 @@ else
     private string? _created;
     private string _newVoiceDescription = "";
     private string? _newVoiceHandle;
+    private DesignedVoiceDto? _newDesigned;
     private bool _designing;
     private string? _designError;
     private int? _redesignFor;
@@ -213,13 +215,15 @@ else
         _designing = true;
         _designError = null;
         var (voice, error) = await Api.DesignVoiceAsync(
-            new DesignVoiceDto(_newVoiceDescription, _newGender, _stationLanguage));
+            new DesignVoiceDto(_newVoiceDescription, _newGender, _stationLanguage,
+                string.IsNullOrWhiteSpace(_newName) ? null : _newName));
         _designing = false;
         _newVoiceHandle = voice?.Handle;
+        _newDesigned = voice;
         _designError = error;
         if (voice is not null)
         {
-            await PlayPreviewAsync(voice.Handle);
+            PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, voice);
         }
     }
 
@@ -234,7 +238,8 @@ else
         _designError = error;
         if (voice is not null)
         {
-            await PlayPreviewAsync(voice.Handle);
+            var name = _moderators?.FirstOrDefault(m => m.Id == moderatorId)?.Name ?? "host";
+            PlayPreview(name, voice);
         }
     }
 
@@ -251,8 +256,9 @@ else
         _moderators = await Api.GetModeratorsAsync();
     }
 
-    private async Task PlayPreviewAsync(string handle)
-        => await Js.InvokeVoidAsync("whipRadio.playClip", Api.VoicePreviewUrl(handle));
+    /// <summary>Voice previews play in the footer player like song previews.</summary>
+    private void PlayPreview(string name, DesignedVoiceDto voice)
+        => Player.PlayVoice($"{name} — designed voice", Api.VoicePreviewUrl(voice.Handle), voice.DurationSeconds);
 
     private async Task ToggleAsync(int id)
     {
