@@ -76,6 +76,10 @@ static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string
 
     context.Response.StatusCode = (int)response.StatusCode;
     context.Response.ContentType = response.Content.Headers.ContentType?.ToString() ?? "audio/mpeg";
+    // Live audio must NEVER be cached: a replayed stale chunk after a server
+    // restart is exactly the "weird sounds" failure mode.
+    context.Response.Headers.CacheControl = "no-store, no-cache";
+    context.Response.Headers.Pragma = "no-cache";
     if (response.Content.Headers.ContentLength is { } length)
     {
         context.Response.ContentLength = length;

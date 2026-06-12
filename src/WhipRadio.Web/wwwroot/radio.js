@@ -23,10 +23,9 @@ window.whipRadio = {
         this._retryTimer = setTimeout(async () => {
           this._retryTimer = null;
           if (this._wantLive) {
-            try {
-              this._audio.load();
-              await this._audio.play();
-            } catch {
+            // Full re-tune with a cache-busted URL — never replay stale buffer.
+            const ok = await this.play(this._liveUrl || this._audio.src.split("?")[0]);
+            if (!ok) {
               recover(); // still down - keep trying
             }
           }
@@ -43,10 +42,14 @@ window.whipRadio = {
   },
 
   async play(url) {
-    const audio = this._ensure(url);
+    // Cache-bust every (re)connect: the browser must fetch the live edge,
+    // never a cached/stale response from before a server restart.
+    const fresh = url + (url.includes("?") ? "&" : "?") + "ts=" + Date.now();
+    const audio = this._ensure(fresh);
     this._wantLive = true;
+    this._liveUrl = url;
     try {
-      // Re-point at the live edge: streams keep playing stale buffer otherwise.
+      audio.src = fresh;
       audio.load();
       await audio.play();
       return true;
