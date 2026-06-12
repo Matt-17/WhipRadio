@@ -486,6 +486,7 @@ public sealed class AudioMixerEngine(
     private async Task<ItemInfo> BuildItemInfoAsync(PlayoutItem item, CancellationToken ct)
     {
         MediaAnalysis? analysis = null;
+        double? talkativeness = null;
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -495,14 +496,23 @@ public sealed class AudioMixerEngine(
             {
                 analysis = null; // stub row from a failed analysis — planner degrades
             }
+
+            // The host has a vote on talk-over transitions.
+            if (item.ItemType == PlayoutItemType.Announcement && item.ModeratorId is { } moderatorId)
+            {
+                talkativeness = await db.Moderators.AsNoTracking()
+                    .Where(m => m.Id == moderatorId)
+                    .Select(m => (double?)m.Talkativeness)
+                    .FirstOrDefaultAsync(ct);
+            }
         }
         catch
         {
-            // analysis is optional by design
+            // analysis/host context is optional by design
         }
 
         var duration = analysis is { DurationSeconds: > 0 } ? analysis.DurationSeconds : item.DurationSeconds;
-        return new ItemInfo(item.ItemType, analysis, duration);
+        return new ItemInfo(item.ItemType, analysis, duration, talkativeness);
     }
 
     private async Task<MixerSettings> LoadSettingsAsync(CancellationToken ct)

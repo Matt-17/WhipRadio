@@ -219,6 +219,67 @@ public class MixPlannerTests
     }
 
     [Fact]
+    public void TalkativeHost_GetsMoreTalkOvers()
+    {
+        var song = Song(analysis: FullAnalysis(introEnd: 20, introConf: 0.9));
+
+        int CountTalkOvers(double talkativeness, int seed)
+        {
+            var planner = Planner(seed);
+            var talk = Talk(10) with { HostTalkativeness = talkativeness };
+            var count = 0;
+            for (var i = 0; i < 2000; i++)
+            {
+                if (planner.Plan(talk, song, Settings).Strategy == MixStrategy.IntroTalkOver)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        var quiet = CountTalkOvers(0.0, seed: 11);   // weight 60 × 0.5 = 30 vs 40 → ~43 %
+        var chatty = CountTalkOvers(1.0, seed: 11);  // weight 60 × 1.5 = 90 vs 40 → ~69 %
+
+        Assert.True(chatty > quiet + 300,
+            $"chatty host should ride the intro far more often (quiet={quiet}, chatty={chatty})");
+        Assert.InRange(quiet / 2000.0, 0.35, 0.52);
+        Assert.InRange(chatty / 2000.0, 0.61, 0.77);
+    }
+
+    [Fact]
+    public void HostInfluence_AppearsInTrace()
+    {
+        var talk = Talk(10) with { HostTalkativeness = 0.8 };
+        var song = Song(analysis: FullAnalysis(introEnd: 20, introConf: 0.9));
+
+        var plan = Planner().Plan(talk, song, Settings);
+
+        Assert.Contains("talk=0.80", plan.ReasonTrace);
+    }
+
+    [Fact]
+    public void SongToTalk_IncomingHostTalkativeness_Applies()
+    {
+        var song = Song(analysis: FullAnalysis(outroConf: 0.9));
+        var chattyTalk = Talk(12) with { HostTalkativeness = 1.0 };
+
+        var planner = Planner(seed: 3);
+        var talkOvers = 0;
+        for (var i = 0; i < 2000; i++)
+        {
+            if (planner.Plan(song, chattyTalk, Settings).Strategy == MixStrategy.OutroTalkOver)
+            {
+                talkOvers++;
+            }
+        }
+
+        // weight 45 × 1.5 ≈ 68 vs HardCut 55 → ~55 %
+        Assert.InRange(talkOvers / 2000.0, 0.47, 0.63);
+    }
+
+    [Fact]
     public void WeightsValidation_AcceptsGoodRejectsBad()
     {
         Assert.True(MixPlanner.TryValidateWeightsJson("", out _));

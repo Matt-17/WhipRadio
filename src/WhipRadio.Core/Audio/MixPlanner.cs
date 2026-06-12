@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using WhipRadio.Core.Entities;
 
@@ -32,11 +33,14 @@ public enum PairKind
     SongToSong,
 }
 
-/// <summary>Everything the planner knows about one item of a pair.</summary>
+/// <summary>Everything the planner knows about one item of a pair.
+/// HostTalkativeness (talk items only, 0–1) pulls talk-over strategies up or
+/// down — a chatty host rides the intro far more often than a reserved one.</summary>
 public sealed record ItemInfo(
     PlayoutItemType ItemType,
     MediaAnalysis? Analysis,
-    double DurationSeconds);
+    double DurationSeconds,
+    double? HostTalkativeness = null);
 
 /// <summary>The ephemeral per-pair decision (logged, never stored as state).</summary>
 public sealed record TransitionPlan(
@@ -80,13 +84,13 @@ public sealed class MixPlanner(IRandomSource random) : IMixPlanner
             [PairKind.TalkToTalk] = new Dictionary<MixStrategy, int> { [MixStrategy.HardCut] = 100 },
             [PairKind.TalkToSong] = new Dictionary<MixStrategy, int>
             {
-                [MixStrategy.HardCut] = 55,
-                [MixStrategy.IntroTalkOver] = 45,
+                [MixStrategy.HardCut] = 40,
+                [MixStrategy.IntroTalkOver] = 60,
             },
             [PairKind.SongToTalk] = new Dictionary<MixStrategy, int>
             {
-                [MixStrategy.HardCut] = 70,
-                [MixStrategy.OutroTalkOver] = 30,
+                [MixStrategy.HardCut] = 55,
+                [MixStrategy.OutroTalkOver] = 45,
             },
             [PairKind.SongToSong] = new Dictionary<MixStrategy, int>
             {
@@ -102,6 +106,26 @@ public sealed class MixPlanner(IRandomSource random) : IMixPlanner
         var pairKind = GetPairKind(outgoing, incoming);
         var eligible = BuildEligibleSet(pairKind, outgoing, incoming, settings, out var traceNotes);
         var weights = ResolveWeights(settings.StrategyWeightsJson, pairKind);
+
+        // The host has a say: the talk side's talkativeness scales the
+        // talk-over weights (0 → ×0.5, 0.5 → ×1, 1 → ×1.5).
+        var talkativeness = pairKind switch
+        {
+            PairKind.TalkToSong => outgoing.HostTalkativeness,
+            PairKind.SongToTalk => incoming.HostTalkativeness,
+            _ => null,
+        };
+        if (talkativeness is { } t)
+        {
+            var factor = 0.5 + Math.Clamp(t, 0, 1);
+            weights = weights.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Key is MixStrategy.IntroTalkOver or MixStrategy.OutroTalkOver
+                    ? (int)Math.Round(kv.Value * factor)
+                    : kv.Value);
+            traceNotes.Add(string.Create(CultureInfo.InvariantCulture, $"talk={t:F2}(x{factor:F2})"));
+        }
+
         var picked = WeightedPick(eligible, weights, out var pickedWeight);
 
         var trace = $"{pairKind}; eligible=[{string.Join(",", eligible)}]"
@@ -146,7 +170,7 @@ public sealed class MixPlanner(IRandomSource random) : IMixPlanner
                     var bpmOut = outgoing.Analysis.Bpm!.Value;
                     var bpmIn = incoming.Analysis.Bpm!.Value;
                     var deltaPct = Math.Abs(bpmOut - bpmIn) / bpmOut * 100;
-                    notes.Add($"dBPM={deltaPct:F1}%");
+                    notes.Add(string.Create(CultureInfo.InvariantCulture, $"dBPM={deltaPct:F1}%"));
                     if (deltaPct <= settings.BeatAlignBpmTolerancePct)
                     {
                         eligible.Add(MixStrategy.BeatAlignedFade);
