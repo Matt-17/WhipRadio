@@ -55,6 +55,7 @@ builder.Services.AddSingleton<ServerStatsCollector>();
 builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
 builder.Services.AddSingleton<MixerDiagnostics>();
+builder.Services.AddSingleton<FfmpegProcessRegistry>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 
 builder.Services.AddSignalR();
@@ -77,6 +78,11 @@ app.MapDefaultEndpoints();
 app.MapRadioApi();
 app.MapGreetingsApi();
 app.MapHub<RadioHub>("/hubs/radio");
+
+// Kill ffmpeg orphans from a previous run BEFORE the new encoder starts —
+// otherwise they fight for the Icecast mount (stale audio after restarts).
+// Embedded here so it works for every launch path: VS, scripts, Aspire.
+app.Services.GetRequiredService<FfmpegProcessRegistry>().KillOrphansFromPreviousRun();
 
 // Migrate + seed before the pipelines start consuming the database.
 await using (var db = await app.Services

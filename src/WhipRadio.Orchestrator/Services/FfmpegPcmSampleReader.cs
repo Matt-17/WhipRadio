@@ -33,9 +33,13 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
         }
     }
 
+    private readonly FfmpegProcessRegistry? _registry;
+
     public FfmpegPcmSampleReader(
-        string ffmpegPath, string absolutePath, PcmFormat format, double startAtSeconds = 0)
+        string ffmpegPath, string absolutePath, PcmFormat format,
+        double startAtSeconds = 0, FfmpegProcessRegistry? registry = null)
     {
+        _registry = registry;
         var bytesPerSecond = format.SampleRate * format.Channels * 2;
         _ring = new byte[bytesPerSecond]; // 1 s capacity
 
@@ -62,6 +66,7 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
             },
         };
         _process.Start();
+        _registry?.Register(_process);
 
         _filler = new Thread(FillLoop) { IsBackground = true, Name = "pcm-filler" };
         _filler.Start();
@@ -165,10 +170,13 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
         _disposed = true;
         try
         {
+            var pid = _process.Id;
             if (!_process.HasExited)
             {
                 _process.Kill(entireProcessTree: true);
             }
+
+            _registry?.Unregister(pid);
         }
         catch
         {

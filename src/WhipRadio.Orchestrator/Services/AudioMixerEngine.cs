@@ -21,6 +21,7 @@ public sealed class AudioMixerEngine(
     IPlaybackReporter reporter,
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
+    FfmpegProcessRegistry ffmpegRegistry,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<RadioOptions> radioOptions,
@@ -475,7 +476,8 @@ public sealed class AudioMixerEngine(
     private FfmpegPcmSampleReader CreateReader(PlayoutItem item, ItemInfo info, double startAtSeconds)
     {
         var absolutePath = Path.Combine(radioOptions.Value.DataRoot, item.FilePath);
-        return new FfmpegPcmSampleReader(streamOptions.Value.FfmpegPath, absolutePath, Format, startAtSeconds);
+        return new FfmpegPcmSampleReader(
+            streamOptions.Value.FfmpegPath, absolutePath, Format, startAtSeconds, ffmpegRegistry);
     }
 
     private static float Makeup(ItemInfo info, MixerSettings settings)

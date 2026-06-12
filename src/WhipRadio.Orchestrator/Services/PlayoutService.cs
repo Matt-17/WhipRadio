@@ -18,6 +18,7 @@ public class PlayoutService(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
     AudioMixerEngine mixerEngine,
+    FfmpegProcessRegistry ffmpegRegistry,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
@@ -263,6 +264,7 @@ public class PlayoutService(
 
         process.Start();
         process.BeginErrorReadLine();
+        ffmpegRegistry.Register(process); // next startup kills it if we crash
         return process;
     }
 }

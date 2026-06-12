@@ -17,8 +17,11 @@ var icecastAdminPassword = builder.AddParameter("icecast-admin-password", "hackm
 var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
 
 // --- LLM: Ollama with gemma3:4b ----------------------------------------------
+// Persistent lifetime: stable container name, REUSED across AppHost runs —
+// no per-restart container pile-up in Docker, and the loaded model survives.
 var ollama = builder.AddOllama("ollama")
-    .WithDataVolume("ollama-models");
+    .WithDataVolume("ollama-models")
+    .WithLifetime(ContainerLifetime.Persistent);
 if (useGpu)
 {
     ollama.WithGPUSupport();
@@ -30,6 +33,7 @@ var chatModel = ollama.AddModel("chat-model", "gemma3:4b");
 // libretime/icecast generates icecast.xml from env vars; deploy/icecast/icecast.xml
 // documents the equivalent static config for other images.
 var icecast = builder.AddContainer("icecast", "libretime/icecast", "latest")
+    .WithLifetime(ContainerLifetime.Persistent)
     .WithEnvironment("ICECAST_SOURCE_PASSWORD", icecastSourcePassword)
     .WithEnvironment("ICECAST_ADMIN_PASSWORD", icecastAdminPassword)
     .WithEnvironment("ICECAST_RELAY_PASSWORD", "hackme-relay")
