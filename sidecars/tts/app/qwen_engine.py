@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import threading
 import uuid
 from pathlib import Path
 
@@ -59,21 +60,31 @@ class QwenEngine(EngineBase):
     def __init__(self) -> None:
         self._model = None
         self._clone_prompts: dict[str, object] = {}
+        # Designs are heavyweight (transient 1.7B model) and MUST be serialized:
+        # concurrent designs (client retries!) would race for VRAM and OOM.
+        self._design_lock = threading.Lock()
+        self._synth_lock = threading.Lock()
         VOICES_DIR.mkdir(parents=True, exist_ok=True)
 
     # --- resident synth model -------------------------------------------------
 
     def _synth_model(self):
-        if self._model is None:
-            import torch
-            from qwen_tts import Qwen3TTSModel
+        with self._synth_lock:
+            if self._model is None:
+                import torch
+                from qwen_tts import Qwen3TTSModel
 
-            logger.info("Loading Qwen3-TTS synth model %s", SYNTH_MODEL)
-            self._model = Qwen3TTSModel.from_pretrained(
-                SYNTH_MODEL,
-                device_map="cuda:0" if torch.cuda.is_available() else "cpu",
-                dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-            )
+                logger.info("Loading Qwen3-TTS synth model %s", SYNTH_MODEL)
+                try:
+                    self._model = Qwen3TTSModel.from_pretrained(
+                        SYNTH_MODEL,
+                        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
+                        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+                    )
+                except torch.cuda.OutOfMemoryError:
+                    logger.warning("CUDA full — loading synth model on CPU (slower, still fine)")
+                    self._model = Qwen3TTSModel.from_pretrained(
+                        SYNTH_MODEL, device_map="cpu", dtype=torch.float32)
         return self._model
 
     # --- engine contract --------------------------------------------------------
@@ -154,20 +165,34 @@ class QwenEngine(EngineBase):
         gender_word = "female" if (gender or "").lower().startswith("f") else "male"
         instruct = f"A {gender_word} radio host voice. {description}".strip()
 
-        logger.info("Designing Qwen voice (transient %s): %s", DESIGN_MODEL, instruct[:120])
-        design_model = Qwen3TTSModel.from_pretrained(
-            DESIGN_MODEL,
-            device_map="cuda:0" if torch.cuda.is_available() else "cpu",
-            dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-        )
-        try:
-            wavs, sr = design_model.generate_voice_design(
-                text=text, language=_language_name(language), instruct=instruct)
-        finally:
-            del design_model
-            gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+        # One design at a time, period: this gates VRAM AND prevents duplicate
+        # work when an impatient client retries while we are still rendering.
+        with self._design_lock:
+            logger.info("Designing Qwen voice (transient %s): %s", DESIGN_MODEL, instruct[:120])
+            design_model = None
+            try:
+                try:
+                    design_model = Qwen3TTSModel.from_pretrained(
+                        DESIGN_MODEL,
+                        device_map="cuda:0" if torch.cuda.is_available() else "cpu",
+                        dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+                    )
+                except torch.cuda.OutOfMemoryError:
+                    # The GPU is busy with music/LLM. Designing is rare — a few
+                    # minutes on CPU beats failing the whole flow.
+                    logger.warning("CUDA full — designing on CPU (takes a few minutes)")
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    design_model = Qwen3TTSModel.from_pretrained(
+                        DESIGN_MODEL, device_map="cpu", dtype=torch.float32)
+
+                wavs, sr = design_model.generate_voice_design(
+                    text=text, language=_language_name(language), instruct=instruct)
+            finally:
+                del design_model
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         audio = np.asarray(wavs[0] if isinstance(wavs, (list, tuple)) else wavs, dtype=np.float32)
         if audio.ndim > 1:
