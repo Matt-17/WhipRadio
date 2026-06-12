@@ -46,6 +46,49 @@ public class HttpTtsEngineTests
     }
 
     [Fact]
+    public async Task SynthesizeAsync_QwenVoice_SendsInstructionAndHandle()
+    {
+        var wav = WavTestData.Pcm(dataBytes: 88200);
+        var handler = new FakeHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(wav) };
+            response.Headers.Add(HttpTtsEngine.DurationHeader, "1.0");
+            return response;
+        });
+        var engine = new HttpTtsEngine(handler.CreateClient());
+
+        var options = new TtsVoiceOptions(
+            "qv-abc123", "de", 1.0, Engine: "qwen", Instruction: "warm, slightly excited, brisk");
+        await engine.SynthesizeAsync("Guten Abend!", options, CancellationToken.None);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        Assert.Equal("qwen", body.RootElement.GetProperty("engine").GetString());
+        Assert.Equal("qv-abc123", body.RootElement.GetProperty("voice").GetString());
+        Assert.Equal("de", body.RootElement.GetProperty("language").GetString());
+        Assert.Equal("warm, slightly excited, brisk", body.RootElement.GetProperty("instruction").GetString());
+    }
+
+    [Fact]
+    public async Task SynthesizeAsync_NoInstruction_SendsNull()
+    {
+        var wav = WavTestData.Pcm(dataBytes: 88200);
+        var handler = new FakeHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(wav) };
+            response.Headers.Add(HttpTtsEngine.DurationHeader, "1.0");
+            return response;
+        });
+        var engine = new HttpTtsEngine(handler.CreateClient());
+
+        await engine.SynthesizeAsync("Hi", DefaultVoice, CancellationToken.None);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        // Engines without instruction support must see null/absent, never "".
+        Assert.True(!body.RootElement.TryGetProperty("instruction", out var instruction)
+            || instruction.ValueKind == JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task GetVoicesAsync_ParsesVoiceList()
     {
         var json = """[{"id":"af_heart","language":"en","gender":"f"},{"id":"bm_george","language":"en","gender":"m"}]""";

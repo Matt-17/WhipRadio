@@ -131,5 +131,6 @@ public static class TtsEngines
 {
     public const string Kokoro = "kokoro";
     public const string Piper = "piper";
+    public const string Qwen = "qwen";
     public const string ElevenLabs = "elevenlabs";
 }

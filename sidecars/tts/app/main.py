@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from .kokoro_engine import KokoroEngine
 from .markers import BreathSegment, PauseSegment, TextSegment, parse_segments
 from .piper_engine import PiperEngine
+from .qwen_engine import QwenEngine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ app = FastAPI(title="WhipRadio TTS sidecar")
 ENGINES = {
     "kokoro": KokoroEngine(),
     "piper": PiperEngine(),
+    "qwen": QwenEngine(),
 }
 DEFAULT_ENGINE = "kokoro"
 _breath_cache: dict[int, np.ndarray] = {}
@@ -42,6 +44,23 @@ class SynthesizeRequest(BaseModel):
     language: str = "en"
     rate: float = 1.0
     engine: str = DEFAULT_ENGINE
+    # Natural-language delivery instruction ("slightly excited, warm, brisk").
+    # Engines without instruction support ignore it; markers stay the portable
+    # baseline for hard timing ([pause:NNNms]).
+    instruction: str | None = None
+
+
+class DesignVoiceRequest(BaseModel):
+    description: str
+    gender: str = "m"
+    language: str = "en"
+    sample_text: str | None = None
+
+
+class CloneVoiceRequest(BaseModel):
+    sample_wav_b64: str
+    ref_text: str
+    name: str | None = None
 
 
 def _resample(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
@@ -90,7 +109,12 @@ def synthesize(request: SynthesizeRequest) -> Response:
     for segment in segments:
         if isinstance(segment, TextSegment):
             speed = max(0.5, min(2.0, base_rate * segment.rate_factor))
-            parts.append(engine.synthesize_segment(segment.text, voice, speed))
+            if getattr(engine, "wants_kwargs", False):
+                parts.append(engine.synthesize_segment(
+                    segment.text, voice, speed,
+                    language=request.language, instruction=request.instruction))
+            else:
+                parts.append(engine.synthesize_segment(segment.text, voice, speed))
         elif isinstance(segment, PauseSegment):
             samples = int(engine.sample_rate * segment.milliseconds / 1000)
             parts.append(np.zeros(samples, dtype=np.float32))
@@ -111,3 +135,50 @@ def synthesize(request: SynthesizeRequest) -> Response:
         media_type="audio/wav",
         headers={"X-Duration-Seconds": f"{duration:.3f}"},
     )
+
+
+# --- voice design / clone (Qwen only) -------------------------------------------
+
+@app.post("/design-voice")
+def design_voice(request: DesignVoiceRequest) -> dict:
+    """Mints a reproducible voice from a text description; the artifact persists
+    under the models volume so the voice is identical across restarts."""
+    import base64
+
+    qwen: QwenEngine = ENGINES["qwen"]  # type: ignore[assignment]
+    try:
+        handle, preview_wav, duration = qwen.design_voice(
+            request.description, request.gender, request.language, request.sample_text)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the caller
+        logger.exception("Voice design failed")
+        raise HTTPException(status_code=500, detail=f"Voice design failed: {exc}") from exc
+
+    return {
+        "handle": handle,
+        "preview_wav_b64": base64.b64encode(preview_wav).decode("ascii"),
+        "duration_seconds": round(duration, 2),
+    }
+
+
+@app.post("/clone-voice")
+def clone_voice(request: CloneVoiceRequest) -> dict:
+    import base64
+
+    qwen: QwenEngine = ENGINES["qwen"]  # type: ignore[assignment]
+    try:
+        sample = base64.b64decode(request.sample_wav_b64)
+        handle = qwen.clone_voice(sample, request.ref_text, request.name)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Voice clone failed")
+        raise HTTPException(status_code=500, detail=f"Voice clone failed: {exc}") from exc
+
+    return {"handle": handle}
+
+
+@app.get("/voice-preview/{handle}")
+def voice_preview(handle: str) -> Response:
+    qwen: QwenEngine = ENGINES["qwen"]  # type: ignore[assignment]
+    path = qwen.preview_path(handle)
+    if path is None:
+        raise HTTPException(status_code=404, detail=f"No voice artifact for '{handle}'.")
+    return Response(content=path.read_bytes(), media_type="audio/wav")

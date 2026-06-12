@@ -15,6 +15,7 @@ using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Studios;
+using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
 
@@ -399,6 +400,7 @@ public static class RadioApiEndpoints
 
         MapStudios(api);
         MapMixer(api);
+        MapVoices(api);
 
         api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db,
             HostLanguageAligner aligner, CancellationToken ct) =>
@@ -569,6 +571,93 @@ public static class RadioApiEndpoints
                     .OrderByDescending(x => x.Value)
                     .ToList(),
                 TracksPerGenre: tracksPerGenre));
+        });
+    }
+
+    private static void MapVoices(RouteGroupBuilder api)
+    {
+        // Mint a reproducible voice from a text description (Qwen Voice-Design).
+        api.MapPost("/voices/design", async (
+            DesignVoiceDto request, IVoiceDesignClient designer, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Description))
+            {
+                return Results.BadRequest("A voice description is required.");
+            }
+
+            try
+            {
+                var voice = await designer.DesignVoiceAsync(
+                    request.Description, request.Gender, request.Language, ct);
+                return Results.Ok(new DesignedVoiceDto(voice.Handle, request.Description, voice.DurationSeconds));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 503);
+            }
+        });
+
+        api.MapGet("/voices/{handle}/preview", async (
+            string handle, IVoiceDesignClient designer, CancellationToken ct) =>
+        {
+            try
+            {
+                var wav = await designer.GetPreviewAsync(handle, ct);
+                return Results.File(wav, "audio/wav");
+            }
+            catch (HttpRequestException)
+            {
+                return Results.NotFound();
+            }
+        });
+
+        // One-click upgrade: mint a Qwen voice from the host's persona. Returns
+        // the handle for preview — applying it is a separate, explicit step.
+        api.MapPost("/moderators/{id:int}/redesign-voice", async (
+            int id, RadioDbContext db, IVoiceDesignClient designer, CancellationToken ct) =>
+        {
+            var moderator = await db.Moderators.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, ct);
+            if (moderator is null)
+            {
+                return Results.NotFound();
+            }
+
+            var description = !string.IsNullOrWhiteSpace(moderator.VoiceDescription)
+                ? moderator.VoiceDescription
+                : $"{moderator.Style} radio host. "
+                    + moderator.PersonaPrompt[..Math.Min(160, moderator.PersonaPrompt.Length)];
+
+            try
+            {
+                var voice = await designer.DesignVoiceAsync(description, moderator.Gender, moderator.Language, ct);
+                return Results.Ok(new DesignedVoiceDto(voice.Handle, description, voice.DurationSeconds));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 503);
+            }
+        });
+
+        // Applies a designed voice to a host (reversible: old engine/voice are
+        // simply overwritten; redesign again or re-pick a preset to revert).
+        api.MapPost("/moderators/{id:int}/apply-voice", async (
+            int id, ApplyVoiceDto request, RadioDbContext db, CancellationToken ct) =>
+        {
+            var moderator = await db.Moderators.FirstOrDefaultAsync(m => m.Id == id, ct);
+            if (moderator is null)
+            {
+                return Results.NotFound();
+            }
+
+            moderator.TtsEngine = TtsEngines.Qwen;
+            moderator.VoiceId = request.Handle;
+            if (!string.IsNullOrWhiteSpace(request.Description))
+            {
+                moderator.VoiceDescription = request.Description;
+            }
+
+            await db.SaveChangesAsync(ct);
+            return Results.Ok();
         });
     }
 

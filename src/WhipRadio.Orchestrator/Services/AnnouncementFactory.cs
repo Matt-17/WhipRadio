@@ -56,9 +56,20 @@ public class AnnouncementFactory(
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct);
         var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
 
+        // Qwen takes a natural-language delivery instruction (style from the
+        // host persona; breath cue follows the station flag). Other engines
+        // ignore it — markers remain the portable baseline for hard timing.
+        string? instruction = null;
+        if (moderator.TtsEngine == TtsEngines.Qwen)
+        {
+            instruction = $"Radio host, {moderator.Style} delivery."
+                + (allowBreath ? " Natural audible breaths between sentences." : "");
+        }
+
         var tts = await ttsEngine.SynthesizeAsync(
             normalized,
-            new TtsVoiceOptions(moderator.VoiceId, moderator.Language, moderator.SpeechRate, moderator.TtsEngine),
+            new TtsVoiceOptions(
+                moderator.VoiceId, moderator.Language, moderator.SpeechRate, moderator.TtsEngine, instruction),
             ct);
 
         var id = Guid.NewGuid();

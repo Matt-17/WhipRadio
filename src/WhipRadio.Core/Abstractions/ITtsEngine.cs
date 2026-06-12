@@ -2,7 +2,11 @@ namespace WhipRadio.Core.Abstractions;
 
 public sealed record TtsResult(byte[] WavData, double DurationSeconds);
 
-public sealed record TtsVoiceOptions(string VoiceId, string Language, double Rate, string Engine = "kokoro");
+/// <summary>Instruction is a natural-language delivery hint ("warm, slightly
+/// excited, brisk") for engines that support it (Qwen); others ignore it.
+/// Markers remain the portable baseline for hard timing.</summary>
+public sealed record TtsVoiceOptions(
+    string VoiceId, string Language, double Rate, string Engine = "kokoro", string? Instruction = null);
 
 public sealed record TtsVoice(string Id, string Language, string Gender);
 

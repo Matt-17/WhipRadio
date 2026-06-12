@@ -61,6 +61,10 @@ app.MapGet("/media/live", (IHttpClientFactory factory, IConfiguration config, Ht
         factory.CreateClient("live-stream"),
         config["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3"));
 
+app.MapGet("/media/voice-preview/{handle}", (string handle, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"),
+        $"/api/voices/{Uri.EscapeDataString(handle)}/preview"));
+
 app.Run();
 
 static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl)

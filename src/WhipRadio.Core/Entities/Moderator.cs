@@ -16,8 +16,13 @@ public class Moderator
     /// <summary>TTS engine key: "kokoro" | "piper" | "elevenlabs".</summary>
     public string TtsEngine { get; set; } = "kokoro";
 
-    /// <summary>TTS voice key, e.g. "af_heart" (engine-specific).</summary>
+    /// <summary>TTS voice key: a preset id ("af_heart") or a designed-voice
+    /// handle ("qv-…") — engine-specific, stable across restarts.</summary>
     public string VoiceId { get; set; } = "af_heart";
+
+    /// <summary>Free-text timbre/style description the voice was designed from
+    /// (Qwen Voice-Design). Also conditions singing voices later (Phase 5).</summary>
+    public string? VoiceDescription { get; set; }
 
     /// <summary>TTS speed multiplier, 0.7–1.3.</summary>
     public double SpeechRate { get; set; } = 1.0;

@@ -230,6 +230,32 @@ public class RadioApiClient(HttpClient http, ILogger<RadioApiClient> logger)
     public async Task RunMixerBackfillAsync(CancellationToken ct = default)
         => await http.PostAsync("/api/mixer/backfill", null, ct);
 
+    public async Task<(DesignedVoiceDto? Voice, string? Error)> DesignVoiceAsync(
+        DesignVoiceDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/voices/design", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<(DesignedVoiceDto? Voice, string? Error)> RedesignVoiceAsync(
+        int moderatorId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/moderators/{moderatorId}/redesign-voice", null, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<DesignedVoiceDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<bool> ApplyVoiceAsync(int moderatorId, ApplyVoiceDto request, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync($"/api/moderators/{moderatorId}/apply-voice", request, ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    public string VoicePreviewUrl(string handle) => $"/media/voice-preview/{Uri.EscapeDataString(handle)}";
+
     public async Task<ServerStatsDto?> GetServerStatsAsync(CancellationToken ct = default)
         => await SafeGetAsync<ServerStatsDto>("/api/serverstats", ct);
 

@@ -24,6 +24,7 @@
         <div class="field">
             <label>TTS Engine</label>
             <select @bind="_newEngine">
+                <option value="qwen">qwen (local, designed voice — recommended)</option>
                 <option value="kokoro">kokoro (local, en)</option>
                 <option value="piper">piper (local, de/en)</option>
                 <option value="elevenlabs">elevenlabs (cloud, needs key)</option>
@@ -44,11 +45,37 @@
         <label>Persona (how they talk, what they love)</label>
         <input @bind="_newPersona" placeholder="You are a warm late-night host who loves vinyl stories …" />
     </div>
+    @if (_newEngine == "qwen")
+    {
+        <div class="field" style="margin-bottom:16px">
+            <label>Voice description (Qwen designs the voice from this)</label>
+            <input @bind="_newVoiceDescription"
+                   placeholder="Deep, warm, slightly raspy late-night voice with a calm pace …" />
+        </div>
+        <div class="btn-row" style="margin-bottom:16px">
+            <button class="btn" disabled="@_designing" @onclick="DesignNewVoiceAsync">
+                @(_designing ? "designing… (first run downloads the model)" : "🎙 Design & preview voice")
+            </button>
+            @if (_newVoiceHandle is not null)
+            {
+                <button class="btn small" @onclick="() => PlayPreviewAsync(_newVoiceHandle)">▶ preview</button>
+                <span class="flash">✓ voice @_newVoiceHandle ready</span>
+            }
+            @if (_designError is not null)
+            {
+                <span class="dim">@_designError</span>
+            }
+        </div>
+    }
     <div class="btn-row">
-        <button class="btn primary" @onclick="CreateAsync">Hire Host</button>
+        <button class="btn primary" disabled="@(_newEngine == "qwen" && _newVoiceHandle is null)" @onclick="CreateAsync">Hire Host</button>
+        @if (_newEngine == "qwen" && _newVoiceHandle is null)
+        {
+            <span class="dim">design the voice first</span>
+        }
         @if (_created is not null)
         {
-            <span class="flash">✓ @_created joined the roster (voice assigned by gender & engine)</span>
+            <span class="flash">✓ @_created joined the roster</span>
         }
     </div>
 </div>
@@ -77,10 +104,22 @@ else
                     }
                 </div>
                 <div class="mod-persona">@moderator.PersonaPrompt</div>
+                @if (_redesignFor == moderator.Id && _redesigned is not null)
+                {
+                    <div class="btn-row" style="margin-top:10px">
+                        <button class="btn small" @onclick="() => PlayPreviewAsync(_redesigned.Handle)">▶ preview new voice</button>
+                        <button class="btn small primary" @onclick="() => ApplyRedesignAsync(moderator.Id)">apply</button>
+                        <button class="btn small" @onclick="() => { _redesignFor = null; _redesigned = null; }">discard</button>
+                    </div>
+                }
                 <footer>
                     <div class="btn-row">
                         <button class="btn small" @onclick="() => ToggleTalksAsync(moderator.Id)">
                             @(_talksFor == moderator.Id ? "hide talks" : "recent talks")
+                        </button>
+                        <button class="btn small" disabled="@_designing" title="mint a new Qwen voice from this host's persona"
+                                @onclick="() => RedesignAsync(moderator.Id)">
+                            @(_designing && _redesignFor == moderator.Id ? "designing…" : "🎙 redesign voice")
                         </button>
                         <span class="tag @(moderator.IsActive ? "green" : "red")">
                             @(moderator.IsActive ? "on roster" : "off roster")
@@ -127,6 +166,12 @@ else
     private string _newTalkativeness = "0.5";
     private string _newPersona = "";
     private string? _created;
+    private string _newVoiceDescription = "";
+    private string? _newVoiceHandle;
+    private bool _designing;
+    private string? _designError;
+    private int? _redesignFor;
+    private DesignedVoiceDto? _redesigned;
 
     protected override async Task OnInitializedAsync()
     {
@@ -144,10 +189,70 @@ else
         var created = await Api.CreateModeratorAsync(new CreateModeratorDto(
             _newName, _stationLanguage, _newGender, _newEngine, _newStyle, _newPersona, null, _newGenres,
             double.TryParse(_newTalkativeness, System.Globalization.CultureInfo.InvariantCulture, out var talk) ? talk : 0.5));
+
+        // Designed Qwen voices are applied explicitly after creation.
+        if (created is not null && _newEngine == "qwen" && _newVoiceHandle is not null)
+        {
+            await Api.ApplyVoiceAsync(created.Id, new ApplyVoiceDto(_newVoiceHandle, _newVoiceDescription));
+        }
+
         _created = created?.Name;
         _newName = "";
+        _newVoiceHandle = null;
         _moderators = await Api.GetModeratorsAsync();
     }
+
+    private async Task DesignNewVoiceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newVoiceDescription))
+        {
+            _designError = "describe the voice first";
+            return;
+        }
+
+        _designing = true;
+        _designError = null;
+        var (voice, error) = await Api.DesignVoiceAsync(
+            new DesignVoiceDto(_newVoiceDescription, _newGender, _stationLanguage));
+        _designing = false;
+        _newVoiceHandle = voice?.Handle;
+        _designError = error;
+        if (voice is not null)
+        {
+            await PlayPreviewAsync(voice.Handle);
+        }
+    }
+
+    private async Task RedesignAsync(int moderatorId)
+    {
+        _designing = true;
+        _redesignFor = moderatorId;
+        _redesigned = null;
+        var (voice, error) = await Api.RedesignVoiceAsync(moderatorId);
+        _designing = false;
+        _redesigned = voice;
+        _designError = error;
+        if (voice is not null)
+        {
+            await PlayPreviewAsync(voice.Handle);
+        }
+    }
+
+    private async Task ApplyRedesignAsync(int moderatorId)
+    {
+        if (_redesigned is null)
+        {
+            return;
+        }
+
+        await Api.ApplyVoiceAsync(moderatorId, new ApplyVoiceDto(_redesigned.Handle, _redesigned.Description));
+        _redesignFor = null;
+        _redesigned = null;
+        _moderators = await Api.GetModeratorsAsync();
+    }
+
+    private async Task PlayPreviewAsync(string handle)
+        => await Js.InvokeVoidAsync("whipRadio.playClip", Api.VoicePreviewUrl(handle));
 
     private async Task ToggleAsync(int id)
     {

@@ -186,6 +186,12 @@ public sealed record MixerLiveDto(
 
 public sealed record MixerOverviewDto(MixerSettingsDto Settings, MixerStatusDto Status, MixerLiveDto Live);
 
+public sealed record DesignVoiceDto(string Description, string Gender, string Language);
+
+public sealed record DesignedVoiceDto(string Handle, string Description, double DurationSeconds);
+
+public sealed record ApplyVoiceDto(string Handle, string? Description);
+
 public sealed record VoteRequestDto(Guid TrackId, int Direction);
 
 public sealed record VoteResultDto(Guid TrackId, int UpVotes, int DownVotes, bool IsRetired);
