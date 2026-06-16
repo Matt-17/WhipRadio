@@ -13,6 +13,7 @@ namespace WhipRadio.Infrastructure.Music;
 public sealed class StudioMusicGenerator(
     StudioCoordinator coordinator,
     StudioProviderFactory factory,
+    StudioDockerControl dockerControl,
     ILogger<StudioMusicGenerator> logger) : IMusicGenerator
 {
     private static readonly TimeSpan AcquireRetryDelay = TimeSpan.FromSeconds(10);
@@ -60,6 +61,18 @@ public sealed class StudioMusicGenerator(
             var result = await provider.GenerateAsync(effective, ct);
             success = true;
             return result;
+        }
+        catch (TimeoutException ex)
+        {
+            // A generation that never finishes means the studio's worker is
+            // wedged (it keeps answering /health while processing nothing) —
+            // every later job would time out too, so restart the container.
+            logger.LogWarning(
+                "{Studio} timed out — restarting its container: {Message}", studio.Name, ex.Message);
+            var (ok, detail) = await dockerControl.TryRestartAsync(
+                studio, $"generation timeout: {ex.Message}", force: false, CancellationToken.None);
+            logger.LogWarning("{Studio} container restart: {Detail}", studio.Name, ok ? detail : $"skipped/failed — {detail}");
+            throw;
         }
         finally
         {

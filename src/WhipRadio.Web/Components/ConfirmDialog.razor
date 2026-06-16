@@ -1,0 +1,34 @@
+@* Yes/no question on top of Modal — set Danger for destructive actions. *@
+
+<Modal Visible="@Visible" Title="@Title" Class="modal-confirm" OnClose="CancelAsync">
+    <ChildContent>
+        @ChildContent
+    </ChildContent>
+    <Footer>
+        <button class="btn small" @onclick="CancelAsync">@CancelText</button>
+        <button class="btn small @(Danger ? "danger" : "primary")" @onclick="ConfirmAsync">@ConfirmText</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public string? Title { get; set; }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter] public string ConfirmText { get; set; } = "OK";
+
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+
+    /// <summary>Red confirm button for destructive actions.</summary>
+    [Parameter] public bool Danger { get; set; }
+
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private Task ConfirmAsync() => OnConfirm.InvokeAsync();
+
+    private Task CancelAsync() => OnCancel.InvokeAsync();
+}

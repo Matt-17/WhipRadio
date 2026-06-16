@@ -42,6 +42,9 @@ public class Moderator
     /// <summary>CSV genre list, e.g. "rock,indie".</summary>
     public string PreferredGenres { get; set; } = string.Empty;
 
+    /// <summary>URL or app-relative path of the host's portrait; null = skeleton placeholder.</summary>
+    public string? PhotoUrl { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     /// <summary>True when the program director invented this host.</summary>

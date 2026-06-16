@@ -1,0 +1,132 @@
+@using System.Globalization
+@using WhipRadio.Core.Helpers
+@implements IDisposable
+
+@if (Date == null)
+{
+    <span class="dim">@Placeholder</span>
+}
+else
+{
+    <span title="@(ShowTooltip ? GetTooltip() : null)">@GetDisplayText()</span>
+}
+
+@code {
+    [Parameter] public DateTime? Date { get; set; }
+    [Parameter] public string Placeholder { get; set; } = string.Empty;
+    [Parameter] public int UpdateInterval { get; set; } = 5000;
+    [Parameter] public bool ShowTooltip { get; set; } = true;
+
+    private Timer? _timer;
+    private bool _disposed;
+
+    protected override void OnInitialized()
+    {
+        _timer = new Timer(_ =>
+        {
+            if (_disposed) return;
+            InvokeAsync(() =>
+            {
+                if (!_disposed) StateHasChanged();
+            }).Forget();
+        }, null, UpdateInterval, UpdateInterval);
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+    }
+
+    private string GetTooltip()
+    {
+        if (Date is null) return Placeholder;
+        var dt = NormalizeToLocal(Date.Value);
+        return dt.ToString("f", CultureInfo.InvariantCulture);
+    }
+
+    private static DateTime NormalizeToLocal(DateTime dt)
+    {
+        return dt.Kind switch
+        {
+            DateTimeKind.Utc => dt.ToLocalTime(),
+            DateTimeKind.Unspecified => DateTime.SpecifyKind(dt, DateTimeKind.Local),
+            _ => dt
+        };
+    }
+
+    private string GetDisplayText()
+    {
+        if (!Date.HasValue)
+            return Placeholder;
+
+        var now = DateTime.Now;
+        var dt = NormalizeToLocal(Date.Value);
+        var ts = now - dt;
+
+        if (ts.TotalSeconds < 0)
+            return "in the future";
+
+        switch (ts.TotalSeconds)
+        {
+            case < 10:
+                return "just now";
+            case < 60:
+                return "a few seconds ago";
+            case < 120:
+                return "a minute ago";
+        }
+
+        switch (ts.TotalMinutes)
+        {
+            case < 60:
+                return Ago((int)Math.Floor(ts.TotalMinutes), "minute");
+            case < 120:
+                return "an hour ago";
+        }
+
+        if (ts.TotalHours < 24)
+            return Ago((int)Math.Floor(ts.TotalHours), "hour");
+
+        var days = (int)Math.Floor(ts.TotalDays);
+        switch (days)
+        {
+            case 1:
+                return "yesterday";
+            case < 7:
+                return Ago(days, "day");
+        }
+
+        var weeks = (int)Math.Floor(days / 7.0);
+        if (weeks < 5)
+            return Ago(Math.Max(1, weeks), "week");
+
+        var months = FullMonthsBetween(dt, now);
+        if (months < 12)
+            return Ago(Math.Max(1, months), "month");
+
+        var years = months / 12;
+        return Ago(Math.Max(1, years), "year");
+    }
+
+    private static string Ago(int value, string unit)
+        => value > 1
+            ? $"{value} {unit}s ago"
+            : unit switch
+            {
+                "hour" => "an hour ago",
+                _ => $"a {unit} ago"
+            };
+
+    private static int FullMonthsBetween(DateTime from, DateTime to)
+    {
+        var months = (to.Year - from.Year) * 12 + (to.Month - from.Month);
+
+        if (from.AddMonths(months) > to)
+        {
+            months--;
+        }
+
+        return Math.Max(0, months);
+    }
+}

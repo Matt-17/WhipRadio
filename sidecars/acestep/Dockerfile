@@ -67,4 +67,10 @@ EXPOSE 8002
 HEALTHCHECK --start-period=600s --interval=30s --timeout=10s --retries=5 \
     CMD curl -sf "http://localhost:${ACESTEP_API_PORT}/health" > /dev/null || exit 1
 
-CMD ["sh", "-c", "uv run python -m acestep.api_server --host ${ACESTEP_API_HOST} --port ${ACESTEP_API_PORT}"]
+# The watchdog supervises the server: a generation thread that hangs (e.g. a
+# CPU VAE decode after VRAM exhaustion) bricks the queue worker while /health
+# stays green — the watchdog detects the stall via /v1/stats and exits so the
+# container's restart policy brings up a fresh server.
+COPY watchdog.py /app/whip_watchdog.py
+
+CMD ["uv", "run", "python", "/app/whip_watchdog.py"]

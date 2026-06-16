@@ -66,6 +66,13 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<MusicProductionStatusDto?> GetMusicProductionStatusAsync(CancellationToken ct = default)
         => await SafeGetAsync<MusicProductionStatusDto>("/api/music/status", ct);
 
+    /// <summary>Returns null on success, otherwise the error message.</summary>
+    public async Task<string?> DeleteTrackAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/library/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
     /// <summary>Same-origin media proxy URL — browser-safe regardless of scheme/host.</summary>
     public string TrackAudioUrl(Guid id) => $"/media/track/{id}";
 
@@ -87,6 +94,14 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     {
         using var response = await http.PostAsync($"/api/moderators/{id}/toggle", content: null, ct);
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<ModeratorDto?> SetModeratorPhotoAsync(int id, string? photoUrl, CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync($"/api/moderators/{id}/photo", new ModeratorPhotoDto(photoUrl), ct);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<ModeratorDto>(ct)
+            : null;
     }
 
     public async Task<List<PlayLogEntryDto>> GetModeratorTalksAsync(int id, CancellationToken ct = default)
@@ -134,6 +149,22 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     public async Task ToggleStudioAsync(Guid id, CancellationToken ct = default)
         => await http.PostAsync($"/api/studios/{id}/toggle", null, ct);
+
+    public async Task<StudioRestartResultDto> RestartStudioAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.PostAsync($"/api/studios/{id}/restart", null, ct);
+            return response.IsSuccessStatusCode
+                ? await response.Content.ReadFromJsonAsync<StudioRestartResultDto>(ct)
+                    ?? new StudioRestartResultDto(false, "Empty response.")
+                : new StudioRestartResultDto(false, $"Restart endpoint returned {(int)response.StatusCode}.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return new StudioRestartResultDto(false, "Orchestrator not reachable.");
+        }
+    }
 
     public async Task<string?> DeleteStudioAsync(Guid id, CancellationToken ct = default)
     {

@@ -9,6 +9,21 @@
 <h1 class="stage-title">Studios</h1>
 <div class="stage-sub">recording studios &amp; voice booths · artists queue for the first free one</div>
 
+@if (_formKind is not null && _editId is null)
+{
+    <div class="panel reveal">
+        <div class="panel-label">Connect @(_formKind == "Recording" ? "Studio" : "Booth")</div>
+        @StudioForm
+    </div>
+}
+else
+{
+    <div class="btn-row reveal" style="margin-bottom:20px">
+        <button class="btn" @onclick="@(() => OpenCreate("Recording"))">+ connect studio</button>
+        <button class="btn" @onclick="@(() => OpenCreate("VoiceBooth"))">+ connect booth</button>
+    </div>
+}
+
 @foreach (var kind in new[] { "Recording", "VoiceBooth" })
 {
     var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
@@ -47,19 +62,20 @@
                                     <span class="tag">off</span>
                                 }
                             </td>
-                            <td class="dim" style="width:210px; font-size:11.5px">
-                                @studio.JobsCompleted jobs@(studio.JobsFailed > 0 ? $" · {studio.JobsFailed} failed" : "")
-                                @if (studio.LastUsedAt is { } last)
-                                {
-                                    <span> · last @last.ToLocalTime().ToString("dd.MM. HH:mm")</span>
-                                }
+                            <td class="dim" style="width:170px; font-size:11.5px">
+                                <TimeAgo Date="studio.LastUsedAt" Placeholder="never used" />
                             </td>
                             <td style="width:220px; white-space:nowrap; text-align:right">
+                                @if (!string.IsNullOrEmpty(studio.Url))
+                                {
+                                    <button class="btn small" title="restart the container"
+                                            disabled="@_restartBusy"
+                                            @onclick="() => AskRestart(studio)">restart</button>
+                                }
+                                <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
                                 <div class="switch @(studio.IsActive ? "on" : null)" title="active"
                                      style="display:inline-block; vertical-align:middle"
                                      @onclick="() => ToggleAsync(studio.Id)"></div>
-                                <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
-                                <button class="btn small vote-down" @onclick="() => DeleteAsync(studio.Id)">delete</button>
                             </td>
                         </tr>
                     }
@@ -67,71 +83,95 @@
             </table>
         }
 
-        @if (_formKind == kind)
+        @if (_formKind == kind && _editId is not null)
         {
-            <div class="studio-form">
-                <div class="seg" role="radiogroup" style="margin-bottom:12px">
-                    <button type="button" class="seg-btn @(_formSource == "local" ? "active" : null)"
-                            @onclick="@(() => SetSource("local"))">Local container</button>
-                    <button type="button" class="seg-btn @(_formSource == "api" ? "active" : null)"
-                            @onclick="@(() => SetSource("api"))">Online API</button>
-                </div>
-                <div class="form-grid">
-                    <div class="field">
-                        <label>Name</label>
-                        <input @bind="_formName" placeholder="@DefaultName(kind)" />
-                    </div>
-                    @if (_formSource == "local")
-                    {
-                        <div class="field">
-                            <label>URL</label>
-                            <input @bind="_formUrl" placeholder="http://localhost:8101" />
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="field">
-                            <label>Provider</label>
-                            <select @bind="_formProvider">
-                                <option value="elevenlabs">ElevenLabs</option>
-                            </select>
-                        </div>
-                        <div class="field">
-                            <label>API key</label>
-                            <input type="password" @bind="_formApiKey" placeholder="xi-…" />
-                        </div>
-                    }
-                </div>
-                <div class="btn-row">
-                    <button class="btn" @onclick="TestAsync">
-                        <span class="test-dot @(_testResult is null ? "" : _testResult.Ok ? "ok" : "fail")">●</span>
-                        Test
-                    </button>
-                    @if (_testResult is not null)
-                    {
-                        <span class="@(_testResult.Ok ? "flash" : "dim")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
-                    }
-                    <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
-                        @(_editId is null ? "Create" : "Save")
-                    </button>
-                    <button class="btn small" @onclick="CloseForm">cancel</button>
-                    @if (_saveError is not null)
-                    {
-                        <span class="dim">@_saveError</span>
-                    }
-                </div>
-            </div>
-        }
-        else
-        {
-            <div class="btn-row" style="margin-top:12px">
-                <button class="btn" @onclick="() => OpenCreate(kind)">+ connect @(kind == "Recording" ? "studio" : "booth")</button>
-            </div>
+            @StudioForm
         }
     </div>
 }
 
+@if (_restartNotice is not null)
+{
+    <div class="@(_restartOk ? "flash" : "dim")" style="margin-top:8px">@_restartNotice</div>
+}
+
+<ConfirmDialog Visible="@(_restartTarget is not null)"
+               Title="Restart studio container"
+               ConfirmText="Restart"
+               Danger="@(_restartTarget?.CurrentJob is not null)"
+               OnConfirm="RestartConfirmedAsync"
+               OnCancel="@(() => _restartTarget = null)">
+    @if (_restartTarget?.CurrentJob is { } job)
+    {
+        <p><strong>@_restartTarget?.Name</strong> is recording right now (@job) — restarting kills that job.</p>
+    }
+    else
+    {
+        <p>Restart the container behind <strong>@_restartTarget?.Name</strong>? Models reload on the next job.</p>
+    }
+</ConfirmDialog>
+
 @code {
+    private RenderFragment StudioForm => __builder =>
+    {
+        <div class="studio-form">
+            <div class="seg" role="radiogroup" style="margin-bottom:12px">
+                <button type="button" class="seg-btn @(_formSource == "local" ? "active" : null)"
+                        @onclick="@(() => SetSource("local"))">Local container</button>
+                <button type="button" class="seg-btn @(_formSource == "api" ? "active" : null)"
+                        @onclick="@(() => SetSource("api"))">Online API</button>
+            </div>
+            <div class="form-grid">
+                <div class="field">
+                    <label>Name</label>
+                    <input @bind="_formName" placeholder="@DefaultName(_formKind!)" />
+                </div>
+                @if (_formSource == "local")
+                {
+                    <div class="field">
+                        <label>URL</label>
+                        <input @bind="_formUrl" placeholder="http://localhost:8101" />
+                    </div>
+                }
+                else
+                {
+                    <div class="field">
+                        <label>Provider</label>
+                        <select @bind="_formProvider">
+                            <option value="elevenlabs">ElevenLabs</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label>API key</label>
+                        <input type="password" @bind="_formApiKey" placeholder="xi-…" />
+                    </div>
+                }
+            </div>
+            <div class="btn-row">
+                <button class="btn" @onclick="TestAsync">
+                    <span class="test-dot @(_testResult is null ? "" : _testResult.Ok ? "ok" : "fail")">●</span>
+                    Test
+                </button>
+                @if (_testResult is not null)
+                {
+                    <span class="@(_testResult.Ok ? "flash" : "dim")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
+                }
+                <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
+                    @(_editId is null ? "Create" : "Save")
+                </button>
+                <button class="btn small" @onclick="CloseForm">cancel</button>
+                @if (_editId is { } editId)
+                {
+                    <button class="btn small vote-down" style="margin-left:auto" @onclick="() => DeleteAsync(editId)">delete</button>
+                }
+                @if (_saveError is not null)
+                {
+                    <span class="dim">@_saveError</span>
+                }
+            </div>
+        </div>
+    };
+
     private List<StudioDto> _studios = [];
     private Timer? _timer;
 
@@ -144,6 +184,11 @@
     private string _formApiKey = "";
     private StudioTestResultDto? _testResult;
     private string? _saveError;
+
+    private StudioDto? _restartTarget;
+    private bool _restartBusy;
+    private bool _restartOk;
+    private string? _restartNotice;
 
     protected override async Task OnInitializedAsync()
     {
@@ -237,6 +282,32 @@
         await LoadAsync();
     }
 
+    private void AskRestart(StudioDto studio)
+    {
+        _restartNotice = null;
+        _restartTarget = studio;
+    }
+
+    private async Task RestartConfirmedAsync()
+    {
+        if (_restartTarget is not { } target)
+        {
+            return;
+        }
+
+        _restartTarget = null;
+        _restartBusy = true;
+        _restartNotice = $"restarting {target.Name}…";
+        _restartOk = true;
+        StateHasChanged();
+
+        var result = await Api.RestartStudioAsync(target.Id);
+        _restartBusy = false;
+        _restartOk = result.Ok;
+        _restartNotice = $"{target.Name}: {result.Detail}";
+        await LoadAsync();
+    }
+
     private async Task ToggleAsync(Guid id)
     {
         await Api.ToggleStudioAsync(id);
@@ -246,6 +317,11 @@
     private async Task DeleteAsync(Guid id)
     {
         _saveError = await Api.DeleteStudioAsync(id);
+        if (_saveError is null)
+        {
+            CloseForm();
+        }
+
         await LoadAsync();
     }
 

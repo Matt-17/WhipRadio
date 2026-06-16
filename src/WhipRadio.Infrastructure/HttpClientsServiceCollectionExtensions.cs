@@ -69,6 +69,7 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<AceStepPromptBuilder>();
         services.AddSingleton<StudioCoordinator>();
         services.AddSingleton<StudioProviderFactory>();
+        services.AddSingleton<StudioDockerControl>();
         services.AddScoped<ITtsEngine, TtsEngineRouter>();
         services.AddScoped<IVoiceDesignClient, VoiceDesignClient>();
         services.AddScoped<IMusicGenerator, StudioMusicGenerator>();

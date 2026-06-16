@@ -13,12 +13,14 @@
 <div class="library-split">
     <div class="panel reveal library-artists">
         <div class="panel-label">Artists</div>
+        <input class="library-search" type="text" placeholder="search artist or song…"
+               value="@_search" @oninput="OnSearchChangedAsync" />
         <div class="artist-list">
             <button class="artist-item @(_selectedArtistId is null ? "active" : null)" @onclick="() => SelectArtistAsync(null)">
                 <span class="artist-name">All tracks</span>
                 <span class="artist-meta dim">@(_artists.Sum(a => a.TrackCount)) songs</span>
             </button>
-            @foreach (var artist in _artists)
+            @foreach (var artist in _artists.Where(ArtistMatchesSearch))
             {
                 <button class="artist-item @(_selectedArtistId == artist.Id ? "active" : null)"
                         @onclick="() => SelectArtistAsync(artist.Id)">
@@ -28,9 +30,13 @@
                         {
                             <span class="tag red">retired</span>
                         }
-                        @if (IsGenerating(artist.Id) || IsQueued(artist.Id))
+                        @if (IsGenerating(artist.Id))
                         {
                             <span class="tag red"><span class="blink rec-dot">●</span> REC</span>
+                        }
+                        else if (IsQueued(artist.Id))
+                        {
+                            <span class="tag amber">queue</span>
                         }
                     </span>
                     <span class="artist-meta dim">@artist.Subgenre · @artist.TrackCount songs</span>
@@ -72,24 +78,14 @@
                             </div>
                         </div>
                         <div class="artist-actions">
-                            @if (IsGenerating(selectedId))
+                            @if (!artist.IsRetired)
                             {
-                                <div class="generating-box">
-                                    <span class="blink rec-dot">●</span> REC
-                                    @if (_status?.TrackTitle is { } wip)
-                                    {
-                                        <strong> "@wip"</strong>
-                                    }
-                                    <div class="dim">@GeneratingElapsed()</div>
-                                </div>
+                                <button class="btn primary" @onclick="CreateSongAsync">+ Record new song</button>
                             }
-                            else if (IsQueued(selectedId))
+                            @{ var queuedCount = QueuedCount(selectedId); }
+                            @if (queuedCount > 0)
                             {
-                                <div class="generating-box dim">queued for the studio…</div>
-                            }
-                            else if (!artist.IsRetired)
-                            {
-                                <button class="btn primary" @onclick="CreateSongAsync">+ Create new song</button>
+                                <div class="queue-box">Queue · @queuedCount song@(queuedCount == 1 ? "" : "s")</div>
                             }
                         </div>
                     </div>
@@ -102,82 +98,139 @@
             {
                 <div class="empty-state"><span class="blink">▮</span> loading the shelves…</div>
             }
-            else if (_tracks.Count == 0 && !IsGenerating(_selectedArtistId ?? Guid.Empty))
-            {
-                <div class="empty-state">No records yet@(_selectedArtistId is not null ? " — create the first one!" : ".")</div>
-            }
             else
             {
-                <table class="console-table">
-                    <thead>
-                        <tr>
-                            <th style="width:40px"></th>
-                            <th><button class="@Sorted("title")" @onclick="@(() => SortAsync("title"))">Title</button></th>
-                            @if (_selectedArtistId is null)
-                            {
-                                <th><button class="@Sorted("artist")" @onclick="@(() => SortAsync("artist"))">Artist</button></th>
-                            }
-                            <th>Style</th>
-                            <th class="num">Length</th>
-                            <th class="num"><button class="@Sorted("plays")" @onclick="@(() => SortAsync("plays"))">Plays</button></th>
-                            <th><button class="@Sorted("votes")" @onclick="@(() => SortAsync("votes"))">Votes</button></th>
-                            <th><button class="@Sorted("created")" @onclick="@(() => SortAsync("created"))">Created</button></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (_selectedArtistId is { } genArtist && IsGenerating(genArtist))
-                        {
-                            <tr class="generating-row">
-                                <td><span class="blink rec-dot">●</span></td>
-                                <td colspan="6" class="dim">
-                                    REC @(_status?.TrackTitle is { } t ? $"\"{t}\"" : "a new song")… @GeneratingElapsed()
-                                </td>
-                            </tr>
-                        }
-                        @foreach (var track in _tracks)
-                        {
+                var filtered = FilteredTracks();
+                var totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)PageSize));
+                var currentPage = Math.Min(_page, totalPages);
+                var showRecRow = _status?.ArtistId is { } genArtist
+                    && (_selectedArtistId is null || _selectedArtistId == genArtist);
+
+                if (_deleteError is not null)
+                {
+                    <div class="vote-down-text" style="margin-bottom:10px">@_deleteError</div>
+                }
+
+                if (filtered.Count == 0 && !showRecRow)
+                {
+                    <div class="empty-state">
+                        @(string.IsNullOrWhiteSpace(_search)
+                            ? $"No records yet{(_selectedArtistId is not null ? " — record the first one!" : ".")}"
+                            : "No records match your search.")
+                    </div>
+                }
+                else
+                {
+                    <table class="console-table">
+                        <thead>
                             <tr>
-                                <td>
-                                    <button class="btn small" title="listen in the footer player (does not count as play)"
-                                            @onclick="() => Player.PlayTrack(track)">▶</button>
-                                </td>
-                                <td>
-                                    @track.Title
-                                    @if (track.IsRetired)
-                                    {
-                                        <span class="tag red">retired</span>
-                                    }
-                                    @if (track.HasVocals)
-                                    {
-                                        <span class="tag amber">vocal</span>
-                                    }
-                                </td>
+                                <th style="width:40px"></th>
+                                <th><button class="@Sorted("title")" @onclick="@(() => SortAsync("title"))">Title</button></th>
                                 @if (_selectedArtistId is null)
                                 {
-                                    <td class="dim">@track.ArtistName</td>
+                                    <th><button class="@Sorted("artist")" @onclick="@(() => SortAsync("artist"))">Artist</button></th>
                                 }
-                                <td class="dim">@(string.IsNullOrEmpty(track.Subgenre) ? track.Genre : track.Subgenre)</td>
-                                <td class="num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</td>
-                                <td class="num">@track.PlayCount</td>
-                                <td><VoteBar Up="track.UpVotes" Down="track.DownVotes" /></td>
-                                <td class="dim">@track.CreatedAt.ToLocalTime().ToString("dd.MM. HH:mm")</td>
+                                <th>Style</th>
+                                <th class="num">Length</th>
+                                <th class="num"><button class="@Sorted("plays")" @onclick="@(() => SortAsync("plays"))">Plays</button></th>
+                                <th><button class="@Sorted("votes")" @onclick="@(() => SortAsync("votes"))">Votes</button></th>
+                                <th><button class="@Sorted("created")" @onclick="@(() => SortAsync("created"))">Created</button></th>
+                                <th style="width:40px"></th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            @if (showRecRow)
+                            {
+                                <tr class="generating-row">
+                                    <td><span class="btn small rec-cell"><span class="blink rec-dot">●</span></span></td>
+                                    <td colspan="@(_selectedArtistId is null ? 6 : 5)">
+                                        @(_status?.TrackTitle is { } wip ? $"\"{wip}\"" : "a new song…")
+                                        @if (_selectedArtistId is null && _status?.ArtistName is { } genName)
+                                        {
+                                            <span class="dim"> — @genName</span>
+                                        }
+                                    </td>
+                                    <td colspan="2" class="num dim">@GeneratingElapsed()</td>
+                                </tr>
+                            }
+                            @foreach (var track in filtered.Skip((currentPage - 1) * PageSize).Take(PageSize))
+                            {
+                                <tr>
+                                    <td>
+                                        <button class="btn small" title="listen in the footer player (does not count as play)"
+                                                @onclick="() => Player.PlayTrack(track)">▶</button>
+                                    </td>
+                                    <td>
+                                        @track.Title
+                                        @if (track.IsRetired)
+                                        {
+                                            <span class="tag red">retired</span>
+                                        }
+                                        @if (track.HasVocals)
+                                        {
+                                            <span class="tag amber">vocal</span>
+                                        }
+                                    </td>
+                                    @if (_selectedArtistId is null)
+                                    {
+                                        <td class="dim">@track.ArtistName</td>
+                                    }
+                                    <td class="dim">@(string.IsNullOrEmpty(track.Subgenre) ? track.Genre : track.Subgenre)</td>
+                                    <td class="num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</td>
+                                    <td class="num">@track.PlayCount</td>
+                                    <td><VoteBar Up="track.UpVotes" Down="track.DownVotes" /></td>
+                                    <td class="dim">@track.CreatedAt.ToLocalTime().ToString("dd.MM. HH:mm")</td>
+                                    <td class="num">
+                                        <button class="btn small vote-down" title="delete this song"
+                                                @onclick="() => _deleteTarget = track"><Icon Name="trash" /></button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    if (totalPages > 1)
+                    {
+                        <div class="btn-row" style="margin-top:14px">
+                            <button class="btn small" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">‹ prev</button>
+                            <span class="dim">page @currentPage of @totalPages (@filtered.Count songs)</span>
+                            <button class="btn small" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPage(currentPage + 1)">next ›</button>
+                        </div>
+                    }
+                }
             }
         </div>
     </div>
 </div>
 
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete song"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Delete <strong>"@doomed.Title"</strong> by @doomed.ArtistName?
+        The recording, its votes and the audio file are gone for good.</text>
+    }
+</ConfirmDialog>
+
 @code {
+    private const int PageSize = 25;
+
     private List<TrackDto>? _tracks;
+    private List<TrackDto>? _allTracks;
     private List<ArtistDto> _artists = [];
     private ArtistDto? _artistDetail;
     private MusicProductionStatusDto? _status;
     private string _sort = "created";
+    private string _search = "";
+    private int _page = 1;
     private Guid? _selectedArtistId;
-    private Guid? _lastGeneratingArtist;
+    private TrackDto? _deleteTarget;
+    private string? _deleteError;
     private Timer? _statusTimer;
 
     protected override async Task OnInitializedAsync()
@@ -194,42 +247,93 @@
 
     private bool IsQueued(Guid artistId) => _status?.QueuedArtistIds.Contains(artistId) == true;
 
+    private int QueuedCount(Guid artistId) => _status?.QueuedArtistIds.Count(id => id == artistId) ?? 0;
+
     private string GeneratingElapsed()
-        => _status?.StartedAtUtc is { } started
-            ? $"{(DateTime.UtcNow - started).TotalMinutes:F0} min {(DateTime.UtcNow - started).Seconds} s"
-            : "";
+    {
+        if (_status?.StartedAtUtc is not { } started)
+        {
+            return "";
+        }
+
+        var elapsed = DateTime.UtcNow - started;
+        return $"{(int)elapsed.TotalMinutes:00} min {elapsed.Seconds:00} s";
+    }
 
     private async Task PollStatusAsync()
     {
         var previous = _status?.ArtistId;
         _status = await Api.GetMusicProductionStatusAsync();
-        _lastGeneratingArtist = _status?.ArtistId ?? _lastGeneratingArtist;
 
         // A generation just finished → fresh track exists; refresh the shelves.
         if (previous is not null && _status?.ArtistId is null)
         {
             _artists = await Api.GetArtistsAsync();
             await LoadTracksAsync();
+            if (_selectedArtistId is not null)
+            {
+                _allTracks = await Api.GetLibraryAsync(sort: null, genre: null, artistId: null);
+            }
         }
 
         await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadTracksAsync()
-        => _tracks = await Api.GetLibraryAsync(_sort, genre: null, _selectedArtistId);
+    {
+        _tracks = await Api.GetLibraryAsync(_sort, genre: null, _selectedArtistId);
+        if (_selectedArtistId is null)
+        {
+            _allTracks = _tracks;
+        }
+    }
+
+    private List<TrackDto> FilteredTracks()
+        => string.IsNullOrWhiteSpace(_search)
+            ? _tracks ?? []
+            : (_tracks ?? []).Where(t =>
+                    t.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                    || t.ArtistName.Contains(_search, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+    private bool ArtistMatchesSearch(ArtistDto artist)
+        => string.IsNullOrWhiteSpace(_search)
+            || artist.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
+            || _allTracks?.Any(t => t.ArtistId == artist.Id
+                && t.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)) == true;
+
+    private async Task OnSearchChangedAsync(ChangeEventArgs e)
+    {
+        _search = e.Value?.ToString() ?? "";
+        _page = 1;
+
+        // The selected artist fell out of the filter → fall back to all tracks.
+        if (_selectedArtistId is { } id
+            && _artists.FirstOrDefault(a => a.Id == id) is { } selected
+            && !ArtistMatchesSearch(selected))
+        {
+            await SelectArtistAsync(null);
+        }
+    }
 
     private string Sorted(string column) => _sort == column ? "sorted" : "";
 
     private async Task SortAsync(string column)
     {
         _sort = column;
+        _page = 1;
         await LoadTracksAsync();
     }
+
+    private void GoToPage(int page) => _page = page;
 
     private async Task SelectArtistAsync(Guid? artistId)
     {
         _selectedArtistId = artistId;
         _artistDetail = null;
+        _page = 1;
+        _deleteTarget = null;
+        _deleteError = null;
         await LoadTracksAsync();
 
         if (artistId is { } id)
@@ -254,6 +358,22 @@
         if (_selectedArtistId is { } id && await Api.ProduceTrackForArtistAsync(id))
         {
             _status = await Api.GetMusicProductionStatusAsync();
+        }
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } track)
+        {
+            return;
+        }
+
+        _deleteTarget = null;
+        _deleteError = (await Api.DeleteTrackAsync(track.Id))?.Trim('"');
+        if (_deleteError is null)
+        {
+            _artists = await Api.GetArtistsAsync();
+            await LoadTracksAsync();
         }
     }
 
