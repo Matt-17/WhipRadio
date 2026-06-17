@@ -22,8 +22,8 @@ public class HostLanguageAligner(
     public async Task AlignAsync(CancellationToken ct = default)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct);
-        var language = StationLanguages.Normalize(settings?.DefaultLanguage);
+        var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+        var language = StationLanguages.Normalize(settings.DefaultLanguage);
 
         var offLanguageHosts = await db.Moderators
             .Where(m => m.Language != language)

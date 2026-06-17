@@ -54,7 +54,7 @@ public class MessageModerationService(
             return;
         }
 
-        var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+        var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
         var context = await schedule.GetCurrentAsync(ct);
 
         using var scope = scopeFactory.CreateScope();

@@ -8,6 +8,13 @@ if (Get-Process -Name "WhipRadio.AppHost" -ErrorAction SilentlyContinue) {
     exit 1
 }
 
+try {
+    Invoke-RestMethod -Uri "http://localhost:11434/api/version" -TimeoutSec 2 | Out-Null
+}
+catch {
+    Write-Host "Writer Room is not reachable at http://localhost:11434. Run .\start-studios.ps1 first." -ForegroundColor Yellow
+}
+
 Write-Host "Building..." -ForegroundColor Cyan
 dotnet build $appHost
 if ($LASTEXITCODE -ne 0) {

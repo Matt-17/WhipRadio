@@ -25,7 +25,7 @@ public class StationSettingsCache(IDbContextFactory<RadioDbContext> dbFactory, T
             if (timeProvider.GetUtcNow() - _loadedAt >= Ttl)
             {
                 await using var db = await dbFactory.CreateDbContextAsync(ct);
-                _cached = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+                _cached = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
                 _loadedAt = timeProvider.GetUtcNow();
             }
 

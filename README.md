@@ -11,14 +11,16 @@ Winamp/VLC and in the built-in Blazor web app.
 
 ```text
 AppHost (Aspire)
-|-- ollama        gemma3:4b for scripts, host direction, titles and lyrics
 |-- icecast       MP3 streaming server (:8000/radio.mp3)
-|-- tts           Python/FastAPI + Kokoro/Piper (:8001)
-|-- music         Python/FastAPI + MusicGen (:8002)
-|-- acestep       ACE-Step 1.5 official API (:8002 in container)
 |-- orchestrator  .NET workers: music production, announcements, show runner,
 |                 ffmpeg playout to Icecast, API for the web app
 `-- web           Blazor Server broadcast console
+
+Studio services (start-studios.ps1)
+|-- writer-room   Ollama + gemma4:e4b (:11434)
+|-- tts           Python/FastAPI + Kokoro/Piper (:8201)
+|-- acestep       ACE-Step 1.5 official API (:8101)
+`-- analysis      audio analysis API (:8301)
 ```
 
 Audio pipeline: one long-lived ffmpeg encoder pushes MP3 to Icecast. Each
@@ -30,17 +32,20 @@ into the encoder.
 - Docker Desktop with Linux containers
 - .NET SDK 10.0.3xx, see `global.json`
 - ffmpeg on PATH for development
-- Disk space for model caches. ACE-Step downloads large checkpoints on first use.
-- Optional NVIDIA GPU. The AppHost auto-detects `nvidia-smi` and starts GPU-capable
-  containers with `--gpus=all`. Set `Gpu__Disabled=true` to force CPU.
+- Disk space for model caches. Gemma 4 E4B and ACE-Step download large weights on
+  first use.
+- Optional NVIDIA GPU. `start-studios.ps1` auto-detects `nvidia-smi` and starts
+  GPU-capable studio containers with `--gpus=all`.
 
 ## Quickstart
 
 ```bash
-dotnet run --project src/WhipRadio.AppHost
+.\start-studios.ps1
+.\start.ps1
 ```
 
-Open the Aspire dashboard URL printed in the console.
+Open the Aspire dashboard URL printed in the AppHost console. `start-studios.ps1`
+starts the long-lived AI services first; they survive WhipRadio app restarts.
 
 | What | Where |
 |---|---|
@@ -49,7 +54,17 @@ Open the Aspire dashboard URL printed in the console.
 | Icecast status | http://localhost:8000 |
 | Orchestrator API | `orchestrator` endpoint, for example `/api/nowplaying` |
 
-First start takes a while because local models download on demand.
+First start takes a while because local models download on demand. Use
+`.\test-studios.ps1` to verify Ollama, Gemma 4, ACE-Step, TTS, and analysis.
+
+Useful studio commands:
+
+| Command | Purpose |
+|---|---|
+| `.\start-studios.ps1` | start Writer Room, recording, voice, and analysis services |
+| `.\stop-studios.ps1` | stop studio containers without deleting model volumes |
+| `.\restart-studios.ps1` | restart the studio layer |
+| `.\test-studios.ps1` | probe endpoints and run a small Gemma 4 chat test |
 
 ## Configuration
 
@@ -57,7 +72,9 @@ Key settings:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `Llm__Model` | `gemma3:4b` | Ollama chat model |
+| `Llm__Endpoint` | `http://localhost:11434` | Ollama Writer Room endpoint |
+| `Llm__Model` | `gemma4:e4b` | Ollama chat model |
+| `Llm__ContextSize` | `16384` | Ollama `num_ctx` working context |
 | `Weather__Latitude/Longitude` | 51.05 / 13.74 | Open-Meteo location |
 | `Music__ProducerBackoffSeconds` | 30 | music production retry/backoff |
 | `AceStep__Model` | `acestep-v15-turbo` | ACE-Step DiT model |

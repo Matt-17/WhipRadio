@@ -522,7 +522,7 @@ public sealed class AudioMixerEngine(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var s = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+            var s = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             return new MixerSettings(
                 s.TargetLufs, s.MaxMakeupGainDb, s.DuckLevelDb, s.DuckRampMs,
                 s.DefaultCrossfadeSeconds, s.BeatAlignBpmTolerancePct,

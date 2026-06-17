@@ -35,8 +35,8 @@ public class AnnouncementFactory(
         bool allowBreath;
         await using (var settingsDb = await dbFactory.CreateDbContextAsync(ct))
         {
-            allowBreath = (await settingsDb.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))
-                ?.EnableBreathMarkers ?? false;
+            allowBreath = (await settingsDb.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct))
+                .EnableBreathMarkers;
         }
 
         // Personal talks reference what the host already said today.

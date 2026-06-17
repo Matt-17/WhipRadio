@@ -1,136 +1,129 @@
-# WhipRadio — Phase 0: Locked Technical Decisions
+# WhipRadio - Phase 0: Locked Technical Decisions
 
-> A single source of truth for cross-cutting decisions, sitting above every phase plan.
-> When a phase plan and this document disagree on one of these points, **this document
-> wins**. Update it deliberately; don't let decisions drift silently.
+This document is the cross-phase decision register. When a later phase plan disagrees
+with a point here, this file wins until it is deliberately revised. If a decision is
+accepted but not implemented yet, track the implementation work in
+`Phase-0-Deferred.md` instead of pretending the current code is the final design.
 
----
+## Decision Status
 
-## Reference hardware (development / homelab target)
+- **Firm**: architectural direction for all phases.
+- **Planned**: accepted design, implemented in a named later phase.
+- **Deferred implementation**: accepted decision, current program still needs work.
+- **Superseded**: old direction replaced by a newer decision in this file.
 
-- **GPU: NVIDIA RTX 4070, 12 GB VRAM.** This is the design target. Everything must run
-  here with the LLM responsive. A CPU-only / smaller-GPU profile must also exist
-  (slower generation is acceptable per the project's "talk fills gaps" tolerance).
+## Reference Hardware And Deployment Model
 
-The 12 GB ceiling drives the model and VRAM-budget decisions below.
+The development/homelab target remains an **NVIDIA RTX 4070 with 12 GB VRAM**.
+Everything must be capable of running on that class of machine, with slower CPU-only
+fallbacks where practical.
 
----
+The architecture now supports **multiple studios** for music and voice generation.
+Studios may run on the same machine as WhipRadio, on another local machine, or behind
+an online API. The operator owns where those studios run and how much hardware they
+have. WhipRadio should discover, book, and monitor studios, but it must not assume it
+controls every GPU in the deployment.
 
-## LLM: Gemma 4 E4B (via Ollama)
+For a single 4070 machine, the old VRAM budget remains useful as operator guidance:
 
-- **Default model: Gemma 4 E4B** (~4.5B effective). Multilingual (incl. German),
-  Apache 2.0 licensed (matters for the Phase 8 commercial question), strong at the
-  project's actual workload (text generation, summarisation, banter — not coding).
-- Pull via Ollama; keep the provider behind the existing interface/factory so a model
-  can be swapped per role.
-- **Per-role models (optional, encouraged):** a small fast model for host one-liners; a
-  heavier reasoning model for the Program Director and multi-agent talks. On 12 GB the
-  heavier option (e.g. Gemma 4 26B A4B MoE) generally won't co-reside with TTS+music —
-  use it only if you accept evicting music during director reasoning, or run it on a
-  bigger machine. **For the 12 GB target, E4B everywhere is the safe default.**
-- **Qwen 3.5** is the sanctioned alternative to A/B-test specifically for Program
-  Director reasoning (hybrid thinking mode). Keep the door open; don't block on it.
-- **Kimi and other ~trillion-parameter models are out** — not single-GPU viable.
-
-### Context size — the real VRAM lever
-- The model weights are modest; the **KV cache for context is what eats VRAM**. Do **not**
-  allocate the full 128K context.
-- **Set a working context (`OllamaContextSize`, already a Phase 2 setting) to ~16K–32K
-  tokens.** That comfortably holds a full podcast/talk transcript, which is the longest
-  thing we need. Long-ago memory is intentionally out of scope (handled by the distilled
-  memory layers in Phase 3b, not by raw context).
-
-### VRAM budget on 12 GB (planning estimate, verify in practice)
-| Component | Residency | Rough VRAM |
+| Workload | Priority | Notes |
 |---|---|---|
-| Gemma 4 E4B (Q4_K_M quant) | always resident | ~3.5 GB |
-| KV cache @ ~16–32K working context | always resident | ~0.5–1.5 GB |
-| TTS (Kokoro/Piper, local) | resident if room | ~0.5–1 GB |
-| ElevenLabs TTS | API — no VRAM | 0 |
-| Music (ACE-Step) | **on-demand / evictable** | ~remaining 6–7 GB |
-| Image (FLUX.2 Klein 4B, Phase 6b) | **lowest priority; evicts everything else** | ~whole card (quantized) |
+| LLM | highest | Keep responsive; do not allocate huge context by default. |
+| Local TTS | high | Prefer resident when it shares the app machine. |
+| Music studio | medium | Can be slow, queued, or moved to another machine. |
+| Image studio | lowest | Phase 6b; never real-time. |
 
-**Firm rules from this budget:**
-1. **LLM + local TTS stay resident** (responsiveness is the priority the user named).
-2. **Music is the swapper** — it may load on demand and be evicted; slow is acceptable.
-3. **Serialise heavy music generation against heavy LLM reasoning** via the shared
-   generation semaphore (already specified in Phase 3a's backfill) so both don't spike
-   VRAM simultaneously.
-4. Use a **Q4_K_M** (or similar) quant for the LLM; don't run full precision on 12 GB.
-5. **Image generation (FLUX.2 Klein 4B, Phase 6b) is the lowest-priority GPU workload** —
-   it never co-resides with LLM/TTS/music. It runs only when the GPU has been idle of
-   "studio work" for a cooldown, by evicting everything, draining an image-queue batch,
-   then reloading LLM+TTS. The live stream never stalls for it; entities show a skeleton
-   placeholder until their image exists. See `Phase-6b-Photography.md`.
+## LLM: Gemma 4 E4B Via Ollama
 
----
+**Firm decision:** the default local text model is **Gemma 4 E4B via Ollama**. Runtime
+defaults, docs, and seed/config examples should use the `gemma4:e4b` Ollama tag.
+Ollama is a long-lived operator-owned Writer Room service, started with
+`start-studios.ps1` on `http://localhost:11434` by default. The Aspire AppHost
+consumes `Llm__Endpoint`; it does not create or own the Ollama container.
 
-## Image generation: FLUX.2 Klein 4B (Phase 6b)
+Provider routing must stay behind `ITextGenerationService` so roles can later use
+different providers or models. Per-role model selection is still encouraged:
 
-- **FLUX.2 Klein 4B**, quantized (GGUF Q4/Q5) for the 12 GB card, Apache 2.0 licensed.
-  Photorealistic, with multi-reference identity preservation so a person stays
-  recognisable across photos. Behind an `IImageGenerationService` sidecar, same pattern as
-  TTS/music.
-- **Not real-time, lowest VRAM priority** — see the VRAM rules above and
-  `Phase-6b-Photography.md`. Photos are produced on demand at entity creation and cached.
+- Fast one-liner model for small host copy.
+- Heavier reasoning model for the Program Director or multi-agent talks.
+- Qwen remains a sanctioned A/B candidate for reasoning roles.
 
----
+Kimi-scale or trillion-parameter models remain out of scope for the single-GPU target.
 
-## MCP: explicitly NOT used
+## Ollama Context Size
 
-- The self-built `Aktion()` protocol (Phase 4) is the internal control mechanism. It is
-  function-calling we own end-to-end; a tolerant parser is more robust for local models
-  than a strict protocol, with no overhead.
-- **MCP is dropped.** Do not introduce it as the core action mechanism. (If, far later,
-  there's a concrete need to consume third-party tool servers or expose WhipRadio to
-  external agents, revisit via an adapter behind `IActionParser` — but not now.)
+**Firm decision:** expose an explicit `Llm__ContextSize` setting and pass it to
+Ollama as `num_ctx`.
 
----
+The working default is **16K tokens**, not the full maximum context a model advertises.
+The model weights are not the only VRAM cost; the KV cache grows with context length
+and can crowd out TTS/music. Operators may raise this on larger GPUs or remote LLM
+studios. Long-term memory should be distilled and retrieved through later memory
+layers, not carried as raw context forever.
 
-## Audio: one DSP core, two contexts
+## Studios And Heavy Work Coordination
 
-- **`MixerCore` (Phase 3a) is pure DSP on buffers** and is reused in two places:
-  - **Live:** `AudioMixerService` → Icecast.
-  - **Offline:** `SegmentRenderer` premixes multi-speaker talk/podcast segments into a
-    single WAV (see Phase 5). The live system then plays that segment as one item.
-- Multi-speaker **cross-talk/overlap is rendered offline at production time**, not by the
-  live mixer — deterministic and fully controllable.
+The earlier "one shared generation semaphore" idea meant: before a heavy job starts,
+it checks with one shared gate so two expensive jobs do not overload the same GPU at
+the same time.
 
----
+With distributed studios, a single global semaphore is no longer the right model.
+WhipRadio should use:
 
-## Voice consistency: "by construction", not post-hoc matching
+- **Per-studio booking** for concrete studio jobs.
+- **Capacity/resource grouping** for studios that share the same physical machine or
+GPU, if the operator declares that relationship.
+- **A local workload coordinator** only for resources the app actually owns or can
+reason about.
 
-- Each speaking entity (host, band member, caller) has a `VoiceProfile` (gender + coarse
-  timbre descriptors). **Both** the TTS voice choice **and** the ACE-Step vocal prompt are
-  derived from the same profile, so speaking and singing voices are *consistent*, not
-  identically *matched*. (Real singers sound different speaking vs singing anyway, so
-  perfect identity is neither achievable across two engines nor even desirable.)
-- True cross-engine voice cloning (same voice sings and speaks) is a **stretch goal**,
-  not a requirement.
+The app should not try to evict or pause a remote studio's models unless that studio
+explicitly exposes such controls.
 
----
+## Image Generation: Phase 6b
 
-## Deferred-but-designed-for (don't build yet; don't block either)
+**Planned:** generated photography is handled by Phase 6b. The model decision remains
+FLUX.2 Klein 4B or the closest compatible Apache-licensed local image model that fits
+the hardware when implementation begins.
 
-These are confirmed *later* features. Design data shapes so they slot in without rework,
-but do not implement until their phase:
+Images are generated, curated, cached, and referenced through generated-image records.
+There should be **no manual `PhotoUrl` field and no upload path** as the primary design.
+Until generated images exist, the UI shows skeleton placeholders.
 
-- **Telephone / lo-fi caller voices** — a `VoiceFx` post-processing chain (band-pass +
-  light compression + codec noise) applied after TTS. A caller = a guest with a phone
-  `VoiceFx` preset; a host can "call in" with the same preset. Build the `VoiceProfile`
-  with an optional `Fx` field now; implement the filter later.
-- **Group cross-talk (3–5 speakers talking over each other)** — the hard part is the
-  LLM describing chapters in enough detail to mark *what overlaps when* and still sound
-  natural. The `SegmentRenderer` + bounded overlap is the mechanism; the rich
-  choreography is a later refinement. Keep `ConversationSegment` turns stored as
-  `(speakerId, text, markers, timing?)` so overlap timing can be added without a schema
-  change.
+Image generation is lowest priority and never part of the live audio path.
 
----
+## MCP: Explicitly Not Used
 
-## Standing constraints (unchanged, restated for one-stop reference)
-- Never break the live stream; new subsystems ship behind flags where risky.
-- Copyright discipline: paraphrase external facts; never reproduce article text or lyrics.
-- `dotnet build` + `dotnet test` stay green every milestone.
-- Everything local except declared external data sources (weather, news, traffic,
-  optional OpenAI/ElevenLabs/Twitch).
+The self-owned action protocol is the internal control mechanism. MCP is not the core
+action system. If WhipRadio later needs to consume third-party MCP servers or expose
+tools to external agents, that should be an adapter behind the action/parser boundary,
+not a replacement for the internal protocol.
+
+## Audio: Mixer Core Now, Offline Rendering Later
+
+`MixerCore` is the pure DSP core for sample-buffer mixing. The live mixer may use it
+directly for crossfades, ducking, and transition diagnostics.
+
+**Planned:** offline multi-speaker rendering belongs to later conversation/artist phases.
+The future `SegmentRenderer` should reuse `MixerCore` to premix multi-speaker talk or
+podcast segments into a single WAV. The live stream then plays that rendered segment as
+one item.
+
+## Voice Consistency: VoiceProfile Planned
+
+Current host voice fields are interim. The intended model is a structured
+`VoiceProfile` for each speaking entity: gender, coarse timbre descriptors, resolved
+TTS voice, and optional future FX chain.
+
+**Planned:** Phase 5 artist/band work introduces rich artists, band members, guests,
+`VoiceProfile`, and `VoiceFx`. Speaking and singing voices should be consistent by
+construction: both TTS selection and music vocal prompting derive from the same
+profile. Exact cross-engine voice cloning remains a stretch goal, not a requirement.
+
+## Standing Constraints
+
+- Never break the live stream; risky subsystems ship behind flags or queues.
+- Copyright discipline: paraphrase external facts; never reproduce article text or
+  lyrics.
+- `.\build.ps1` and `.\test.ps1` stay green at each milestone.
+- Everything is local except declared external sources/providers: weather, optional
+  OpenAI/ElevenLabs, optional remote studios, and future explicitly configured sources.

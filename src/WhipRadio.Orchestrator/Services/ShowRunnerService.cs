@@ -232,7 +232,7 @@ public class ShowRunnerService(
     private async Task<StationSettings> GetSettingsAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+        return await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
     }
 
     private async Task<Track?> PickTrackAsync(ITrackSelector selector, ShowContext context, CancellationToken ct)

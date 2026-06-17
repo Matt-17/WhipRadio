@@ -243,7 +243,13 @@ public sealed record StatsDto(
 
 public sealed record NameCountDto(string Name, double Value);
 
-public sealed record ConsoleLineDto(DateTime TimestampUtc, string Level, string Category, string Message);
+public sealed record ConsoleLineDto(
+    DateTime TimestampUtc,
+    string Level,
+    string Category,
+    string Message,
+    string? SourceKind = null,
+    string? SourceName = null);
 
 public sealed record GpuStatsDto(
     string Name,

@@ -35,6 +35,7 @@ builder.Services.AddHttpClient("orchestrator-media", client =>
 builder.Services.AddHttpClient("live-stream", client => client.Timeout = Timeout.InfiniteTimeSpan);
 
 builder.Services.AddScoped<RadioLiveClient>();
+builder.Services.AddScoped<ConsoleLiveClient>();
 builder.Services.AddScoped<PlayerState>();
 
 var app = builder.Build();

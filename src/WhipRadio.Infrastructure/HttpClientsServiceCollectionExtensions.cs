@@ -15,9 +15,9 @@ public static class HttpClientsServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the AI clients. Text generation and TTS go through settings-driven
-    /// routers (ollama/openai, sidecar/elevenlabs). Base addresses use Aspire service
-    /// discovery names (http://ollama etc.); explicit endpoints and Aspire connection
-    /// strings take precedence.
+    /// routers (ollama/openai, sidecar/elevenlabs). Writer Room/Ollama is an
+    /// operator-owned studio service; explicit endpoints and Aspire connection
+    /// strings take precedence over the local default.
     /// </summary>
     public static IServiceCollection AddRadioHttpClients(this IServiceCollection services, IConfiguration configuration)
     {
@@ -32,7 +32,7 @@ public static class HttpClientsServiceCollectionExtensions
         // so it is removed; the production services own their retry loops.
         services.AddHttpClient(TextGenerationRouter.OllamaClientName, client =>
             {
-                client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", "http://ollama");
+                client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", "http://localhost:11434");
                 client.Timeout = TimeSpan.FromMinutes(10); // small models on CPU can be slow
             })
             .RemoveAllResilienceHandlers()

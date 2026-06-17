@@ -1,12 +1,4 @@
-using System.Diagnostics;
-using Microsoft.Extensions.Configuration;
-
 var builder = DistributedApplication.CreateBuilder(args);
-
-// --- GPU auto-detection -------------------------------------------------------
-// All AI workloads (LLM, TTS, music) use the GPU when one is available.
-// Override with Gpu:Disabled=true. CPU remains the fallback everywhere.
-var useGpu = !builder.Configuration.GetValue("Gpu:Disabled", false) && HostHasNvidiaGpu();
 
 // --- Parameters -------------------------------------------------------------
 var icecastSourcePassword = builder.AddParameter("icecast-source-password", "hackme-dev");
@@ -15,19 +7,7 @@ var icecastAdminPassword = builder.AddParameter("icecast-admin-password", "hackm
 // Shared data root: SQLite db + generated audio. The .NET projects run as local
 // processes in dev, so a plain folder under the repo root works on Windows.
 var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
-
-// --- LLM: Ollama with gemma3:4b ----------------------------------------------
-// Persistent lifetime: stable container name, REUSED across AppHost runs —
-// no per-restart container pile-up in Docker, and the loaded model survives.
-var ollama = builder.AddOllama("ollama")
-    .WithDataVolume("ollama-models")
-    .WithLifetime(ContainerLifetime.Persistent);
-if (useGpu)
-{
-    ollama.WithGPUSupport();
-}
-
-var chatModel = ollama.AddModel("chat-model", "gemma3:4b");
+var writerRoomEndpoint = builder.Configuration["Llm:Endpoint"] ?? "http://localhost:11434";
 
 // --- Icecast streaming server -------------------------------------------------
 // libretime/icecast generates icecast.xml from env vars; deploy/icecast/icecast.xml
@@ -42,15 +22,14 @@ var icecast = builder.AddContainer("icecast", "libretime/icecast", "latest")
 var icecastEndpoint = icecast.GetEndpoint("http");
 
 // --- Studios -------------------------------------------------------------------
-// Music AIs and TTS booths are NOT managed by Aspire anymore: they run as
-// standalone containers (start-studios.ps1) or online APIs, configured on the
-// Studios page. They survive WhipRadio restarts and can be scaled to several
-// instances of the same model.
+// Writer Room/Ollama, music AIs, TTS booths, and analysis are not managed by
+// Aspire. They run as standalone services (start-studios.ps1) or online APIs,
+// configured and restarted by the operator.
 
 // --- Orchestrator: pipelines + playout -----------------------------------------
 var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestrator")
-    .WithReference(ollama)
     .WaitFor(icecast)
+    .WithEnvironment("Llm__Endpoint", writerRoomEndpoint)
     .WithEnvironment("Radio__DataRoot", dataRoot)
     .WithEnvironment("Stream__Mount", "/radio.mp3")
     .WithEnvironment("Stream__Bitrate", "192k")
@@ -61,10 +40,6 @@ var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestr
         context.EnvironmentVariables["Icecast__Host"] = icecastEndpoint.Property(EndpointProperty.Host);
         context.EnvironmentVariables["Icecast__Port"] = icecastEndpoint.Property(EndpointProperty.Port);
     });
-
-// chat-model waits for the gemma pull; the orchestrator retries LLM calls, so we
-// only soft-depend via the dashboard (no WaitFor: first pull can take minutes).
-_ = chatModel;
 
 // --- Web app -------------------------------------------------------------------
 builder.AddProject<Projects.WhipRadio_Web>("web")
@@ -77,28 +52,3 @@ builder.AddProject<Projects.WhipRadio_Web>("web")
     .WithExternalHttpEndpoints();
 
 builder.Build().Run();
-
-static bool HostHasNvidiaGpu()
-{
-    try
-    {
-        using var process = Process.Start(new ProcessStartInfo("nvidia-smi", "-L")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        });
-        if (process is null)
-        {
-            return false;
-        }
-
-        process.WaitForExit(5000);
-        return process.HasExited && process.ExitCode == 0;
-    }
-    catch
-    {
-        return false;
-    }
-}

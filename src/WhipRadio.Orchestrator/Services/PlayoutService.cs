@@ -119,7 +119,7 @@ public class PlayoutService(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            return (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.MixerEnabled ?? false;
+            return (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).MixerEnabled;
         }
         catch (OperationCanceledException)
         {
@@ -136,8 +136,8 @@ public class PlayoutService(
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct);
-            return settings?.PlayoutEnabled ?? true;
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            return settings.PlayoutEnabled;
         }
         catch (OperationCanceledException)
         {

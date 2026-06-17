@@ -96,6 +96,8 @@ public partial class ProgramDirectorService(
         var orphaned = await db.ProgramSlots
             .Include(s => s.Format)
             .Where(s => s.Format != null && !s.Format.IsEnabled)
+            .OrderBy(s => s.DayOfWeek)
+            .ThenBy(s => s.StartMinute)
             .Take(4)
             .ToListAsync(ct);
         if (orphaned.Count == 0)
@@ -162,7 +164,7 @@ public partial class ProgramDirectorService(
             List<string> hostNames;
             await using (var db = await dbFactory.CreateDbContextAsync(ct))
             {
-                stationName = (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.StationName ?? "WhipRadio";
+                stationName = (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).StationName;
                 formatNames = await db.Formats.Where(f => f.IsEnabled)
                     .Select(f => $"{f.Name} ({f.Genre}/{f.Subgenre})").ToListAsync(ct);
                 hostNames = await db.Moderators.Where(m => m.IsActive)
@@ -358,7 +360,7 @@ public partial class ProgramDirectorService(
 
             // Hosts always speak the station language — the plan's language hint is ignored.
             var stationLanguage = StationLanguages.Normalize(
-                (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.DefaultLanguage);
+                (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).DefaultLanguage);
 
             return await CreateHostAsync(scope, db, all, name,
                 gender: parts.ElementAtOrDefault(1) == "m" ? ModeratorGenders.Male : ModeratorGenders.Female,

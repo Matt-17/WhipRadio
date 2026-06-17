@@ -379,7 +379,7 @@ public static class RadioApiEndpoints
 
             // Hosts always speak the station language (the main language).
             var stationLanguage = StationLanguages.Normalize(
-                (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.DefaultLanguage);
+                (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).DefaultLanguage);
 
             var moderator = new Moderator
             {
@@ -448,7 +448,7 @@ public static class RadioApiEndpoints
     {
         api.MapGet("/settings", async (RadioDbContext db, CancellationToken ct) =>
         {
-            var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             return Results.Ok(ToDto(settings));
         });
 
@@ -459,7 +459,7 @@ public static class RadioApiEndpoints
         api.MapPut("/settings", async (StationSettingsDto request, RadioDbContext db,
             HostLanguageAligner aligner, CancellationToken ct) =>
         {
-            var settings = await db.StationSettings.FirstOrDefaultAsync(ct);
+            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
             if (settings is null)
             {
                 settings = new StationSettings { Id = StationSettings.SingletonId };
@@ -731,7 +731,7 @@ public static class RadioApiEndpoints
     {
         api.MapGet("/mixer", async (RadioDbContext db, MixerDiagnostics diagnostics, CancellationToken ct) =>
         {
-            var s = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+            var s = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             var settings = new MixerSettingsDto(
                 s.MixerEnabled, s.TargetLufs, s.MaxMakeupGainDb, s.DuckLevelDb, s.DuckRampMs,
                 s.DefaultCrossfadeSeconds, s.BeatAlignBpmTolerancePct,
@@ -800,7 +800,7 @@ public static class RadioApiEndpoints
                 return Results.BadRequest($"Strategy weights: {error}");
             }
 
-            var s = await db.StationSettings.FirstOrDefaultAsync(ct);
+            var s = await db.StationSettings.FindStationSettingsAsync(ct);
             if (s is null)
             {
                 return Results.NotFound();
@@ -971,7 +971,8 @@ public static class RadioApiEndpoints
     {
         api.MapGet("/console", (InMemoryLogBuffer buffer) =>
             Results.Ok(buffer.Snapshot()
-                .Select(e => new ConsoleLineDto(e.TimestampUtc, e.Level, e.Category, e.Message))
+                .Select(e => new ConsoleLineDto(
+                    e.TimestampUtc, e.Level, e.Category, e.Message, e.SourceKind, e.SourceName))
                 .ToList()));
 
         api.MapPost("/admin/director/run", (DirectorControl control) =>

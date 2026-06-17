@@ -1,34 +1,75 @@
+using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 
 namespace WhipRadio.Infrastructure.Llm;
 
 /// <summary>Non-streaming client for Ollama's /api/chat endpoint.</summary>
-public class OllamaTextGenerationService(HttpClient http, IOptions<LlmOptions> options) : ITextGenerationService
+public class OllamaTextGenerationService(
+    HttpClient http,
+    IOptions<LlmOptions> options,
+    ILogger<OllamaTextGenerationService>? logger = null) : ITextGenerationService
 {
+    private readonly ILogger<OllamaTextGenerationService> _logger =
+        logger ?? NullLogger<OllamaTextGenerationService>.Instance;
+
     public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
     {
+        var configured = options.Value;
         var request = new ChatRequest(
-            Model: options.Value.Model,
+            Model: configured.Model,
             Messages:
             [
                 new ChatMessage("system", systemPrompt),
                 new ChatMessage("user", userPrompt),
             ],
             Stream: false,
-            Options: new ChatOptions(options.Value.Temperature));
+            Options: new ChatOptions(configured.Temperature, configured.ContextSize));
+
+        var sw = Stopwatch.StartNew();
+        _logger.LogInformation(
+            "Writer Room Ollama request started: model {Model}, context {ContextSize}, temperature {Temperature:F2}, prompt {PromptChars} chars",
+            configured.Model, configured.ContextSize, configured.Temperature, systemPrompt.Length + userPrompt.Length);
 
         try
         {
-            return await SendAsync(request, ct);
+            var result = await SendAsync(request, ct);
+            _logger.LogInformation(
+                "Writer Room Ollama request completed: model {Model}, duration {ElapsedMs} ms, output {OutputChars} chars",
+                configured.Model, sw.ElapsedMilliseconds, result.Length);
+            return result;
         }
         catch (Exception ex) when (IsTransportFailure(ex) && !ct.IsCancellationRequested)
         {
             // One retry bridges dropped keep-alive connections / model reloads.
+            _logger.LogWarning(
+                ex,
+                "Writer Room Ollama transport failed after {ElapsedMs} ms; retrying once",
+                sw.ElapsedMilliseconds);
             await Task.Delay(TimeSpan.FromSeconds(2), ct);
-            return await SendAsync(request, ct);
+            try
+            {
+                var result = await SendAsync(request, ct);
+                _logger.LogInformation(
+                    "Writer Room Ollama retry completed: model {Model}, duration {ElapsedMs} ms, output {OutputChars} chars",
+                    configured.Model, sw.ElapsedMilliseconds, result.Length);
+                return result;
+            }
+            catch (Exception retryEx) when (!ct.IsCancellationRequested)
+            {
+                await LogFailureAsync("retry", retryEx, configured.Model, sw.ElapsedMilliseconds, ct);
+                throw;
+            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            await LogFailureAsync("request", ex, configured.Model, sw.ElapsedMilliseconds, ct);
+            throw;
         }
     }
 
@@ -39,6 +80,55 @@ public class OllamaTextGenerationService(HttpClient http, IOptions<LlmOptions> o
         IOException => true,
         _ => false,
     };
+
+    private static int? StatusCode(Exception ex)
+        => ex is HttpRequestException { StatusCode: { } statusCode } ? (int)statusCode : null;
+
+    private async Task LogFailureAsync(
+        string operation,
+        Exception ex,
+        string model,
+        long elapsedMs,
+        CancellationToken ct)
+    {
+        if (ex is HttpRequestException { StatusCode: HttpStatusCode.NotFound })
+        {
+            var installedModels = await ReadInstalledModelsAsync(ct);
+            _logger.LogWarning(
+                ex,
+                "Writer Room Ollama model missing during {Operation}: requested {Model}; installed models: {InstalledModels}; duration {ElapsedMs} ms",
+                operation, model, installedModels, elapsedMs);
+            return;
+        }
+
+        _logger.LogWarning(
+            ex,
+            "Writer Room Ollama {Operation} failed: model {Model}, status {StatusCode}, duration {ElapsedMs} ms",
+            operation, model, StatusCode(ex), elapsedMs);
+    }
+
+    private async Task<string> ReadInstalledModelsAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+
+            var tags = await http.GetFromJsonAsync<TagsResponse>("/api/tags", timeout.Token);
+            var names = tags?.Models
+                .Select(model => model.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            return names is { Length: > 0 } ? string.Join(", ", names) : "(none)";
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Could not read Ollama model list from /api/tags.");
+            return "(unavailable)";
+        }
+    }
 
     private async Task<string> SendAsync(ChatRequest request, CancellationToken ct)
     {
@@ -61,8 +151,15 @@ public class OllamaTextGenerationService(HttpClient http, IOptions<LlmOptions> o
         [property: JsonPropertyName("content")] string Content);
 
     internal sealed record ChatOptions(
-        [property: JsonPropertyName("temperature")] double Temperature);
+        [property: JsonPropertyName("temperature")] double Temperature,
+        [property: JsonPropertyName("num_ctx")] int ContextSize);
 
     internal sealed record ChatResponse(
         [property: JsonPropertyName("message")] ChatMessage? Message);
+
+    internal sealed record TagsResponse(
+        [property: JsonPropertyName("models")] IReadOnlyList<ModelTag> Models);
+
+    internal sealed record ModelTag(
+        [property: JsonPropertyName("name")] string Name);
 }

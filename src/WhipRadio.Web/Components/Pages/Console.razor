@@ -2,47 +2,239 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
-@inject RadioApiClient Api
+@inject ConsoleLiveClient ConsoleLive
 
-<PageTitle>WhipRadio — Console</PageTitle>
+<PageTitle>WhipRadio - Console</PageTitle>
 
-<h1 class="stage-title">Console</h1>
-<div class="stage-sub">orchestrator log output · newest first · refreshes every 3 s</div>
+<div class="console-dashboard">
+    <h1 class="stage-title">Console</h1>
+    <div class="stage-sub">orchestrator log output - newest first - live SignalR feed</div>
 
-<div class="panel reveal">
-    @if (_lines is null)
-    {
-        <div class="empty-state"><span class="blink">▮</span> tapping the wire…</div>
-    }
-    else
-    {
-        <div class="console-log">
-            @foreach (var line in _lines)
-            {
-                <div class="console-line level-@line.Level.ToLowerInvariant()">
-                    <span class="ts">@line.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
-                    <span class="lvl">@Abbrev(line.Level)</span>
-                    <span class="cat">@line.Category</span>
-                    <span class="msg">@line.Message</span>
-                </div>
-            }
+    <div class="console-toolbar reveal">
+        <div class="console-filter-block">
+            <div class="panel-label">Level</div>
+            <div class="seg" role="radiogroup">
+                @foreach (var level in _levels)
+                {
+                    <button type="button"
+                            class="seg-btn @Active(_levelFilter == level)"
+                            @onclick="() => _levelFilter = level">@level</button>
+                }
+            </div>
         </div>
-    }
+
+        <div class="console-filter-block console-filter-source">
+            <label>Source</label>
+            <select @bind="_sourceFilter">
+                <option value="@All">All sources</option>
+                <option value="@WriterRoom">Writer Room</option>
+                <option value="@Studios">All studios</option>
+                @foreach (var studio in ConsoleLive.Studios.OrderBy(s => s.Kind).ThenBy(s => s.Name))
+                {
+                    <option value="@studio.Name">@studio.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="console-filter-block">
+            <label>Category</label>
+            <select @bind="_categoryFilter">
+                <option value="@All">All categories</option>
+                @foreach (var category in Categories)
+                {
+                    <option value="@category">@category</option>
+                }
+            </select>
+        </div>
+
+        <div class="console-filter-block console-filter-search">
+            <label>Search</label>
+            <input @bind="_search" @bind:event="oninput" placeholder="message, source, category" />
+        </div>
+
+        <div class="console-actions">
+            <button class="btn small @Active(_newestFirst)" @onclick="ToggleOrder">
+                @(_newestFirst ? "Newest" : "Oldest")
+            </button>
+            <button class="btn small @Active(_paused)" @onclick="TogglePause">
+                @(_paused ? "Resume" : "Pause")
+            </button>
+            <button class="btn small" @onclick="ClearView">Clear view</button>
+            <button class="btn small" disabled="@_refreshing" @onclick="RefreshAsync">Refresh</button>
+        </div>
+    </div>
+
+    <div class="panel reveal console-panel">
+        @if (!ConsoleLive.HasSnapshot)
+        {
+            <div class="empty-state"><span class="blink">|</span> tapping the wire...</div>
+        }
+        else
+        {
+            var lines = ConsoleLive.Lines;
+            var filtered = FilteredLines;
+            <div class="console-readout">
+                <span>@filtered.Count of @lines.Count lines</span>
+                @if (_paused)
+                {
+                    <span class="tag amber">paused</span>
+                }
+                @if (_hiddenBeforeUtc is not null)
+                {
+                    <span class="tag">view cleared</span>
+                }
+            </div>
+
+            <div class="console-log">
+                @if (filtered.Count == 0)
+                {
+                    <div class="empty-state">no lines match the current filter</div>
+                }
+                else
+                {
+                    @foreach (var line in filtered)
+                    {
+                        <div class="console-line level-@CssLevel(line.Level)">
+                            <span class="ts">@line.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</span>
+                            <span class="lvl">@Abbrev(line.Level)</span>
+                            <span class="src">@SourceLabel(line)</span>
+                            <span class="cat">@line.Category</span>
+                            <span class="msg">@line.Message</span>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </div>
 </div>
 
 @code {
-    private List<ConsoleLineDto>? _lines;
-    private Timer? _timer;
+    private const string All = "All";
+    private const string WriterRoom = "Writer Room";
+    private const string Studios = "Studios";
 
-    protected override async Task OnInitializedAsync()
+    private readonly string[] _levels = [All, "Warning", "Error"];
+    private string _levelFilter = All;
+    private string _sourceFilter = All;
+    private string _categoryFilter = All;
+    private string _search = "";
+    private bool _newestFirst = true;
+    private bool _paused;
+    private bool _refreshing;
+    private DateTime? _hiddenBeforeUtc;
+
+    protected override void OnInitialized()
     {
-        _lines = await Api.GetConsoleAsync();
-        _timer = new Timer(async _ =>
-        {
-            _lines = await Api.GetConsoleAsync();
-            await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+        ConsoleLive.Changed += OnConsoleChanged;
     }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await ConsoleLive.EnsureStartedAsync();
+            StateHasChanged();
+        }
+    }
+
+    private IReadOnlyList<ConsoleLineDto> FilteredLines
+    {
+        get
+        {
+            IEnumerable<ConsoleLineDto> lines = ConsoleLive.Lines;
+
+            if (_hiddenBeforeUtc is not null)
+            {
+                lines = lines.Where(line => line.TimestampUtc > _hiddenBeforeUtc.Value);
+            }
+
+            if (_levelFilter == "Error")
+            {
+                lines = lines.Where(line => line.Level is "Error" or "Critical");
+            }
+            else if (_levelFilter == "Warning")
+            {
+                lines = lines.Where(line => line.Level is "Warning" or "Error" or "Critical");
+            }
+
+            if (_categoryFilter != All)
+            {
+                lines = lines.Where(line => string.Equals(line.Category, _categoryFilter, StringComparison.Ordinal));
+            }
+
+            if (_sourceFilter != All)
+            {
+                lines = lines.Where(MatchesSource);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var search = _search.Trim();
+                lines = lines.Where(line =>
+                    line.Message.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || line.Category.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || SourceLabel(line).Contains(search, StringComparison.OrdinalIgnoreCase));
+            }
+
+            lines = _newestFirst
+                ? lines.OrderByDescending(line => line.TimestampUtc)
+                : lines.OrderBy(line => line.TimestampUtc);
+
+            return lines.ToList();
+        }
+    }
+
+    private IEnumerable<string> Categories
+        => ConsoleLive.Lines
+            .Select(line => line.Category)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(category => category);
+
+    private async Task RefreshAsync()
+    {
+        if (_refreshing)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            await ConsoleLive.RefreshSnapshotAsync();
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private bool MatchesSource(ConsoleLineDto line)
+    {
+        if (_sourceFilter == WriterRoom)
+        {
+            return line.SourceKind == "WriterRoom"
+                || line.Category.Contains("Ollama", StringComparison.OrdinalIgnoreCase)
+                || line.Category.Contains("TextGeneration", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (_sourceFilter == Studios)
+        {
+            return line.SourceKind == "Studio";
+        }
+
+        return string.Equals(line.SourceName, _sourceFilter, StringComparison.OrdinalIgnoreCase)
+            || line.Message.Contains(_sourceFilter, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string SourceLabel(ConsoleLineDto line)
+        => !string.IsNullOrWhiteSpace(line.SourceName)
+            ? line.SourceName
+            : line.SourceKind switch
+            {
+                "WriterRoom" => WriterRoom,
+                "Studio" => Studios,
+                _ => "System",
+            };
 
     private static string Abbrev(string level) => level switch
     {
@@ -53,5 +245,34 @@
         _ => level.Length >= 3 ? level[..3].ToUpperInvariant() : level,
     };
 
-    public void Dispose() => _timer?.Dispose();
+    private static string CssLevel(string level)
+        => level.ToLowerInvariant();
+
+    private static string Active(bool active)
+        => active ? "active" : "";
+
+    private void ToggleOrder()
+        => _newestFirst = !_newestFirst;
+
+    private void TogglePause()
+    {
+        _paused = !_paused;
+        StateHasChanged();
+    }
+
+    private void ClearView()
+        => _hiddenBeforeUtc = DateTime.UtcNow;
+
+    private void OnConsoleChanged()
+    {
+        if (!_paused)
+        {
+            _ = InvokeAsync(StateHasChanged);
+        }
+    }
+
+    public void Dispose()
+    {
+        ConsoleLive.Changed -= OnConsoleChanged;
+    }
 }

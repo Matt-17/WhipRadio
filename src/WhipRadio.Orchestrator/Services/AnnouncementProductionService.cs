@@ -59,7 +59,7 @@ public class AnnouncementProductionService(
         string stationName;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            stationName = (await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct))?.StationName ?? "WhipRadio";
+            stationName = (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).StationName;
         }
 
         // Queued listener greetings jump the line — listeners are waiting.

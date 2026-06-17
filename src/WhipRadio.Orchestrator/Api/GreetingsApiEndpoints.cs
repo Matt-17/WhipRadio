@@ -17,7 +17,7 @@ public static class GreetingsApiEndpoints
         api.MapPost("/", async (SubmitGreetingDto request, HttpContext http, RadioDbContext db,
             GreetingState state, CancellationToken ct) =>
         {
-            var settings = await db.StationSettings.AsNoTracking().FirstOrDefaultAsync(ct) ?? new StationSettings();
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             if (!settings.GreetingsEnabled)
             {
                 return Results.StatusCode(StatusCodes.Status403Forbidden);

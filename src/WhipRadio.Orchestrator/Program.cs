@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure;
@@ -71,6 +72,7 @@ builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();
 builder.Services.AddHostedService<AnalysisBackfillService>();
+builder.Services.AddHostedService<ConsoleLogBroadcaster>();
 
 var app = builder.Build();
 
@@ -91,6 +93,18 @@ await using (var db = await app.Services
 {
     await DbInitializer.EnsureSeededAsync(db);
 }
+
+var writerRoomOptions = app.Services.GetRequiredService<IOptions<LlmOptions>>().Value;
+var writerRoomClient = app.Services
+    .GetRequiredService<IHttpClientFactory>()
+    .CreateClient(TextGenerationRouter.OllamaClientName);
+app.Services.GetRequiredService<ILoggerFactory>()
+    .CreateLogger("WriterRoom")
+    .LogInformation(
+        "Writer Room configured: provider Ollama, model {Model}, context {ContextSize}, endpoint {Endpoint}",
+        writerRoomOptions.Model,
+        writerRoomOptions.ContextSize,
+        writerRoomClient.BaseAddress);
 
 // The station language is the main language: hosts in another language are aligned.
 await app.Services.GetRequiredService<HostLanguageAligner>().AlignAsync();

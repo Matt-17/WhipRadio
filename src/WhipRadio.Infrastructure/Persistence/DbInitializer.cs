@@ -75,7 +75,8 @@ public static class DbInitializer
     /// </summary>
     private static async Task PatchSettingsAsync(RadioDbContext db, CancellationToken ct)
     {
-        var settings = await db.StationSettings.FirstAsync(ct);
+        var settings = await db.StationSettings
+            .SingleAsync(s => s.Id == StationSettings.SingletonId, ct);
         var patched = false;
         if (string.IsNullOrWhiteSpace(settings.DefaultMusicProvider))
         {

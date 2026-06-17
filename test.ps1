@@ -1,18 +1,27 @@
-# Runs all WhipRadio unit tests. Safe while the station is running:
-# the test projects only build Core and Infrastructure, never the app exes.
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$failed = $false
+# Builds the full solution and runs all WhipRadio .NET tests.
+param(
+    [string]$Configuration = "Debug"
+)
 
-foreach ($project in @("WhipRadio.Core.Tests", "WhipRadio.Infrastructure.Tests")) {
-    Write-Host ""
-    Write-Host "=== $project ===" -ForegroundColor Cyan
-    dotnet test (Join-Path $root "tests\$project")
-    if ($LASTEXITCODE -ne 0) { $failed = $true }
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$solution = Join-Path $root "WhipRadio.slnx"
+$buildScript = Join-Path $root "build.ps1"
+
+Write-Host ""
+& $buildScript -Configuration $Configuration
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
 }
 
 Write-Host ""
-if ($failed) {
+Write-Host "Running full WhipRadio test suite ($Configuration)..." -ForegroundColor Cyan
+dotnet test $solution --configuration $Configuration --no-build
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
     Write-Host "TESTS FAILED." -ForegroundColor Red
-    exit 1
+    exit $LASTEXITCODE
 }
+
+Write-Host ""
 Write-Host "All tests passed." -ForegroundColor Green
