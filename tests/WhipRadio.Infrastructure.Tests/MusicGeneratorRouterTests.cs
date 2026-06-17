@@ -4,9 +4,10 @@ using WhipRadio.Infrastructure.Music;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class MusicGeneratorRouterTests
 {
-    [Fact]
+    [TestMethod]
     public async Task SelectsMusicGen()
     {
         var musicgen = new FakeProvider(MusicBackends.MusicGen);
@@ -20,7 +21,7 @@ public class MusicGeneratorRouterTests
         Assert.Equal(0, ace.GenerateCalls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task SelectsAceStep()
     {
         var musicgen = new FakeProvider(MusicBackends.MusicGen);
@@ -34,7 +35,7 @@ public class MusicGeneratorRouterTests
         Assert.Equal(1, ace.GenerateCalls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task UnknownProviderProducesClearError()
     {
         var router = Router([new FakeProvider(MusicBackends.MusicGen)], "not-real");
@@ -47,7 +48,7 @@ public class MusicGeneratorRouterTests
         Assert.Contains("ace-step-1.5", ex.Message);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task RequestProviderOverridesStationDefault()
     {
         var musicgen = new FakeProvider(MusicBackends.MusicGen);
@@ -62,7 +63,7 @@ public class MusicGeneratorRouterTests
         Assert.Equal(1, ace.GenerateCalls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task StationDefaultIsUsedWhenRequestProviderIsAbsent()
     {
         var ace = new FakeProvider(MusicBackends.AceStep);
@@ -73,7 +74,7 @@ public class MusicGeneratorRouterTests
         Assert.Equal(1, ace.GenerateCalls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task UnavailableAceStepFallsBackOnlyWhenAllowed()
     {
         var musicgen = new FakeProvider(MusicBackends.MusicGen);
@@ -91,7 +92,7 @@ public class MusicGeneratorRouterTests
             CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task NoFallbackHappensAfterAceStepTaskHasBeenCreated()
     {
         var musicgen = new FakeProvider(MusicBackends.MusicGen);

@@ -2,9 +2,10 @@ using WhipRadio.Core.Audio;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class GainEnvelopeTests
 {
-    [Fact]
+    [TestMethod]
     public void EmptyEnvelope_IsUnityGain()
     {
         var envelope = new GainEnvelope();
@@ -12,7 +13,7 @@ public class GainEnvelopeTests
         Assert.Equal(1f, envelope.GainAt(123456));
     }
 
-    [Fact]
+    [TestMethod]
     public void BeforeFirstBreakpoint_HoldsFirstGain()
     {
         var envelope = new GainEnvelope();
@@ -20,7 +21,7 @@ public class GainEnvelopeTests
         Assert.Equal(0.5f, envelope.GainAt(0));
     }
 
-    [Fact]
+    [TestMethod]
     public void AfterLastBreakpoint_HoldsLastGain()
     {
         var envelope = new GainEnvelope();
@@ -29,7 +30,7 @@ public class GainEnvelopeTests
         Assert.Equal(0.8f, envelope.GainAt(5000));
     }
 
-    [Fact]
+    [TestMethod]
     public void Hold_KeepsGainUntilNextBreakpoint()
     {
         var envelope = new GainEnvelope();
@@ -39,7 +40,7 @@ public class GainEnvelopeTests
         Assert.Equal(0.9f, envelope.GainAt(1000));
     }
 
-    [Fact]
+    [TestMethod]
     public void Linear_InterpolatesProportionally()
     {
         var envelope = new GainEnvelope();
@@ -49,7 +50,7 @@ public class GainEnvelopeTests
         Assert.Equal(0.25f, envelope.GainAt(250), 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void EqualPowerCurves_AreComplementaryInPower()
     {
         var fadeOut = new GainEnvelope();
@@ -70,7 +71,7 @@ public class GainEnvelopeTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void DuplicateBreakpointPosition_ReplacesExisting()
     {
         var envelope = new GainEnvelope();
@@ -80,7 +81,7 @@ public class GainEnvelopeTests
         Assert.Equal(1, envelope.Count);
     }
 
-    [Fact]
+    [TestMethod]
     public void OutOfOrderInsertion_StaysSorted()
     {
         var envelope = new GainEnvelope();

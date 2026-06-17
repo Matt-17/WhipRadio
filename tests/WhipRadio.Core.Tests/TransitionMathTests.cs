@@ -2,6 +2,7 @@ using WhipRadio.Core.Audio;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class TransitionMathTests
 {
     private sealed class FixedRandom(params int[] values) : IRandomSource
@@ -16,7 +17,7 @@ public class TransitionMathTests
 
     // --- hit the post ----------------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public void TalkStart_LongIntro_TalkEndsBeforePost()
     {
         // 20 s intro, 10 s talk, 800 ms safety → talk starts at 9.2 s into the song.
@@ -26,19 +27,19 @@ public class TransitionMathTests
         Assert.Equal(20 - 0.8, start + 10, 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void TalkStart_ShortIntro_ClampsAtZero()
     {
         Assert.Equal(0, TransitionMath.TalkStartInSong(5, 10, 800));
     }
 
-    [Fact]
+    [TestMethod]
     public void TalkStart_ExactFit_StartsAtZero()
     {
         Assert.Equal(0, TransitionMath.TalkStartInSong(10.8, 10, 800), 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void CanHitThePost_RequiresIntroAtLeastHalfTheTalk()
     {
         Assert.True(TransitionMath.CanHitThePost(introEndSeconds: 5, talkDurationSeconds: 10));
@@ -47,7 +48,7 @@ public class TransitionMathTests
 
     // --- beat alignment ---------------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public void NearestBeat_PicksClosest()
     {
         double[] grid = [0.5, 1.0, 1.5, 2.0];
@@ -56,7 +57,7 @@ public class TransitionMathTests
         Assert.Equal(2.0, TransitionMath.NearestBeat(grid, 99));
     }
 
-    [Fact]
+    [TestMethod]
     public void IncomingStart_OffsetsByFirstBeat()
     {
         // Outgoing beat lands at master sample 441000 (10 s); incoming's first
@@ -65,7 +66,7 @@ public class TransitionMathTests
         Assert.Equal(441000 - 22050, start);
     }
 
-    [Fact]
+    [TestMethod]
     public void CrossfadeBeats_ScalesWithBpmAndClamps()
     {
         Assert.Equal(11, TransitionMath.CrossfadeBeats(5, 128)); // round(10.67) = 11
@@ -75,7 +76,7 @@ public class TransitionMathTests
 
     // --- gap sampling -----------------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public void GapSampling_StaysInRange()
     {
         var random = new SystemRandomSource(seed: 42);
@@ -86,13 +87,13 @@ public class TransitionMathTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void GapSampling_DegenerateRange_ReturnsMin()
     {
         Assert.Equal(300, TransitionMath.SampleGapMs(new FixedRandom(0), 300, 300));
     }
 
-    [Fact]
+    [TestMethod]
     public void GapSampling_IsDeterministicWithSeed()
     {
         var a = new SystemRandomSource(seed: 7);
@@ -105,7 +106,7 @@ public class TransitionMathTests
 
     // --- makeup gain -------------------------------------------------------------
 
-    [Fact]
+    [TestMethod]
     public void Makeup_QuietItem_GainsUpToTarget()
     {
         // −19.3 LUFS → target −16 → +3.3 dB
@@ -113,7 +114,7 @@ public class TransitionMathTests
         Assert.Equal(Math.Pow(10, 3.3 / 20), linear, 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void Makeup_ClampsAtMaxGain()
     {
         // −30 LUFS would need +14 dB → clamped to +6 dB
@@ -121,7 +122,7 @@ public class TransitionMathTests
         Assert.Equal(Math.Pow(10, 6.0 / 20), linear, 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void Makeup_ClampsAtMaxAttenuation()
     {
         // −8 LUFS would need −8 dB → clamped to −6 dB
@@ -129,7 +130,7 @@ public class TransitionMathTests
         Assert.Equal(Math.Pow(10, -6.0 / 20), linear, 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void Makeup_NoAnalysis_IsUnity()
     {
         Assert.Equal(1f, TransitionMath.MakeupGainLinear(null, -16.0, 6.0));

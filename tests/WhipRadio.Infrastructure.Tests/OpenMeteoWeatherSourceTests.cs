@@ -4,6 +4,7 @@ using WhipRadio.Infrastructure.Weather;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class OpenMeteoWeatherSourceTests
 {
     private const string SampleJson = """
@@ -20,7 +21,7 @@ public class OpenMeteoWeatherSourceTests
     private static OpenMeteoWeatherSource CreateSource(FakeHttpMessageHandler handler)
         => new(handler.CreateClient("https://api.open-meteo.com"), Options.Create(new WeatherOptions()));
 
-    [Fact]
+    [TestMethod]
     public async Task GetSummaryAsync_RequestsConfiguredCoordinatesAndFields()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(
@@ -37,7 +38,7 @@ public class OpenMeteoWeatherSourceTests
         Assert.Contains("timezone=auto", query);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task GetSummaryAsync_BuildsEnglishSummaryWithWmoMapping()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(
@@ -49,7 +50,7 @@ public class OpenMeteoWeatherSourceTests
         Assert.Equal("Currently 14.3°C, light rain, wind 12 km/h. Today max 19.1°C, min 9.4°C, rain chance 60%.", summary);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task GetSummaryAsync_BuildsGermanSummary()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(
@@ -63,11 +64,11 @@ public class OpenMeteoWeatherSourceTests
         Assert.Contains("Regenwahrscheinlichkeit 60%", summary);
     }
 
-    [Theory]
-    [InlineData(0, false, "clear sky")]
-    [InlineData(3, true, "bedeckt")]
-    [InlineData(95, false, "thunderstorm")]
-    [InlineData(424242, false, "mixed weather")]
+    [TestMethod]
+    [DataRow(0, false, "clear sky")]
+    [DataRow(3, true, "bedeckt")]
+    [DataRow(95, false, "thunderstorm")]
+    [DataRow(424242, false, "mixed weather")]
     public void WmoWeatherCodes_MapsKnownAndUnknownCodes(int code, bool german, string expected)
     {
         Assert.Equal(expected, WmoWeatherCodes.Describe(code, german));

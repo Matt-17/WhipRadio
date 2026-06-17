@@ -2,6 +2,7 @@ using WhipRadio.Core.Playout;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class ShowPlannerTests
 {
     private static ShowPlannerInput Input(
@@ -12,32 +13,32 @@ public class ShowPlannerTests
         int announcementEveryNTracks = 1)
         => new(queueCount, maxQueueDepth, trackAvailable, tracksSinceAnnouncement, announcementEveryNTracks);
 
-    [Fact]
+    [TestMethod]
     public void FullQueue_Waits()
     {
         Assert.Equal(ShowAction.Wait, ShowPlanner.Decide(Input(queueCount: 2)));
     }
 
-    [Fact]
+    [TestMethod]
     public void OverfullQueue_Waits()
     {
         Assert.Equal(ShowAction.Wait, ShowPlanner.Decide(Input(queueCount: 5)));
     }
 
-    [Fact]
+    [TestMethod]
     public void NoTrackAvailable_ProducesFillerTalk()
     {
         Assert.Equal(ShowAction.EnqueueFillerTalk, ShowPlanner.Decide(Input(trackAvailable: false)));
     }
 
-    [Fact]
+    [TestMethod]
     public void FullQueueWithoutTracks_StillWaits()
     {
         // Queue depth wins over cold start: don't pile up filler talk.
         Assert.Equal(ShowAction.Wait, ShowPlanner.Decide(Input(queueCount: 2, trackAvailable: false)));
     }
 
-    [Fact]
+    [TestMethod]
     public void DefaultSettings_AnnounceEveryTrack()
     {
         Assert.Equal(
@@ -45,7 +46,7 @@ public class ShowPlannerTests
             ShowPlanner.Decide(Input(tracksSinceAnnouncement: 0, announcementEveryNTracks: 1)));
     }
 
-    [Fact]
+    [TestMethod]
     public void EveryThirdTrack_FirstTwoPlayWithoutIntro()
     {
         Assert.Equal(
@@ -59,7 +60,7 @@ public class ShowPlannerTests
             ShowPlanner.Decide(Input(tracksSinceAnnouncement: 2, announcementEveryNTracks: 3)));
     }
 
-    [Fact]
+    [TestMethod]
     public void AnnouncementsDisabled_AlwaysTrackOnly()
     {
         Assert.Equal(
@@ -67,7 +68,7 @@ public class ShowPlannerTests
             ShowPlanner.Decide(Input(tracksSinceAnnouncement: 99, announcementEveryNTracks: 0)));
     }
 
-    [Fact]
+    [TestMethod]
     public void PriorityTalk_ForcesIntroEvenBeforeCadence()
     {
         Assert.Equal(
@@ -78,7 +79,7 @@ public class ShowPlannerTests
             }));
     }
 
-    [Fact]
+    [TestMethod]
     public void PriorityTalk_OverridesDisabledAnnouncements()
     {
         // A queued listener greeting airs even when regular announcements are off.
@@ -87,7 +88,7 @@ public class ShowPlannerTests
             ShowPlanner.Decide(Input(announcementEveryNTracks: 0) with { PriorityTalkPending = true }));
     }
 
-    [Fact]
+    [TestMethod]
     public void PriorityTalk_DoesNotOverrideFullQueue()
     {
         Assert.Equal(

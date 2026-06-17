@@ -4,6 +4,7 @@ using WhipRadio.Core.Selection;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class WeightedTrackSelectorTests
 {
     private static readonly Random Seeded = new(42);
@@ -21,14 +22,14 @@ public class WeightedTrackSelectorTests
     private static ShowContext Context(string genre, string subgenre = "", bool? prefersVocals = null)
         => new(genre, subgenre, new Moderator { Name = "Test Host", PrefersVocals = prefersVocals });
 
-    [Fact]
+    [TestMethod]
     public void Pick_EmptyLibrary_ReturnsNull()
     {
         var result = WeightedTrackSelector.Pick([], Context("lofi"), [], Seeded);
         Assert.Null(result);
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_PrefersMatchingGenre()
     {
         var lofi = NewTrack("lofi");
@@ -40,7 +41,7 @@ public class WeightedTrackSelectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_PrefersMatchingSubgenreWithinGenre()
     {
         var techno = NewTrack("electronic");
@@ -55,7 +56,7 @@ public class WeightedTrackSelectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_NoGenreMatch_FallsBackToAnyGenre()
     {
         var rock = NewTrack("indie rock");
@@ -63,7 +64,7 @@ public class WeightedTrackSelectorTests
         Assert.Equal(rock.Id, picked!.Id);
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_RespectsVocalPreference()
     {
         var vocal = NewTrack("lofi", hasVocals: true);
@@ -76,7 +77,7 @@ public class WeightedTrackSelectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_VocalPreferenceIsNoOpWhenNoVocalTracksExist()
     {
         var instrumental = NewTrack("lofi", hasVocals: false);
@@ -85,7 +86,7 @@ public class WeightedTrackSelectorTests
         Assert.Equal(instrumental.Id, picked!.Id);
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_ExcludesRecentlyPlayedTracks()
     {
         var tracks = Enumerable.Range(0, 4).Select(_ => NewTrack("lofi")).ToList();
@@ -97,7 +98,7 @@ public class WeightedTrackSelectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_AllTracksRecentlyPlayed_ReturnsNull()
     {
         var track = NewTrack("lofi");
@@ -105,7 +106,7 @@ public class WeightedTrackSelectorTests
         Assert.Null(picked);
     }
 
-    [Fact]
+    [TestMethod]
     public void Pick_ExcludesRetiredTracks()
     {
         var retired = NewTrack("lofi", retired: true);
@@ -117,7 +118,7 @@ public class WeightedTrackSelectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void ComputeArtistFactors_ScaleWithNetVotes()
     {
         var lovedArtist = Guid.NewGuid();
@@ -135,7 +136,7 @@ public class WeightedTrackSelectorTests
         Assert.Equal(0.25, factors[hatedArtist], precision: 10); // clamped floor
     }
 
-    [Fact]
+    [TestMethod]
     public async Task PickNextAsync_UsesRepositoryCandidatesAndRecentIds()
     {
         var fresh = NewTrack("lofi");

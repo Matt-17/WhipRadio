@@ -5,9 +5,10 @@ using WhipRadio.Infrastructure.Music;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class HttpMusicGeneratorTests
 {
-    [Fact]
+    [TestMethod]
     public async Task GenerateAsync_InstrumentalRequest_TargetsMusicGen()
     {
         var wav = WavTestData.Pcm(dataBytes: 1024);
@@ -28,7 +29,7 @@ public class HttpMusicGeneratorTests
         Assert.Equal("musicgen", result.BackendUsed);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task GenerateAsync_VocalRequest_StillTargetsMusicGenCompatibilityClient()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(HttpStatusCode.OK, new ByteArrayContent([1]));
@@ -43,7 +44,7 @@ public class HttpMusicGeneratorTests
         Assert.Equal("la la la", body.RootElement.GetProperty("lyrics").GetString());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task GenerateAsync_503_ThrowsBackendUnavailable()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(HttpStatusCode.ServiceUnavailable, new StringContent(""));
@@ -56,8 +57,8 @@ public class HttpMusicGeneratorTests
         Assert.Equal("musicgen", ex.Backend);
     }
 
-    [Theory]
-    [InlineData("musicgen", true)]
+    [TestMethod]
+    [DataRow("musicgen", true)]
     public async Task IsBackendAvailableAsync_ParsesHealthResponse(string backend, bool expected)
     {
         var json = """{"status":"ok","backends":{"musicgen":true,"ace-step":false}}""";
@@ -68,7 +69,7 @@ public class HttpMusicGeneratorTests
         Assert.Equal(expected, await generator.IsBackendAvailableAsync(backend, CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task IsBackendAvailableAsync_SidecarDown_ReturnsFalse()
     {
         var handler = new FakeHttpMessageHandler(_ => throw new HttpRequestException("connection refused"));

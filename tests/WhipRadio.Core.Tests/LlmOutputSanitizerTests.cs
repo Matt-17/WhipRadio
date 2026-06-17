@@ -2,64 +2,65 @@ using WhipRadio.Core.Speech;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class LlmOutputSanitizerTests
 {
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsCodeFences()
     {
         var result = LlmOutputSanitizer.Sanitize("```text\nUp next: a great song!\n```");
         Assert.Equal("Up next: a great song!", result);
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsSurroundingQuotes()
     {
         Assert.Equal("Up next on WhipRadio!", LlmOutputSanitizer.Sanitize("\"Up next on WhipRadio!\""));
         Assert.Equal("Gleich geht's weiter!", LlmOutputSanitizer.Sanitize("„Gleich geht's weiter!“"));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsLeadInLine()
     {
         var result = LlmOutputSanitizer.Sanitize("Sure, here is your radio intro: Up next, a banger!");
         Assert.Equal("Up next, a banger!", result);
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_PlainTextPassesThrough()
     {
         var input = "Und jetzt: drei Minuten Lofi zum Runterkommen.";
         Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_EmptyInput_ReturnsEmpty()
     {
         Assert.Equal(string.Empty, LlmOutputSanitizer.Sanitize("  "));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsParentheticalStageDirections()
     {
         var result = LlmOutputSanitizer.Sanitize("(Sound of a pulsing synth) WhipRadio, the sounds you need. (laughs softly) Up next!");
         Assert.Equal("WhipRadio, the sounds you need. Up next!", result);
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_KeepsSpeechMarkersIntact()
     {
         var input = "Hello [pause:300ms] there [breath] friends.";
         Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsHereWeGoLeadIn()
     {
         Assert.Equal("Welcome back to WhipRadio!",
             LlmOutputSanitizer.Sanitize("Okay, here we go: Welcome back to WhipRadio!"));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsTaskConfirmationFirstLine()
     {
         Assert.Equal("Up next, a real gem.",
@@ -68,21 +69,21 @@ public class LlmOutputSanitizerTests
             LlmOutputSanitizer.Sanitize("Hier ist dein Moderationstext:\nUnd jetzt wird es ruhig."));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_KeepsLegitimateOkayOpener()
     {
         var input = "Okay okay, settle down folks, big news tonight!";
         Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsTrailingMetaLine()
     {
         Assert.Equal("Up next a song.",
             LlmOutputSanitizer.Sanitize("Up next a song.\nLet me know if you want any changes!"));
     }
 
-    [Fact]
+    [TestMethod]
     public void Sanitize_StripsMarkdownEmphasis()
     {
         Assert.Equal("Welcome to the show tonight!",

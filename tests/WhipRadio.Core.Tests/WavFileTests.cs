@@ -3,6 +3,7 @@ using WhipRadio.Core.Audio;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class WavFileTests
 {
     private static byte[] BuildWav(int dataBytes, int byteRate)
@@ -25,27 +26,27 @@ public class WavFileTests
         return wav;
     }
 
-    [Fact]
+    [TestMethod]
     public void GetDurationSeconds_ComputesFromByteRateAndDataSize()
     {
         var wav = BuildWav(dataBytes: 88200, byteRate: 88200);
         Assert.Equal(1.0, WavFile.GetDurationSeconds(wav), precision: 6);
     }
 
-    [Fact]
+    [TestMethod]
     public void GetDurationSeconds_HalfSecond()
     {
         var wav = BuildWav(dataBytes: 44100, byteRate: 88200);
         Assert.Equal(0.5, WavFile.GetDurationSeconds(wav), precision: 6);
     }
 
-    [Fact]
+    [TestMethod]
     public void GetDurationSeconds_NotAWavFile_Throws()
     {
         Assert.Throws<InvalidDataException>(() => WavFile.GetDurationSeconds("definitely not a wav"u8.ToArray()));
     }
 
-    [Fact]
+    [TestMethod]
     public void GetDurationSeconds_TruncatedFile_Throws()
     {
         Assert.Throws<InvalidDataException>(() => WavFile.GetDurationSeconds([0x52, 0x49]));

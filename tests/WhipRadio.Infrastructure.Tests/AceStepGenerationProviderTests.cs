@@ -8,9 +8,10 @@ using WhipRadio.Infrastructure.Music;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class AceStepGenerationProviderTests
 {
-    [Fact]
+    [TestMethod]
     public async Task AutomaticLyricsRequestIsMappedCorrectly()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -29,7 +30,7 @@ public class AceStepGenerationProviderTests
         Assert.Equal("wav", body.RootElement.GetProperty("audio_format").GetString());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ProvidedLyricsAreSentCorrectly()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -45,7 +46,7 @@ public class AceStepGenerationProviderTests
         Assert.Equal("line one", body.RootElement.GetProperty("lyrics").GetString());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task MissingProvidedLyricsFailBeforeHttpRequest()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -58,7 +59,7 @@ public class AceStepGenerationProviderTests
         Assert.Empty(handler.Requests);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task DurationIsClampedToSupportedRange()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -73,7 +74,7 @@ public class AceStepGenerationProviderTests
         Assert.Equal(600, body.RootElement.GetProperty("audio_duration").GetInt32());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task TaskCreationReturnsAndStoresTaskId()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128), taskId: "task-123");
@@ -84,7 +85,7 @@ public class AceStepGenerationProviderTests
         Assert.Equal("task-123", result.TaskId);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task RunningStatusContinuesPolling()
     {
         var wav = WavTestData.Pcm(128);
@@ -113,7 +114,7 @@ public class AceStepGenerationProviderTests
         Assert.Equal(2, queryCalls);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task SuccessStatusDownloadsResult()
     {
         var wav = WavTestData.Pcm(128);
@@ -127,7 +128,7 @@ public class AceStepGenerationProviderTests
         Assert.Contains(handler.Requests, r => r.Method == HttpMethod.Get && r.RequestUri!.AbsolutePath == "/v1/audio");
     }
 
-    [Fact]
+    [TestMethod]
     public async Task FailureStatusThrowsUsefulException()
     {
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
@@ -143,7 +144,7 @@ public class AceStepGenerationProviderTests
         Assert.Contains("Task task-1 failed", ex.Message);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task CancellationStopsPolling()
     {
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
@@ -158,7 +159,7 @@ public class AceStepGenerationProviderTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.GenerateAsync(Request(), cts.Token));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task TimeoutStopsPolling()
     {
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
@@ -172,7 +173,7 @@ public class AceStepGenerationProviderTests
         await Assert.ThrowsAsync<TimeoutException>(() => provider.GenerateAsync(Request(), CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task MalformedResultIsRejected()
     {
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
@@ -186,7 +187,7 @@ public class AceStepGenerationProviderTests
         await Assert.ThrowsAsync<MusicGenerationFailedException>(() => provider.GenerateAsync(Request(), CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task EmptyResultIsRejected()
     {
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
@@ -200,7 +201,7 @@ public class AceStepGenerationProviderTests
         await Assert.ThrowsAsync<MusicGenerationFailedException>(() => provider.GenerateAsync(Request(), CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task InvalidWavDataIsRejected()
     {
         var handler = SuccessHandler([1, 2, 3, 4, 5]);
@@ -209,7 +210,7 @@ public class AceStepGenerationProviderTests
         await Assert.ThrowsAsync<MusicGenerationFailedException>(() => provider.GenerateAsync(Request(), CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ApiKeyIsSentWhenConfigured()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -221,7 +222,7 @@ public class AceStepGenerationProviderTests
         Assert.All(handler.Requests, request => Assert.Equal("secret", request.Headers.Authorization?.Parameter));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task NoAuthorizationHeaderIsSentWithoutKey()
     {
         var handler = SuccessHandler(WavTestData.Pcm(128));
@@ -232,7 +233,7 @@ public class AceStepGenerationProviderTests
         Assert.All(handler.Requests, request => Assert.Null(request.Headers.Authorization));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task TaskCreationIsNotAutomaticallyRetried()
     {
         var releaseCalls = 0;

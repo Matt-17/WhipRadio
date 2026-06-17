@@ -6,21 +6,25 @@ using WhipRadio.Infrastructure.Llm;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class OllamaTextGenerationServiceTests
 {
-    private static OllamaTextGenerationService CreateService(FakeHttpMessageHandler handler, string model = "gemma3:4b")
-        => new(handler.CreateClient(), Options.Create(new LlmOptions { Model = model }));
+    private static OllamaTextGenerationService CreateService(
+        FakeHttpMessageHandler handler,
+        string model = "gemma4:e4b",
+        int contextSize = 16384)
+        => new(handler.CreateClient(), Options.Create(new LlmOptions { Model = model, ContextSize = contextSize }));
 
     private static FakeHttpMessageHandler OkHandler(string content = "Hello from the studio!")
         => FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
             JsonContent.Create(new { message = new { role = "assistant", content } }));
 
-    [Fact]
+    [TestMethod]
     public async Task CompleteAsync_SendsExpectedRequestShape()
     {
         var handler = OkHandler();
-        var service = CreateService(handler, model: "test-model");
+        var service = CreateService(handler, model: "test-model", contextSize: 32768);
 
         await service.CompleteAsync("system prompt", "user prompt", CancellationToken.None);
 
@@ -31,6 +35,9 @@ public class OllamaTextGenerationServiceTests
         var root = body.RootElement;
         Assert.Equal("test-model", root.GetProperty("model").GetString());
         Assert.False(root.GetProperty("stream").GetBoolean());
+        var options = root.GetProperty("options");
+        Assert.Equal(0.8, options.GetProperty("temperature").GetDouble());
+        Assert.Equal(32768, options.GetProperty("num_ctx").GetInt32());
 
         var messages = root.GetProperty("messages");
         Assert.Equal(2, messages.GetArrayLength());
@@ -40,7 +47,7 @@ public class OllamaTextGenerationServiceTests
         Assert.Equal("user prompt", messages[1].GetProperty("content").GetString());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task CompleteAsync_ParsesAssistantContent()
     {
         var service = CreateService(OkHandler("  Up next: a fresh track!  "));
@@ -50,7 +57,7 @@ public class OllamaTextGenerationServiceTests
         Assert.Equal("Up next: a fresh track!", result);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task CompleteAsync_ThrowsOnHttpError()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(HttpStatusCode.InternalServerError, new StringContent(""));

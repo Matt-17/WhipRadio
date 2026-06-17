@@ -2,6 +2,7 @@ using WhipRadio.Core.Audio;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class MixerCoreTests
 {
     private static readonly PcmFormat Mono = new(SampleRate: 44100, Channels: 1);
@@ -51,7 +52,7 @@ public class MixerCoreTests
         return (output, core);
     }
 
-    [Fact]
+    [TestMethod]
     public void SingleSource_PassesThroughAtUnityGain()
     {
         var data = Enumerable.Range(0, 1024).Select(i => (short)(i % 1000)).ToArray();
@@ -62,7 +63,7 @@ public class MixerCoreTests
         Assert.Equal(data, output);
     }
 
-    [Fact]
+    [TestMethod]
     public void TwoSources_Sum()
     {
         var a = new short[1024];
@@ -81,7 +82,7 @@ public class MixerCoreTests
         Assert.Equal(0, core.ClipCount);
     }
 
-    [Fact]
+    [TestMethod]
     public void Summation_ClampsAndCountsClips()
     {
         var a = new short[1024];
@@ -100,7 +101,7 @@ public class MixerCoreTests
         Assert.Equal(1024, core.ClipCount);
     }
 
-    [Fact]
+    [TestMethod]
     public void MakeupGain_Applies()
     {
         var data = new short[1024];
@@ -118,7 +119,7 @@ public class MixerCoreTests
         Assert.All(output, s => Assert.Equal(2000, s));
     }
 
-    [Fact]
+    [TestMethod]
     public void SourceStartingMidFrame_IsSilentBeforeStart()
     {
         var data = new short[1024];
@@ -131,7 +132,7 @@ public class MixerCoreTests
         Assert.All(output[512..], s => Assert.Equal(5000, s));
     }
 
-    [Fact]
+    [TestMethod]
     public void SourceStartingAfterFrame_ContributesNothing()
     {
         var data = new short[1024];
@@ -143,7 +144,7 @@ public class MixerCoreTests
         Assert.All(output, s => Assert.Equal(0, s));
     }
 
-    [Fact]
+    [TestMethod]
     public void NaturalEndOfStream_FinishesWithoutUnderrun()
     {
         var data = new short[500]; // less than a frame
@@ -158,7 +159,7 @@ public class MixerCoreTests
         Assert.True(slot.Finished);
     }
 
-    [Fact]
+    [TestMethod]
     public void MidStreamStall_ZeroFillsAndCountsUnderrun()
     {
         var data = new short[5000];
@@ -173,7 +174,7 @@ public class MixerCoreTests
         Assert.False(slot.Finished); // never finish on a stall — the clock keeps running
     }
 
-    [Fact]
+    [TestMethod]
     public void HardCutEnvelope_HasAntiClickRamps()
     {
         var format = new PcmFormat();
@@ -190,7 +191,7 @@ public class MixerCoreTests
         Assert.InRange(mid, 0.01f, 0.99f);
     }
 
-    [Fact]
+    [TestMethod]
     public void DuckedBed_ReleaseEndsExactlyAtDuckEnd()
     {
         var format = new PcmFormat();
@@ -207,7 +208,7 @@ public class MixerCoreTests
         Assert.InRange(midRelease, duckGain + 0.01f, 0.99f);
     }
 
-    [Fact]
+    [TestMethod]
     public void GoldenTest_EqualPowerCrossfade_HoldsConstantRms()
     {
         // Two uncorrelated sines through a 2 s equal-power fade: the per-window
@@ -263,7 +264,7 @@ public class MixerCoreTests
         Assert.Equal(0, core.ClipCount);
     }
 
-    [Fact]
+    [TestMethod]
     public void HotLoop_DoesNotAllocate()
     {
         var format = new PcmFormat(SampleRate: 44100, Channels: 2);

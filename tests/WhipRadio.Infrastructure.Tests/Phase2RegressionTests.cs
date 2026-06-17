@@ -4,6 +4,7 @@ using WhipRadio.Infrastructure.Llm;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class Phase2RegressionTests
 {
     private sealed class CapturingLlm(string reply = "ok") : ITextGenerationService
@@ -20,7 +21,7 @@ public class Phase2RegressionTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void TitleWordGuard_AlwaysBansTheClicheWords()
     {
         var forbidden = TitleWordGuard.MostFrequentWords(["Random Title", "Another Tune"], take: 5);
@@ -32,7 +33,7 @@ public class Phase2RegressionTests
         Assert.Contains("fade", forbidden);
     }
 
-    [Fact]
+    [TestMethod]
     public void TitleWordGuard_AddsDynamicallyOverusedWords()
     {
         string[] titles = ["Crimson Harvest", "Harvest Moonlight", "Harvest of Glass", "Glass Gardens"];
@@ -43,7 +44,7 @@ public class Phase2RegressionTests
         Assert.Contains("glass", forbidden);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_SystemPrompt_EnforcesLanguage()
     {
         var llm = new CapturingLlm();
@@ -56,7 +57,7 @@ public class Phase2RegressionTests
         Assert.Contains("Never switch", llm.SystemPrompt);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task VoiceDirector_PromptCarriesLanguageAndGender()
     {
         var llm = new CapturingLlm();
@@ -76,7 +77,7 @@ public class Phase2RegressionTests
         Assert.Contains("male", llm.SystemPrompt);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_ListenerGreeting_ReadsSenderAndMessage()
     {
         var llm = new CapturingLlm();
@@ -93,7 +94,7 @@ public class Phase2RegressionTests
         Assert.Contains("Relay each message's actual content", llm.UserPrompt);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_ListenerGreeting_CarriesMultipleMessages()
     {
         var llm = new CapturingLlm();

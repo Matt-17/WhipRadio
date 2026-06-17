@@ -3,11 +3,12 @@ using WhipRadio.Infrastructure.Music;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class AceStepPromptBuilderTests
 {
     private readonly AceStepPromptBuilder builder = new();
 
-    [Fact]
+    [TestMethod]
     public void InstrumentalRequestsContainNoVocalInstruction()
     {
         var prompt = builder.Build(new MusicRequest("atmospheric indie rock", "rock", false, null, 120)
@@ -24,7 +25,7 @@ public class AceStepPromptBuilderTests
         Assert.Contains("avoid an abrupt ending", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
+    [TestMethod]
     public void MaleVocalGuidanceAppearsWhenRequested()
     {
         var prompt = builder.Build(new MusicRequest("soul pop", "pop", true, "words", 180)
@@ -40,7 +41,7 @@ public class AceStepPromptBuilderTests
         Assert.Contains("Language: English.", prompt);
     }
 
-    [Fact]
+    [TestMethod]
     public void FemaleVocalGuidanceAppearsWhenRequested()
     {
         var prompt = builder.Build(new MusicRequest("dream pop", "pop", true, "words", 180)
@@ -52,7 +53,7 @@ public class AceStepPromptBuilderTests
         Assert.Contains("female lead vocals", prompt);
     }
 
-    [Fact]
+    [TestMethod]
     public void ArtistBackstoryIsIncludedAndLengthLimited()
     {
         var longBackstory = string.Join(" ", Enumerable.Repeat("fictional nocturnal band with restrained verses", 20));
@@ -69,7 +70,7 @@ public class AceStepPromptBuilderTests
         Assert.True(prompt.Length < longBackstory.Length + 300);
     }
 
-    [Fact]
+    [TestMethod]
     public void SuppliedTempoKeyAndMeterAreIncluded()
     {
         var prompt = builder.Build(new MusicRequest("jazz ballad", "jazz", true, "words", 180)

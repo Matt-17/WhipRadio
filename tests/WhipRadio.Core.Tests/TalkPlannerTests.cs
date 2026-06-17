@@ -3,16 +3,17 @@ using WhipRadio.Core.Playout;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class TalkPlannerTests
 {
-    [Fact]
+    [TestMethod]
     public void EffectiveTalkativeness_FormatTempersTheHost()
     {
         Assert.Equal(0.5, TalkPlanner.EffectiveTalkativeness(0.8, 0.2), precision: 10);
         Assert.Equal(0.8, TalkPlanner.EffectiveTalkativeness(0.8, null), precision: 10);
     }
 
-    [Fact]
+    [TestMethod]
     public void PickGapTalkCount_QuietHostIsMostlySilent()
     {
         var random = new Random(7);
@@ -24,7 +25,7 @@ public class TalkPlannerTests
         Assert.DoesNotContain(counts, c => c > 1);
     }
 
-    [Fact]
+    [TestMethod]
     public void PickGapTalkCount_TalkyHostChainsTalks()
     {
         var random = new Random(7);
@@ -37,7 +38,7 @@ public class TalkPlannerTests
         Assert.All(counts, c => Assert.InRange(c, 0, 3));
     }
 
-    [Fact]
+    [TestMethod]
     public void PickGapTalkCount_MandatoryTalkThinsOutFreeTalks()
     {
         var random = new Random(7);
@@ -49,7 +50,7 @@ public class TalkPlannerTests
         Assert.DoesNotContain(counts, c => c == 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void PickLengthHint_AllVariantsReachable()
     {
         var random = new Random(7);
@@ -61,7 +62,7 @@ public class TalkPlannerTests
         Assert.Equal(4, hints.Count); // one-liner, short, medium, story
     }
 
-    [Fact]
+    [TestMethod]
     public void PickGreetingBatchSize_QuietHostReadsOneAtATime()
     {
         var random = new Random(7);
@@ -72,7 +73,7 @@ public class TalkPlannerTests
         Assert.All(sizes, s => Assert.Equal(1, s));
     }
 
-    [Fact]
+    [TestMethod]
     public void PickGreetingBatchSize_TalkyHostCanClearTheMailbag()
     {
         var random = new Random(7);
@@ -84,7 +85,7 @@ public class TalkPlannerTests
         Assert.Contains(sizes, s => s >= 8); // in the mood: many greetings in one go
     }
 
-    [Fact]
+    [TestMethod]
     public void PickFreeTalkKind_RespectsAvailableContext()
     {
         var random = new Random(7);

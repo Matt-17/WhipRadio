@@ -3,6 +3,7 @@ using WhipRadio.Core.Entities;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class MixPlannerTests
 {
     private static readonly MixerSettings Settings = new();
@@ -30,7 +31,7 @@ public class MixPlannerTests
 
     private static MixPlanner Planner(int seed = 1) => new(new SystemRandomSource(seed));
 
-    [Fact]
+    [TestMethod]
     public void TalkToTalk_IsAlwaysHardCut_WithGapInConfiguredRange()
     {
         var planner = Planner();
@@ -43,7 +44,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void NullAnalysis_DegradesToHardCutOrEnergyFade_NeverThrows()
     {
         var planner = Planner();
@@ -54,7 +55,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void SongToSong_ShortTracks_ExcludeEnergyFade()
     {
         var planner = Planner();
@@ -67,7 +68,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void BeatAlignedFade_RequiresBpmWithinTolerance()
     {
         var outgoing = Song(analysis: FullAnalysis(bpm: 128));
@@ -85,7 +86,7 @@ public class MixPlannerTests
         Assert.True(seenAligned, "BeatAlignedFade never chosen at exactly the tolerance boundary");
     }
 
-    [Fact]
+    [TestMethod]
     public void BeatAlignedFade_RequiresConfidenceAndGrids()
     {
         var lowConfidence = FullAnalysis(bpmConf: 0.5);
@@ -102,7 +103,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void IntroTalkOver_RequiresConfidenceAndIntroLength()
     {
         var planner = Planner();
@@ -122,7 +123,7 @@ public class MixPlannerTests
         Assert.True(seen);
     }
 
-    [Fact]
+    [TestMethod]
     public void IntroTalkOver_FillsTalkStartOffset()
     {
         // Force the pick by zeroing HardCut weight.
@@ -138,7 +139,7 @@ public class MixPlannerTests
             plan.IncomingStartOffsetSeconds!.Value, 3);
     }
 
-    [Fact]
+    [TestMethod]
     public void OutroTalkOver_RequiresOutroConfidence()
     {
         var planner = Planner();
@@ -149,7 +150,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void WeightTable_RespectedOverManyDraws()
     {
         // SongToSong with full analysis: all four strategies eligible at
@@ -172,7 +173,7 @@ public class MixPlannerTests
         Assert.InRange(counts[MixStrategy.BeatAlignedFade] / (double)draws, 0.27, 0.33);
     }
 
-    [Fact]
+    [TestMethod]
     public void CustomWeights_OverrideDefaults()
     {
         var settings = Settings with
@@ -187,7 +188,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void InvalidWeightsJson_FallsBackToDefaults_NeverThrows()
     {
         var settings = Settings with { StrategyWeightsJson = "{not json!" };
@@ -195,7 +196,7 @@ public class MixPlannerTests
         Assert.Equal(MixStrategy.HardCut, plan.Strategy);
     }
 
-    [Fact]
+    [TestMethod]
     public void ReasonTrace_IsHumanReadable()
     {
         var plan = Planner().Plan(Song(analysis: FullAnalysis(bpm: 128)), Song(analysis: FullAnalysis(bpm: 130)), Settings);
@@ -205,7 +206,7 @@ public class MixPlannerTests
         Assert.Contains("dBPM=", plan.ReasonTrace);
     }
 
-    [Fact]
+    [TestMethod]
     public void SeededPlanner_IsDeterministic()
     {
         var outgoing = Song(analysis: FullAnalysis());
@@ -218,7 +219,7 @@ public class MixPlannerTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public void TalkativeHost_GetsMoreTalkOvers()
     {
         var song = Song(analysis: FullAnalysis(introEnd: 20, introConf: 0.9));
@@ -248,7 +249,7 @@ public class MixPlannerTests
         Assert.InRange(chatty / 2000.0, 0.61, 0.77);
     }
 
-    [Fact]
+    [TestMethod]
     public void HostInfluence_AppearsInTrace()
     {
         var talk = Talk(10) with { HostTalkativeness = 0.8 };
@@ -259,7 +260,7 @@ public class MixPlannerTests
         Assert.Contains("talk=0.80", plan.ReasonTrace);
     }
 
-    [Fact]
+    [TestMethod]
     public void SongToTalk_IncomingHostTalkativeness_Applies()
     {
         var song = Song(analysis: FullAnalysis(outroConf: 0.9));
@@ -279,7 +280,7 @@ public class MixPlannerTests
         Assert.InRange(talkOvers / 2000.0, 0.47, 0.63);
     }
 
-    [Fact]
+    [TestMethod]
     public void WeightsValidation_AcceptsGoodRejectsBad()
     {
         Assert.True(MixPlanner.TryValidateWeightsJson("", out _));

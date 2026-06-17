@@ -4,12 +4,13 @@ using WhipRadio.Core.Playout;
 
 namespace WhipRadio.Core.Tests;
 
+[TestClass]
 public class ChannelPlayoutQueueTests
 {
     private static PlayoutItem Item(string title)
         => new(PlayoutItemType.Track, Guid.NewGuid(), $"library/tracks/{title}.wav", title, 90);
 
-    [Fact]
+    [TestMethod]
     public async Task DequeueAsync_ReturnsItemsInFifoOrder()
     {
         var queue = new ChannelPlayoutQueue();
@@ -25,7 +26,7 @@ public class ChannelPlayoutQueueTests
         Assert.Equal(0, queue.Count);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task DequeueAsync_WaitsForItem()
     {
         var queue = new ChannelPlayoutQueue();
@@ -39,7 +40,7 @@ public class ChannelPlayoutQueueTests
         Assert.Equal(item, await pending.WaitAsync(TimeSpan.FromSeconds(5)));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task EnqueueFront_JumpsTheLine()
     {
         var queue = new ChannelPlayoutQueue();
@@ -57,7 +58,7 @@ public class ChannelPlayoutQueueTests
         Assert.Equal(nextTrack, await queue.DequeueAsync(CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task EnqueueFront_TalkThenTrackStayAdjacent()
     {
         // Dedication pattern: talk enqueued normally, then its track — FIFO keeps them paired.
@@ -72,7 +73,7 @@ public class ChannelPlayoutQueueTests
         Assert.Equal(requested, await queue.DequeueAsync(CancellationToken.None));
     }
 
-    [Fact]
+    [TestMethod]
     public async Task DequeueAsync_CancellationThrows()
     {
         var queue = new ChannelPlayoutQueue();

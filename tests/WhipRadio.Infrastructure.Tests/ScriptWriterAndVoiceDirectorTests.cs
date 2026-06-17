@@ -4,6 +4,7 @@ using WhipRadio.Infrastructure.Llm;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class ScriptWriterAndVoiceDirectorTests
 {
     private sealed class CapturingLlm(string reply = "Generated copy.") : ITextGenerationService
@@ -20,7 +21,7 @@ public class ScriptWriterAndVoiceDirectorTests
         }
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_SongIntro_FillsTrackPlaceholders()
     {
         var llm = new CapturingLlm();
@@ -38,7 +39,7 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.DoesNotContain("{Title}", llm.UserPrompt);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_Weather_UsesFacts()
     {
         var llm = new CapturingLlm();
@@ -52,7 +53,7 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.DoesNotContain("{WeatherFacts}", llm.UserPrompt);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task ScriptWriter_SanitizesLlmOutput()
     {
         var llm = new CapturingLlm("\"Sure, here is your intro: Up next, a banger!\"");
@@ -64,7 +65,7 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Equal("Up next, a banger!", result);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task VoiceDirector_InjectsPersonaAndPassesScript()
     {
         var llm = new CapturingLlm("Adapted [pause:300ms] text.");

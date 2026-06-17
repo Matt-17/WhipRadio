@@ -5,11 +5,12 @@ using WhipRadio.Infrastructure.Tts;
 
 namespace WhipRadio.Infrastructure.Tests;
 
+[TestClass]
 public class HttpTtsEngineTests
 {
     private static readonly TtsVoiceOptions DefaultVoice = new("af_heart", "en", 1.0);
 
-    [Fact]
+    [TestMethod]
     public async Task SynthesizeAsync_SendsContractBody_AndReadsDurationHeader()
     {
         var wav = WavTestData.Pcm(dataBytes: 88200); // exactly 1 s at 44.1 kHz mono 16-bit
@@ -33,7 +34,7 @@ public class HttpTtsEngineTests
         Assert.Equal(2.5, result.DurationSeconds); // header wins over WAV inspection
     }
 
-    [Fact]
+    [TestMethod]
     public async Task SynthesizeAsync_WithoutHeader_ComputesDurationFromWavHeader()
     {
         var wav = WavTestData.Pcm(dataBytes: 44100); // 0.5 s at 44.1 kHz mono 16-bit
@@ -45,7 +46,7 @@ public class HttpTtsEngineTests
         Assert.Equal(0.5, result.DurationSeconds, precision: 6);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task SynthesizeAsync_QwenVoice_SendsInstructionAndHandle()
     {
         var wav = WavTestData.Pcm(dataBytes: 88200);
@@ -68,7 +69,7 @@ public class HttpTtsEngineTests
         Assert.Equal("warm, slightly excited, brisk", body.RootElement.GetProperty("instruction").GetString());
     }
 
-    [Fact]
+    [TestMethod]
     public async Task SynthesizeAsync_NoInstruction_SendsNull()
     {
         var wav = WavTestData.Pcm(dataBytes: 88200);
@@ -88,7 +89,7 @@ public class HttpTtsEngineTests
             || instruction.ValueKind == JsonValueKind.Null);
     }
 
-    [Fact]
+    [TestMethod]
     public async Task GetVoicesAsync_ParsesVoiceList()
     {
         var json = """[{"id":"af_heart","language":"en","gender":"f"},{"id":"bm_george","language":"en","gender":"m"}]""";
