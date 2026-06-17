@@ -1700,35 +1700,117 @@ table.console-table {
 
 /* ---------- schedule grid ---------- */
 
+.schedule-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
 .schedule-grid {
+    --schedule-row-height: 16px;
     display: grid;
-    grid-template-columns: 60px repeat(7, 1fr);
+    grid-template-columns: 72px repeat(7, minmax(120px, 1fr));
+    grid-template-rows: 30px repeat(48, var(--schedule-row-height));
     gap: 2px;
+    min-width: 940px;
     font-family: var(--font-mono);
     font-size: 10.5px;
 }
 
-.schedule-day, .schedule-corner {
-    padding: 6px 4px;
+.schedule-day,
+.schedule-corner {
+    align-self: stretch;
+    display: grid;
+    place-items: center;
+    padding: 0 4px;
     text-align: center;
     letter-spacing: 2px;
     text-transform: uppercase;
     color: var(--amber);
 }
 
-.schedule-hour { padding: 3px 6px; color: var(--muted); text-align: right; }
+.schedule-corner {
+    grid-column: 1;
+    grid-row: 1;
+}
+
+.schedule-hour {
+    align-self: start;
+    padding: 1px 8px 0 0;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    text-align: right;
+}
 
 .schedule-cell {
-    min-height: 22px;
-    border-radius: 3px;
-    padding: 2px 6px;
+    min-height: 0;
+    border-radius: 4px;
+    box-sizing: border-box;
     overflow: hidden;
 }
 
-.schedule-cell.planned { background: rgba(255, 180, 84, 0.10); border-left: 2px solid var(--amber-dim); }
-.schedule-cell.planning { background: rgba(255,255,255,0.02); color: #4a3e2e; text-align: center; }
-.schedule-cell .cell-format { color: var(--amber); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
-.schedule-cell .cell-host { color: var(--muted); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.schedule-cell.planned {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    gap: 2px;
+    padding: 5px 7px 4px;
+    border-left: 2px solid var(--amber-dim);
+    background: rgba(255, 180, 84, 0.105);
+}
+
+.schedule-cell.planning {
+    border: 1px solid rgba(255, 255, 255, 0.025);
+    background: rgba(255, 255, 255, 0.018);
+}
+
+.schedule-cell .cell-format,
+.schedule-cell .cell-host,
+.schedule-cell .cell-time {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.schedule-cell .cell-format {
+    color: var(--amber);
+}
+
+.schedule-cell .cell-host {
+    color: var(--muted);
+}
+
+.schedule-cell .schedule-link {
+    text-decoration: none;
+}
+
+.schedule-cell .schedule-link:hover {
+    color: var(--amber-hot);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.schedule-cell .schedule-link:focus-visible {
+    outline: 1px solid var(--amber);
+    outline-offset: 2px;
+}
+
+.schedule-cell .cell-time {
+    align-self: end;
+    color: rgba(183, 159, 124, 0.62);
+    font-size: 9px;
+    font-variant-numeric: tabular-nums;
+}
+
+.schedule-cell.compact {
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.schedule-cell.compact .cell-host,
+.schedule-cell.compact .cell-time {
+    display: none;
+}
 
 /* ---------- stats ---------- */
 

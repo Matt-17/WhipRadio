@@ -3,48 +3,55 @@
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
 
-<PageTitle>WhipRadio — Schedule</PageTitle>
+<PageTitle>WhipRadio - Schedule</PageTitle>
 
 <h1 class="stage-title">Weekly Program</h1>
-<div class="stage-sub">planned by the AI program director · spots fill in over time</div>
+<div class="stage-sub">planned by the AI program director - spots fill in over time</div>
 
 <div class="panel reveal">
     @if (_slots is null)
     {
-        <div class="empty-state"><span class="blink">▮</span> reading the program board…</div>
+        <div class="empty-state"><span class="blink">?</span> reading the program board...</div>
     }
     else
     {
-        <div class="schedule-grid">
-            <div class="schedule-corner"></div>
-            @foreach (var day in _dayOrder)
-            {
-                <div class="schedule-day">@DayName(day)</div>
-            }
-
-            @for (var hour = 0; hour < 24; hour++)
-            {
-                <div class="schedule-hour">@($"{hour:00}:00")</div>
+        <div class="schedule-scroll">
+            <div class="schedule-grid">
+                <div class="schedule-corner"></div>
                 @foreach (var day in _dayOrder)
                 {
-                    var slot = SlotAt(day, hour);
-                    @if (slot is null)
+                    <div class="schedule-day" style="@DayHeaderStyle(day)">@DayName(day)</div>
+                }
+
+                @for (var hour = 0; hour < 24; hour++)
+                {
+                    <div class="schedule-hour" style="@HourStyle(hour)">@($"{hour:00}:00")</div>
+                }
+
+                @foreach (var day in _dayOrder)
+                {
+                    @foreach (var block in BlocksForDay(day))
                     {
-                        <div class="schedule-cell planning" title="still in planning">·</div>
-                    }
-                    else
-                    {
-                        <div class="schedule-cell @(slot.FormatId is null ? "planning" : "planned")"
-                             title="@($"{slot.FormatName} — {slot.ModeratorName} ({slot.Genre})")">
-                            @if (IsSlotStart(slot, hour))
+                        <div class="@BlockClass(block)"
+                             style="@BlockStyle(block)"
+                             title="@BlockTitle(block)">
+                            @if (block.IsPlanned && block.Slot is { } slot)
                             {
-                                <div class="cell-format">@(slot.FormatName ?? "in planning")</div>
-                                <div class="cell-host">@slot.ModeratorName</div>
+                                <a class="cell-format schedule-link" href="formats">@(slot.FormatName ?? "in planning")</a>
+                                @if (string.IsNullOrWhiteSpace(slot.ModeratorName))
+                                {
+                                    <div class="cell-host">no host</div>
+                                }
+                                else
+                                {
+                                    <a class="cell-host schedule-link" href="moderators">@slot.ModeratorName</a>
+                                }
+                                <div class="cell-time">@FormatRange(block.StartMinute, block.EndMinute)</div>
                             }
                         </div>
                     }
                 }
-            }
+            </div>
         </div>
     }
 </div>
@@ -62,12 +69,92 @@
         _slots = await Api.GetScheduleAsync();
     }
 
-    private ProgramSlotDto? SlotAt(int day, int hour)
-        => _slots?.FirstOrDefault(s =>
-            s.DayOfWeek == day && s.StartMinute <= hour * 60 && hour * 60 < s.StartMinute + s.DurationMinutes);
+    private IEnumerable<ScheduleBlock> BlocksForDay(int day)
+    {
+        var cursor = 0;
+        foreach (var slot in (_slots ?? [])
+            .Where(item => item.DayOfWeek == day)
+            .OrderBy(item => item.StartMinute)
+            .ThenBy(item => item.Id))
+        {
+            var start = Math.Clamp(slot.StartMinute, 0, 24 * 60);
+            var end = Math.Clamp(slot.StartMinute + slot.DurationMinutes, 0, 24 * 60);
+            if (end <= start)
+            {
+                continue;
+            }
 
-    private bool IsSlotStart(ProgramSlotDto slot, int hour)
-        => slot.StartMinute / 60 == hour;
+            if (start > cursor)
+            {
+                yield return ScheduleBlock.Planning(day, cursor, start - cursor);
+            }
+
+            var visibleStart = Math.Max(start, cursor);
+            if (end > visibleStart)
+            {
+                yield return ScheduleBlock.Planned(day, visibleStart, end - visibleStart, slot);
+            }
+
+            cursor = Math.Max(cursor, end);
+        }
+
+        if (cursor < 24 * 60)
+        {
+            yield return ScheduleBlock.Planning(day, cursor, 24 * 60 - cursor);
+        }
+    }
+
+    private string DayHeaderStyle(int day)
+        => $"grid-column:{DayColumn(day)};grid-row:1";
+
+    private string HourStyle(int hour)
+        => $"grid-column:1;grid-row:{MinuteRow(hour * 60)} / span 2";
+
+    private string BlockStyle(ScheduleBlock block)
+        => $"grid-column:{DayColumn(block.DayOfWeek)};grid-row:{MinuteRow(block.StartMinute)} / span {MinuteSpan(block.DurationMinutes)}";
+
+    private static string BlockClass(ScheduleBlock block)
+        => $"schedule-cell {(block.IsPlanned ? "planned" : "planning")} {(MinuteSpan(block.DurationMinutes) == 1 ? "compact" : null)}";
+
+    private int DayColumn(int day)
+        => Array.IndexOf(_dayOrder, day) + 2;
+
+    private static int MinuteRow(int minute)
+        => Math.Clamp(minute, 0, 24 * 60 - 1) / 30 + 2;
+
+    private static int MinuteSpan(int minutes)
+        => Math.Max(1, (minutes + 29) / 30);
+
+    private static string BlockTitle(ScheduleBlock block)
+        => block.Slot is { } slot
+            ? $"{FormatRange(block.StartMinute, block.EndMinute)} | {slot.FormatName ?? "in planning"} | {slot.ModeratorName ?? "no host"} | {slot.Genre ?? "no genre"}"
+            : $"{FormatRange(block.StartMinute, block.EndMinute)} | still in planning";
+
+    private static string FormatRange(int startMinute, int endMinute)
+        => $"{FormatMinute(startMinute)}-{FormatMinute(endMinute)}";
+
+    private static string FormatMinute(int minute)
+    {
+        var clamped = Math.Clamp(minute, 0, 24 * 60);
+        return $"{clamped / 60:00}:{clamped % 60:00}";
+    }
 
     private static string DayName(int day) => ((DayOfWeek)day).ToString()[..3];
+
+    private sealed record ScheduleBlock(
+        int DayOfWeek,
+        int StartMinute,
+        int DurationMinutes,
+        ProgramSlotDto? Slot)
+    {
+        public int EndMinute => StartMinute + DurationMinutes;
+
+        public bool IsPlanned => Slot?.FormatId is not null;
+
+        public static ScheduleBlock Planning(int day, int startMinute, int durationMinutes)
+            => new(day, startMinute, durationMinutes, null);
+
+        public static ScheduleBlock Planned(int day, int startMinute, int durationMinutes, ProgramSlotDto slot)
+            => new(day, startMinute, durationMinutes, slot);
+    }
 }
