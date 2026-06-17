@@ -103,7 +103,12 @@
         <Icon Name="transcript" />
     </button>
 
-    <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeChanged" title="Volume" />
+    <div class="volume-control">
+        <input type="range" class="volume-range"
+               min="0" max="100" step="1" value="@_volume"
+               style="@VolumeStyle" @oninput="OnVolumeChanged"
+               title="Volume" aria-label="Volume" />
+    </div>
 </footer>
 </div>
 
@@ -153,6 +158,8 @@
         ? Math.Clamp(Elapsed.TotalSeconds / np.DurationSeconds * 100, 0, 100)
         : 0;
 
+    private string VolumeStyle => $"--volume-fill: {_volume}%";
+
     protected override void OnInitialized()
     {
         // Same-origin proxy: works on http and https pages alike (no mixed content).
@@ -169,10 +176,25 @@
             _ticker = new Timer(_ => _ = InvokeAsync(TickAsync), null,
                 TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
 
+            var shouldRefresh = false;
+
+            var savedVolume = await Js.InvokeAsync<int>("whipRadio.getVolume");
+            savedVolume = Math.Clamp(savedVolume, 0, 100);
+            if (savedVolume != _volume)
+            {
+                _volume = savedVolume;
+                shouldRefresh = true;
+            }
+
             var saved = await Js.InvokeAsync<string?>("localStorage.getItem", "whipradio.transcript");
             if (saved == "on")
             {
                 _transcriptEnabled = true;
+                shouldRefresh = true;
+            }
+
+            if (shouldRefresh)
+            {
                 StateHasChanged();
             }
         }

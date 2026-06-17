@@ -3,11 +3,42 @@ window.whipRadio = {
   _audio: null,
   _wantLive: false,
   _retryTimer: null,
+  _volume: 0.8,
+  _volumeKey: "whipradio.volume",
+
+  _normalizeVolume(value) {
+    const volume = Number(value);
+    if (!isFinite(volume)) {
+      return this._volume;
+    }
+    return Math.min(1, Math.max(0, volume > 1 ? volume / 100 : volume));
+  },
+
+  _readVolume() {
+    try {
+      const saved = localStorage.getItem(this._volumeKey);
+      return saved === null ? this._volume : this._normalizeVolume(saved);
+    } catch {
+      return this._volume;
+    }
+  },
+
+  _storeVolume(value) {
+    this._volume = this._normalizeVolume(value);
+    try {
+      localStorage.setItem(this._volumeKey, String(this._volume));
+    } catch {
+      // Browser storage can be unavailable; playback should still work.
+    }
+    return this._volume;
+  },
 
   _ensure(url) {
     if (!this._audio) {
+      this._volume = this._readVolume();
       this._audio = new Audio();
       this._audio.preload = "none";
+      this._audio.volume = this._volume;
       // No crossOrigin attribute: plain media playback works cross-origin
       // without CORS headers; setting it forces CORS checks that the
       // orchestrator (and some Icecast setups) would fail.
@@ -119,9 +150,18 @@ window.whipRadio = {
     };
   },
 
-  setVolume(value) {
+  getVolume() {
+    this._volume = this._readVolume();
     if (this._audio) {
-      this._audio.volume = Math.min(1, Math.max(0, value));
+      this._audio.volume = this._volume;
+    }
+    return Math.round(this._volume * 100);
+  },
+
+  setVolume(value) {
+    const volume = this._storeVolume(value);
+    if (this._audio) {
+      this._audio.volume = volume;
     }
   },
 

@@ -13,6 +13,10 @@
     --amber: #ffb454;
     --amber-hot: #ffd9a0;
     --amber-dim: #97743f;
+    --player-progress-track: #33291c;
+    --player-progress-track-soft: #3b3329;
+    --player-progress-fill: linear-gradient(90deg, var(--amber-dim), var(--amber));
+    --player-progress-thumb: var(--amber);
     --red: #ff4339;
     --green: #57f59f;
     --text: #ece1cd;
@@ -1472,7 +1476,10 @@ table.console-table {
    plus an invisible range input on top that only contributes the drag thumb. */
 .player-progress.seekable { overflow: visible; }
 
-.player-progress.seekable .fill { border-radius: 2px; }
+.player-progress.seekable .fill {
+    border-radius: 2px;
+    transition: width .08s linear;
+}
 
 .player-progress .seek-overlay {
     position: absolute;
@@ -1490,14 +1497,20 @@ table.console-table {
 
 .player-progress .seek-overlay::-webkit-slider-runnable-track { background: transparent; }
 
+.player-progress .seek-overlay::-webkit-slider-thumb {
+    background: var(--player-progress-thumb);
+    box-shadow: 0 0 6px rgba(255, 180, 84, 0.38);
+}
+
 .player-progress .seek-overlay::-moz-range-track { background: transparent; }
 
 .player-progress .seek-overlay::-moz-range-thumb {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    background: var(--amber-hot);
+    background: var(--player-progress-thumb);
     border: 2px solid #0e0c09;
+    box-shadow: 0 0 6px rgba(255, 180, 84, 0.38);
     cursor: pointer;
 }
 
@@ -1639,17 +1652,78 @@ table.console-table {
     height: 3px;
     max-width: 500px;
     border-radius: 2px;
-    background: #33291c;
+    background: var(--player-progress-track);
     overflow: hidden;
 }
 
 .player-progress .fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--amber-dim), var(--amber));
+    background: var(--player-progress-fill);
     transition: width 1s linear;
 }
 
 .player-votes { display: flex; gap: 8px; }
+
+.volume-control {
+    width: 180px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 180px;
+}
+
+.player-bar .volume-range {
+    width: 100%;
+    height: 28px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+    touch-action: none;
+}
+
+.player-bar .volume-range::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+        var(--amber-dim) 0,
+        var(--amber) var(--volume-fill),
+        var(--player-progress-track-soft) var(--volume-fill) 100%);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+
+.player-bar .volume-range::-webkit-slider-thumb {
+    margin-top: -5px;
+    background: var(--player-progress-thumb);
+    box-shadow: 0 0 6px rgba(255, 180, 84, 0.38);
+}
+
+.player-bar .volume-range::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--player-progress-track-soft);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+}
+
+.player-bar .volume-range::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--player-progress-fill);
+}
+
+.player-bar .volume-range::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--player-progress-thumb);
+    border: 2px solid #0e0c09;
+    box-shadow: 0 0 6px rgba(255, 180, 84, 0.38);
+    cursor: pointer;
+}
+
+.player-bar .volume-range:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 4px;
+}
 
 .btn.small { padding: 5px 10px; font-size: 11px; }
 
