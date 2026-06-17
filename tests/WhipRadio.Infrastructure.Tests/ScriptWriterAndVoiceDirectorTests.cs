@@ -1,5 +1,7 @@
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Personality;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Llm;
 
 namespace WhipRadio.Infrastructure.Tests;
@@ -66,6 +68,95 @@ public class ScriptWriterAndVoiceDirectorTests
     }
 
     [TestMethod]
+    public async Task ScriptWriter_WithPromptContext_AppendsSituationToSystemPrompt()
+    {
+        var llm = new CapturingLlm();
+        var writer = new ScriptWriter(llm);
+        var context = new PromptContext
+        {
+            Scope = PromptScope.AnnouncementScript,
+            Purpose = "SongIntro",
+            StationName = "WhipRadio",
+            FrequencyMhz = 104.4,
+            LocalNow = new DateTimeOffset(2026, 6, 17, 18, 30, 0, TimeSpan.Zero),
+            Language = "en",
+            HostName = "Lena",
+            PersonaSummary = "High-energy evening host.",
+            BaselineTraits = new HostPersonalityTraits(
+                Energy.High,
+                Formality.Casual,
+                HumorLevel.High,
+                Talkativeness.High,
+                Warmth.High),
+            CurrentTraits = new HostPersonalityTraits(
+                Energy.VeryHigh,
+                Formality.Casual,
+                HumorLevel.High,
+                Talkativeness.High,
+                Warmth.High),
+            SpeechRate = 1.0,
+            WordsPerSecond = 2.8,
+            AvailableSeconds = 30,
+            WordBudget = 84,
+            RecentTalkTopics = ["metronome joke"],
+            RecurringBits = ["drummer/metronome premise"],
+            QueuedListenerMessages = ["Maya (greeting): hello from the late shift"],
+            Tools =
+            [
+                new CharacterToolDefinition(
+                    "Announce",
+                    "Create spoken text.",
+                    [new CharacterToolArgument("text", "Spoken text.")]),
+            ],
+        };
+
+        await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en", PromptContext: context),
+            CancellationToken.None);
+
+        Assert.Contains("Current situation:", llm.SystemPrompt);
+        Assert.Contains("metronome joke", llm.SystemPrompt);
+        Assert.Contains("drummer/metronome premise", llm.SystemPrompt);
+        Assert.Contains("Maya (greeting)", llm.SystemPrompt);
+        Assert.Contains("Announce(text)", llm.SystemPrompt);
+        Assert.Contains("roughly 84 words", llm.SystemPrompt);
+        Assert.Contains("Host baseline traits", llm.SystemPrompt);
+        Assert.Contains("Current mood traits", llm.SystemPrompt);
+    }
+
+    [TestMethod]
+    public async Task ScriptWriter_SongIntro_ChangesInstructionByFormatTalkDepth()
+    {
+        var track = new Track { Title = "Neon Llama", Genre = "indie rock", Style = "driving drums" };
+
+        var nameOnlyLlm = new CapturingLlm();
+        var nameOnlyWriter = new ScriptWriter(nameOnlyLlm);
+        await nameOnlyWriter.WriteAsync(
+            new AnnouncementRequest(
+                AnnouncementKind.SongIntro,
+                "WhipRadio",
+                "en",
+                track,
+                PromptContext: ContextWithTalkDepth(TalkDepth.NameOnly)),
+            CancellationToken.None);
+
+        var deepDiveLlm = new CapturingLlm();
+        var deepDiveWriter = new ScriptWriter(deepDiveLlm);
+        await deepDiveWriter.WriteAsync(
+            new AnnouncementRequest(
+                AnnouncementKind.SongIntro,
+                "WhipRadio",
+                "en",
+                track,
+                PromptContext: ContextWithTalkDepth(TalkDepth.DeepDive)),
+            CancellationToken.None);
+
+        Assert.Contains("Talk depth is NameOnly", nameOnlyLlm.UserPrompt);
+        Assert.Contains("Talk depth is DeepDive", deepDiveLlm.UserPrompt);
+        Assert.NotEqual(nameOnlyLlm.UserPrompt, deepDiveLlm.UserPrompt);
+    }
+
+    [TestMethod]
     public async Task VoiceDirector_InjectsPersonaAndPassesScript()
     {
         var llm = new CapturingLlm("Adapted [pause:300ms] text.");
@@ -85,4 +176,20 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Equal("Original script.", llm.UserPrompt);
         Assert.Equal("Adapted [pause:300ms] text.", result);
     }
+
+    private static PromptContext ContextWithTalkDepth(TalkDepth talkDepth)
+        => new()
+        {
+            Scope = PromptScope.AnnouncementScript,
+            Purpose = "SongIntro",
+            StationName = "WhipRadio",
+            FrequencyMhz = 104.4,
+            LocalNow = new DateTimeOffset(2026, 6, 17, 18, 30, 0, TimeSpan.Zero),
+            Language = "en",
+            FormatName = "Test Format",
+            FormatTalkDepth = talkDepth,
+            FormatTalkDensity = 0.5,
+            SpeechRate = 1.0,
+            WordsPerSecond = 2.8,
+        };
 }

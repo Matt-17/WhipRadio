@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -65,11 +66,19 @@ public class HostLanguageAligner(
         {
             using var scope = scopeFactory.CreateScope();
             var llm = scope.ServiceProvider.GetRequiredService<ITextGenerationService>();
+            var promptContextBuilder = scope.ServiceProvider.GetRequiredService<IPromptContextBuilder>();
+            var promptContext = await promptContextBuilder.BuildAsync(
+                new PromptContextInput(
+                    PromptScope.Utility,
+                    Facts: $"Target language: {language}",
+                    Purpose: "Translate host persona to station language"),
+                ct);
 
             var languageName = language == "de" ? "German" : "English";
             var translated = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
                 $"You translate radio host persona descriptions to {languageName}. " +
-                "Keep the character, tone and second-person form. Output ONLY the translated persona.",
+                "Keep the character, tone and second-person form. Output ONLY the translated persona.\n\n" +
+                promptContext.RenderSituation(),
                 persona, ct));
             return string.IsNullOrWhiteSpace(translated) ? persona : translated;
         }

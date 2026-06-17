@@ -13,6 +13,16 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<Announcement> Announcements => Set<Announcement>();
 
+    public DbSet<TalkBreak> TalkBreaks => Set<TalkBreak>();
+
+    public DbSet<TalkPart> TalkParts => Set<TalkPart>();
+
+    public DbSet<TalkBit> TalkBits => Set<TalkBit>();
+
+    public DbSet<TalkBitRendition> TalkBitRenditions => Set<TalkBitRendition>();
+
+    public DbSet<Jingle> Jingles => Set<Jingle>();
+
     public DbSet<PlayLogEntry> PlayLog => Set<PlayLogEntry>();
 
     public DbSet<Vote> Votes => Set<Vote>();
@@ -59,6 +69,50 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             announcement.HasIndex(a => a.WasPlayed);
         });
 
+        modelBuilder.Entity<TalkBreak>(talkBreak =>
+        {
+            talkBreak.Property(t => t.Priority).HasConversion<string>();
+            talkBreak.Property(t => t.Status).HasConversion<string>();
+            talkBreak.HasIndex(t => t.AnnouncementId).IsUnique();
+            talkBreak.HasIndex(t => new { t.Status, t.ExpiresAtUtc });
+            talkBreak.HasMany(t => t.Parts)
+                .WithOne(p => p.TalkBreak)
+                .HasForeignKey(p => p.TalkBreakId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TalkPart>(part =>
+        {
+            part.Property(p => p.Kind).HasConversion<string>();
+            part.Property(p => p.Status).HasConversion<string>();
+            part.Property(p => p.Priority).HasConversion<string>();
+            part.HasIndex(p => new { p.TalkBreakId, p.SortOrder }).IsUnique();
+            part.HasIndex(p => new { p.Status, p.ExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<TalkBit>(bit =>
+        {
+            bit.Property(b => b.Status).HasConversion<string>();
+            bit.HasIndex(b => new { b.ModeratorId, b.Status });
+            bit.HasIndex(b => b.LastUsedAtUtc);
+            bit.HasMany(b => b.Renditions)
+                .WithOne(r => r.TalkBit)
+                .HasForeignKey(r => r.TalkBitId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Jingle>(jingle =>
+        {
+            jingle.Property(j => j.Status).HasConversion<string>();
+            jingle.HasIndex(j => j.IsActive);
+            jingle.HasIndex(j => j.CreatedAtUtc);
+        });
+
+        modelBuilder.Entity<TalkBitRendition>(rendition =>
+        {
+            rendition.HasIndex(r => r.TalkBitId);
+        });
+
         modelBuilder.Entity<PlayLogEntry>(entry =>
         {
             entry.Property(e => e.ItemType).HasConversion<string>();
@@ -72,6 +126,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
         modelBuilder.Entity<Format>(format =>
         {
+            format.Property(f => f.TalkDepth).HasConversion<string>();
             format.HasOne(f => f.Moderator)
                 .WithMany()
                 .HasForeignKey(f => f.ModeratorId);
@@ -85,9 +140,19 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             slot.HasIndex(s => new { s.DayOfWeek, s.StartMinute }).IsUnique();
         });
 
+        modelBuilder.Entity<Moderator>(moderator =>
+        {
+            moderator.Property(m => m.BaselineEnergy).HasConversion<string>();
+            moderator.Property(m => m.BaselineFormality).HasConversion<string>();
+            moderator.Property(m => m.BaselineHumorLevel).HasConversion<string>();
+            moderator.Property(m => m.BaselineTalkativeness).HasConversion<string>();
+            moderator.Property(m => m.BaselineWarmth).HasConversion<string>();
+        });
+
         modelBuilder.Entity<ModeratorMemory>(memory =>
         {
-            memory.HasIndex(m => new { m.ModeratorId, m.Date });
+            memory.Property(m => m.Layer).HasConversion<string>();
+            memory.HasIndex(m => new { m.ModeratorId, m.Layer, m.Date });
         });
 
         modelBuilder.Entity<ListenerMessage>(message =>

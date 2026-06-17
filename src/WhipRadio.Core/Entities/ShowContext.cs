@@ -8,4 +8,8 @@ public sealed record ShowContext(
     string Genre,
     string Subgenre,
     Moderator Moderator,
-    Format? Format = null);
+    Format? Format = null,
+    int? SlotStartMinute = null,
+    int? SlotDurationMinutes = null,
+    int? RemainingSlotMinutes = null,
+    string? NextFormatName = null);

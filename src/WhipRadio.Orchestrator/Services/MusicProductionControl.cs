@@ -13,6 +13,8 @@ public sealed record GenerationStatus(Guid ArtistId, string ArtistName, string? 
 public class MusicProductionControl
 {
     private readonly ConcurrentQueue<Guid> _manualRequests = new();
+    private readonly object _generationLock = new();
+    private CancellationTokenSource? _currentCancel;
     private GenerationStatus? _current;
 
     public void RequestTrackFor(Guid artistId) => _manualRequests.Enqueue(artistId);
@@ -24,8 +26,16 @@ public class MusicProductionControl
 
     public GenerationStatus? Current => Volatile.Read(ref _current);
 
-    public void BeginGeneration(Guid artistId, string artistName)
-        => Volatile.Write(ref _current, new GenerationStatus(artistId, artistName, null, DateTime.UtcNow));
+    public CancellationToken BeginGeneration(Guid artistId, string artistName, CancellationToken parentToken)
+    {
+        lock (_generationLock)
+        {
+            _currentCancel?.Dispose();
+            _currentCancel = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
+            Volatile.Write(ref _current, new GenerationStatus(artistId, artistName, null, DateTime.UtcNow));
+            return _currentCancel.Token;
+        }
+    }
 
     public void ReportTitle(string title)
     {
@@ -35,5 +45,27 @@ public class MusicProductionControl
         }
     }
 
-    public void EndGeneration() => Volatile.Write(ref _current, null);
+    public bool CancelGeneration()
+    {
+        lock (_generationLock)
+        {
+            if (_current is null || _currentCancel is null || _currentCancel.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            _currentCancel.Cancel();
+            return true;
+        }
+    }
+
+    public void EndGeneration()
+    {
+        lock (_generationLock)
+        {
+            Volatile.Write(ref _current, null);
+            _currentCancel?.Dispose();
+            _currentCancel = null;
+        }
+    }
 }

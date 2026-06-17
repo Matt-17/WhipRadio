@@ -103,10 +103,21 @@ not a replacement for the internal protocol.
 `MixerCore` is the pure DSP core for sample-buffer mixing. The live mixer may use it
 directly for crossfades, ducking, and transition diagnostics.
 
+**Implemented in Phase 3b:** station branding now includes slogan, vision, and mission
+as prompt context. Generated jingles are short instrumental station identity sources
+created through the existing ACE-Step recording backend and stored under the shared
+audio library as `Jingle` records. They are modeled as TalkBreak parts (`Jingle`) for
+ordered spoken segments.
+
+**Implemented in Phase 3b:** `SegmentRenderer` can render an ordered 1-N set of
+already-produced TalkBreak parts into one composite announcement WAV and preserve
+part metadata for PlayLog expansion. This is the single-speaker/single-track
+compositor used by ordinary talk chains.
+
 **Planned:** offline multi-speaker rendering belongs to later conversation/artist phases.
-The future `SegmentRenderer` should reuse `MixerCore` to premix multi-speaker talk or
-podcast segments into a single WAV. The live stream then plays that rendered segment as
-one item.
+The expanded renderer should reuse `MixerCore` to premix multi-speaker talk or podcast
+segments into a single WAV. The live stream then plays that rendered segment as one
+item.
 
 ## Voice Consistency: VoiceProfile Planned
 

@@ -25,4 +25,19 @@ public class WeatherSchedulerTests
     {
         Assert.Equal(expected, WeatherScheduler.ShouldPrepare(minute));
     }
+
+    [TestMethod]
+    public void CadenceAwareScheduler_UsesConfiguredBoundary()
+    {
+        var beforeHalfHour = new DateTimeOffset(2026, 6, 17, 10, 15, 0, TimeSpan.Zero);
+        var nearHalfHour = new DateTimeOffset(2026, 6, 17, 10, 25, 0, TimeSpan.Zero);
+        var justAfterHalfHour = new DateTimeOffset(2026, 6, 17, 10, 31, 0, TimeSpan.Zero);
+
+        Assert.False(WeatherScheduler.ShouldPrepare(beforeHalfHour, cadenceMinutes: 30));
+        Assert.True(WeatherScheduler.ShouldPrepare(nearHalfHour, cadenceMinutes: 30));
+        Assert.True(WeatherScheduler.IsAirWindow(justAfterHalfHour, cadenceMinutes: 30));
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 17, 10, 30, 0, TimeSpan.Zero),
+            WeatherScheduler.CurrentWindowStart(justAfterHalfHour, cadenceMinutes: 30));
+    }
 }

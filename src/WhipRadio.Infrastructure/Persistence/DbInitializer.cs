@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Personality;
 
 namespace WhipRadio.Infrastructure.Persistence;
 
@@ -8,6 +9,15 @@ namespace WhipRadio.Infrastructure.Persistence;
 /// The weekly program plan is produced at runtime by the program director.</summary>
 public static class DbInitializer
 {
+    private const string LegacyAllowedTalkPartKinds =
+        "SongIntro,SongOutro,Banter,PersonalNote,Joke,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
+
+    private const string PreJingleAllowedTalkPartKinds =
+        "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
+
+    private const string AccidentalPhase3bSlogan = "Every song made for this moment.";
+    private const string PreviousLlamaSlogan = "Llamas whipped that radio's mix.";
+
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
     {
         await db.Database.MigrateAsync(ct);
@@ -28,6 +38,9 @@ public static class DbInitializer
             {
                 Id = StationSettings.SingletonId,
                 StationName = "WhipRadio",
+                StationSlogan = "Llamas whipped the radio's mix.",
+                StationVision = "A living AI radio station with original music, distinct hosts, and a coherent on-air identity.",
+                StationMission = "Create a continuous local radio experience where music, talk, weather, and listener moments feel intentional.",
                 DefaultLanguage = "en",
                 TargetQueueLength = 3,
                 AnnouncementEveryNTracks = 1,
@@ -77,10 +90,26 @@ public static class DbInitializer
     {
         var settings = await db.StationSettings
             .SingleAsync(s => s.Id == StationSettings.SingletonId, ct);
+        var defaults = new StationSettings();
         var patched = false;
         if (string.IsNullOrWhiteSpace(settings.DefaultMusicProvider))
         {
             settings.DefaultMusicProvider = MusicBackends.MusicGen;
+            patched = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.StationSlogan))
+        {
+            settings.StationSlogan = defaults.StationSlogan;
+            settings.StationVision = defaults.StationVision;
+            settings.StationMission = defaults.StationMission;
+            patched = true;
+        }
+
+        if (string.Equals(settings.StationSlogan, AccidentalPhase3bSlogan, StringComparison.Ordinal)
+            || string.Equals(settings.StationSlogan, PreviousLlamaSlogan, StringComparison.Ordinal))
+        {
+            settings.StationSlogan = defaults.StationSlogan;
             patched = true;
         }
 
@@ -94,7 +123,6 @@ public static class DbInitializer
             return; // already initialized
         }
 
-        var defaults = new StationSettings();
         settings.MusicProductionEnabled = defaults.MusicProductionEnabled;
         settings.PlayoutEnabled = defaults.PlayoutEnabled;
         settings.MaxLibrarySize = defaults.MaxLibrarySize;
@@ -104,6 +132,15 @@ public static class DbInitializer
         settings.FirstDayOfWeek = defaults.FirstDayOfWeek;
         settings.TextProvider = defaults.TextProvider;
         settings.OpenAiModel = defaults.OpenAiModel;
+        if (string.IsNullOrWhiteSpace(settings.StationSlogan)
+            || string.Equals(settings.StationSlogan, AccidentalPhase3bSlogan, StringComparison.Ordinal)
+            || string.Equals(settings.StationSlogan, PreviousLlamaSlogan, StringComparison.Ordinal))
+        {
+            settings.StationSlogan = defaults.StationSlogan;
+        }
+
+        settings.StationVision = defaults.StationVision;
+        settings.StationMission = defaults.StationMission;
         settings.GreetingsEnabled = defaults.GreetingsEnabled;
         settings.MaxPendingGreetings = defaults.MaxPendingGreetings;
         settings.DefaultMusicProvider = defaults.DefaultMusicProvider;
@@ -138,6 +175,30 @@ public static class DbInitializer
                 moderator.TtsEngine = string.IsNullOrEmpty(moderator.TtsEngine) ? TtsEngines.Kokoro : moderator.TtsEngine;
                 patched = true;
             }
+
+            if (seeds.TryGetValue(moderator.Name, out seed) && HasNeutralBaselineTraits(moderator))
+            {
+                moderator.BaselineEnergy = seed.BaselineEnergy;
+                moderator.BaselineFormality = seed.BaselineFormality;
+                moderator.BaselineHumorLevel = seed.BaselineHumorLevel;
+                moderator.BaselineTalkativeness = seed.BaselineTalkativeness;
+                moderator.BaselineWarmth = seed.BaselineWarmth;
+                patched = true;
+            }
+
+            if (seeds.TryGetValue(moderator.Name, out seed)
+                && seed.IsWeatherSpecialist
+                && !moderator.IsWeatherSpecialist)
+            {
+                moderator.IsWeatherSpecialist = true;
+                patched = true;
+            }
+
+            if (ShouldPatchAllowedTalkKinds(moderator))
+            {
+                moderator.AllowedTalkPartKinds = new Moderator().AllowedTalkPartKinds;
+                patched = true;
+            }
         }
 
         if (patched)
@@ -145,6 +206,24 @@ public static class DbInitializer
             await db.SaveChangesAsync(ct);
         }
     }
+
+    private static bool HasNeutralBaselineTraits(Moderator moderator)
+        => moderator.BaselineEnergy == Energy.Medium
+            && moderator.BaselineFormality == Formality.Balanced
+            && moderator.BaselineHumorLevel == HumorLevel.Medium
+            && moderator.BaselineTalkativeness == Talkativeness.Medium
+            && moderator.BaselineWarmth == Warmth.Medium;
+
+    private static bool ShouldPatchAllowedTalkKinds(Moderator moderator)
+        => string.IsNullOrWhiteSpace(moderator.AllowedTalkPartKinds)
+            || string.Equals(
+                moderator.AllowedTalkPartKinds,
+                LegacyAllowedTalkPartKinds,
+                StringComparison.OrdinalIgnoreCase)
+            || string.Equals(
+                moderator.AllowedTalkPartKinds,
+                PreJingleAllowedTalkPartKinds,
+                StringComparison.OrdinalIgnoreCase);
 
     private static Moderator[] SeedModerators() =>
     [
@@ -158,6 +237,11 @@ public static class DbInitializer
             SpeechRate = 1.15,
             Style = "fast-energetic",
             Talkativeness = 0.8,
+            BaselineEnergy = Energy.High,
+            BaselineFormality = Formality.Casual,
+            BaselineHumorLevel = HumorLevel.High,
+            BaselineTalkativeness = Talkativeness.High,
+            BaselineWarmth = Warmth.High,
             PersonaPrompt =
                 "You are Lena Spark, a young, bubbly radio host. You talk fast, with infectious " +
                 "enthusiasm and boundless energy. You live for driving beats and celebrate every " +
@@ -176,12 +260,18 @@ public static class DbInitializer
             SpeechRate = 0.85,
             Style = "slow-thoughtful",
             Talkativeness = 0.5,
+            BaselineEnergy = Energy.Low,
+            BaselineFormality = Formality.Formal,
+            BaselineHumorLevel = HumorLevel.Medium,
+            BaselineTalkativeness = Talkativeness.Medium,
+            BaselineWarmth = Warmth.High,
             PersonaPrompt =
                 "You are Herbert Nightwave, a measured, older radio host with a warm voice. " +
                 "You speak slowly, love a well-placed pause, and sometimes drift into nostalgic " +
                 "thoughts about the golden age of radio.",
             PrefersVocals = false,
             PreferredGenres = "lofi,jazz",
+            IsWeatherSpecialist = true,
             IsActive = true,
         },
         new()
@@ -194,6 +284,11 @@ public static class DbInitializer
             SpeechRate = 1.0,
             Style = "laid-back",
             Talkativeness = 0.35,
+            BaselineEnergy = Energy.Low,
+            BaselineFormality = Formality.Casual,
+            BaselineHumorLevel = HumorLevel.High,
+            BaselineTalkativeness = Talkativeness.Low,
+            BaselineWarmth = Warmth.Medium,
             PersonaPrompt =
                 "You are Charlie Wave, a laid-back international host with a dry sense of humor. " +
                 "You keep things smooth and casual, drop the occasional pun, and sound like you " +

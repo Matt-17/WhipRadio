@@ -8,7 +8,11 @@ namespace WhipRadio.Web.Services;
 /// votes, queue) with an HTTP snapshot on connect. Components subscribe to
 /// <see cref="Changed"/> for instant updates.
 /// </summary>
-public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, ILogger<RadioLiveClient> logger) : IAsyncDisposable
+public class RadioLiveClient(
+    RadioApiClient api,
+    IConfiguration configuration,
+    IHostEnvironment environment,
+    ILogger<RadioLiveClient> logger) : IAsyncDisposable
 {
     private HubConnection? _connection;
     private bool _started;
@@ -20,6 +24,8 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
     public IReadOnlyList<QueueItemDto> Queue { get; private set; } = [];
 
     public event Action? Changed;
+
+    public event Action? JinglesChanged;
 
     public async Task EnsureStartedAsync()
     {
@@ -36,9 +42,11 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
                 return;
             }
 
+            await RefreshSnapshotAsync();
+
             var baseUrl = configuration["services:orchestrator:http:0"]
                 ?? configuration["Orchestrator:Endpoint"]
-                ?? "http://orchestrator";
+                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
 
             _connection = new HubConnectionBuilder()
                 .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
@@ -65,6 +73,8 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
                 Queue = queue;
                 Changed?.Invoke();
             });
+
+            _connection.On("JinglesChanged", () => JinglesChanged?.Invoke());
 
             _connection.Reconnected += async _ => await RefreshSnapshotAsync();
 
@@ -95,14 +105,14 @@ public class RadioLiveClient(RadioApiClient api, IConfiguration configuration, I
 
             try
             {
-                await _connection.StartAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _connection.StartAsync(timeout.Token);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "SignalR connect failed; falling back to snapshot only");
             }
 
-            await RefreshSnapshotAsync();
             _started = true;
         }
         finally

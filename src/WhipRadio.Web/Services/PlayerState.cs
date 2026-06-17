@@ -9,6 +9,8 @@ namespace WhipRadio.Web.Services;
 /// </summary>
 public sealed record VoicePreview(string Title, string Url, double DurationSeconds);
 
+public sealed record JinglePreview(JingleDto Jingle, string Url);
+
 public class PlayerState
 {
     /// <summary>Track preview mode (library). Null unless previewing a track.</summary>
@@ -17,7 +19,10 @@ public class PlayerState
     /// <summary>Designed-voice preview mode (hosts page). Null unless previewing a voice.</summary>
     public VoicePreview? CurrentVoice { get; private set; }
 
-    public bool IsLive => CurrentTrack is null && CurrentVoice is null;
+    /// <summary>Station jingle preview mode (branding page). Null unless previewing a jingle.</summary>
+    public JinglePreview? CurrentJingle { get; private set; }
+
+    public bool IsLive => CurrentTrack is null && CurrentVoice is null && CurrentJingle is null;
 
     public event Action? Changed;
 
@@ -25,6 +30,7 @@ public class PlayerState
     {
         CurrentTrack = track;
         CurrentVoice = null;
+        CurrentJingle = null;
         Changed?.Invoke();
     }
 
@@ -32,6 +38,15 @@ public class PlayerState
     {
         CurrentVoice = new VoicePreview(title, url, durationSeconds);
         CurrentTrack = null;
+        CurrentJingle = null;
+        Changed?.Invoke();
+    }
+
+    public void PlayJingle(JingleDto jingle, string url)
+    {
+        CurrentJingle = new JinglePreview(jingle, url);
+        CurrentTrack = null;
+        CurrentVoice = null;
         Changed?.Invoke();
     }
 
@@ -39,6 +54,7 @@ public class PlayerState
     {
         CurrentTrack = null;
         CurrentVoice = null;
+        CurrentJingle = null;
         Changed?.Invoke();
     }
 }

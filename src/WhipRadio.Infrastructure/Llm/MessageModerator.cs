@@ -1,12 +1,13 @@
 using System.Text.Json;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Prompting;
 
 namespace WhipRadio.Infrastructure.Llm;
 
 public sealed record ModerationResult(bool Approved, string? Reason = null, string? ExtractedGenre = null);
 
-public class MessageModerator(ITextGenerationService llm)
+public class MessageModerator(ITextGenerationService llm, IPromptContextBuilder promptContextBuilder)
 {
     public async Task<ModerationResult> ModerateAsync(
         ListenerMessage message,
@@ -32,7 +33,18 @@ public class MessageModerator(ITextGenerationService llm)
 
         try
         {
-            var raw = await llm.CompleteAsync(string.Empty, prompt, ct);
+            var promptContext = await promptContextBuilder.BuildAsync(
+                new PromptContextInput(
+                    PromptScope.MessageModeration,
+                    Moderator: context.Moderator,
+                    Format: context.Format,
+                    Facts: message.MessageText,
+                    Purpose: message.Kind == ListenerMessageKind.Request
+                        ? "Moderate listener music request"
+                        : "Moderate listener greeting"),
+                ct);
+
+            var raw = await llm.CompleteAsync(promptContext.RenderSituation(), prompt, ct);
             var trimmed = raw.Trim();
 
             // Strip markdown code fences if the LLM wraps the JSON

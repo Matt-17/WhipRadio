@@ -123,15 +123,25 @@ public class MusicProductionService(
             artist = await GetOrCreateArtistAsync(copywriter, context, ct);
         }
 
-        control.BeginGeneration(artist.Id, artist.Name);
-        await gate.WaitAsync(ct); // analysis backfill yields while we generate
+        var generationToken = control.BeginGeneration(artist.Id, artist.Name, ct);
+        var gateHeld = false;
         try
         {
-            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, ct);
+            await gate.WaitAsync(generationToken); // analysis backfill yields while we generate
+            gateHeld = true;
+            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, generationToken);
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested && generationToken.IsCancellationRequested)
+        {
+            logger.LogInformation("Cancelled music production for {Artist}", artist.Name);
         }
         finally
         {
-            gate.Release();
+            if (gateHeld)
+            {
+                gate.Release();
+            }
+
             control.EndGeneration();
         }
     }

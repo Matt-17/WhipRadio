@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Playout;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -34,8 +35,12 @@ builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
 builder.Services.AddScoped<AnnouncementFactory>();
+builder.Services.AddScoped<TalkBitRuntimeService>();
+builder.Services.AddScoped<SegmentRenderer>();
+builder.Services.AddScoped<JingleProductionService>();
 builder.Services.AddScoped<MessageModerator>();
 builder.Services.AddScoped<MediaAnalysisRecorder>();
+builder.Services.AddScoped<ModeratorMemoryService>();
 builder.Services.AddSingleton<ProductionGate>();
 
 builder.Services.AddSingleton(TimeProvider.System);
@@ -53,11 +58,13 @@ builder.Services.AddSingleton<MusicProductionControl>();
 builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();
+builder.Services.AddSingleton<IPromptContextBuilder, PromptContextBuilder>();
 builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
 builder.Services.AddSingleton<MixerDiagnostics>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
 builder.Services.AddSingleton<AudioMixerEngine>();
+builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 
 builder.Services.AddSignalR();
 
@@ -71,6 +78,8 @@ builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();
+builder.Services.AddHostedService<NightlyModeratorMemoryDistillationService>();
+builder.Services.AddHostedService<TalkBreakCleanupService>();
 builder.Services.AddHostedService<AnalysisBackfillService>();
 builder.Services.AddHostedService<ConsoleLogBroadcaster>();
 

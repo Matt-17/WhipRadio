@@ -51,4 +51,24 @@ public class WavFileTests
     {
         Assert.Throws<InvalidDataException>(() => WavFile.GetDurationSeconds([0x52, 0x49]));
     }
+
+    [TestMethod]
+    public void ConcatPcm16_AppendsMatchingPcmData()
+    {
+        var first = WavFile.WrapPcm16(new byte[88200], sampleRate: 44100, channels: 1);
+        var second = WavFile.WrapPcm16(new byte[44100], sampleRate: 44100, channels: 1);
+
+        var combined = WavFile.ConcatPcm16([first, second]);
+
+        Assert.Equal(1.5, WavFile.GetDurationSeconds(combined), precision: 6);
+    }
+
+    [TestMethod]
+    public void ConcatPcm16_RejectsMismatchedFormats()
+    {
+        var first = WavFile.WrapPcm16(new byte[88200], sampleRate: 44100, channels: 1);
+        var second = WavFile.WrapPcm16(new byte[96000], sampleRate: 48000, channels: 1);
+
+        Assert.Throws<InvalidDataException>(() => WavFile.ConcatPcm16([first, second]));
+    }
 }

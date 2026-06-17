@@ -1,3 +1,5 @@
+using WhipRadio.Core.Personality;
+
 namespace WhipRadio.Core.Entities;
 
 /// <summary>A radio host persona. Drives announcement style, TTS voice and track selection.</summary>
@@ -36,11 +38,39 @@ public class Moderator
     /// <summary>0–1: how chatty this host is between songs (0 = mostly music, 1 = loves to talk).</summary>
     public double Talkativeness { get; set; } = 0.5;
 
+    public Energy BaselineEnergy { get; set; } = Energy.Medium;
+
+    public Formality BaselineFormality { get; set; } = Formality.Balanced;
+
+    public HumorLevel BaselineHumorLevel { get; set; } = HumorLevel.Medium;
+
+    public WhipRadio.Core.Personality.Talkativeness BaselineTalkativeness { get; set; }
+        = WhipRadio.Core.Personality.Talkativeness.Medium;
+
+    public Warmth BaselineWarmth { get; set; } = Warmth.Medium;
+
+    /// <summary>0 = no free talk; 1 = every gap may talk; 3 = roughly every third track.</summary>
+    public int TalkBreakFrequencyTracks { get; set; } = 1;
+
+    public int MinTalkPartsPerBreak { get; set; } = 1;
+
+    public int MaxTalkPartsPerBreak { get; set; } = 3;
+
+    /// <summary>CSV of AnnouncementKind values allowed until TalkPart gets its own model.</summary>
+    public string AllowedTalkPartKinds { get; set; }
+        = "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
+
+    public int ExactReplayTolerance { get; set; } = 2;
+
+    public double EvergreenBitTolerance { get; set; } = 0.5;
+
     /// <summary>null = no preference; drives track selection.</summary>
     public bool? PrefersVocals { get; set; }
 
     /// <summary>CSV genre list, e.g. "rock,indie".</summary>
     public string PreferredGenres { get; set; } = string.Empty;
+
+    public bool IsWeatherSpecialist { get; set; }
 
     /// <summary>URL or app-relative path of the host's portrait; null = skeleton placeholder.</summary>
     public string? PhotoUrl { get; set; }

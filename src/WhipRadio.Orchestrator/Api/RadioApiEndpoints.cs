@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Personality;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
@@ -30,9 +31,11 @@ public static class RadioApiEndpoints
         MapNowPlaying(api);
         MapLibrary(api);
         MapPlayLog(api);
+        MapTalkBreaks(api);
         MapVotes(api);
         MapModerators(api);
         MapSettings(api);
+        MapBranding(api);
         MapFormatsAndSchedule(api);
         MapStats(api);
         MapConsole(api);
@@ -195,6 +198,9 @@ public static class RadioApiEndpoints
                 current?.StartedAtUtc, control.QueuedArtistIds()));
         });
 
+        api.MapPost("/music/cancel", (MusicProductionControl control) =>
+            control.CancelGeneration() ? Results.Accepted() : Results.NoContent());
+
         // In-library preview playback — intentionally does NOT touch PlayCount;
         // only broadcast plays count.
         api.MapGet("/library/{id:guid}/audio", async (
@@ -273,6 +279,11 @@ public static class RadioApiEndpoints
             var announcements = await db.Announcements.AsNoTracking()
                 .Where(a => announcementIds.Contains(a.Id))
                 .ToDictionaryAsync(a => a.Id, ct);
+            var talkBreaks = await db.TalkBreaks.AsNoTracking()
+                .Include(talkBreak => talkBreak.Parts)
+                .Where(talkBreak => talkBreak.AnnouncementId != null
+                    && announcementIds.Contains(talkBreak.AnnouncementId.Value))
+                .ToDictionaryAsync(talkBreak => talkBreak.AnnouncementId!.Value, ct);
             var moderatorNames = await db.Moderators.AsNoTracking()
                 .ToDictionaryAsync(m => m.Id, m => m.Name, ct);
 
@@ -288,7 +299,7 @@ public static class RadioApiEndpoints
                 else
                 {
                     var announcement = announcements.GetValueOrDefault(e.ItemId);
-                    title = announcement?.Kind.ToString() ?? "(announcement)";
+                    title = talkBreaks.ContainsKey(e.ItemId) ? "Announcement" : announcement?.Kind.ToString() ?? "(announcement)";
                     transcript = announcement?.VoicedText is { } voiced
                         ? SpeechMarkerNormalizer.ToPlainText(voiced)
                         : null;
@@ -297,7 +308,13 @@ public static class RadioApiEndpoints
                 return new PlayLogEntryDto(
                     e.PlayedAt, e.ItemType.ToString(), e.ItemId, title,
                     e.ModeratorId is int id ? moderatorNames.GetValueOrDefault(id) : null,
-                    e.DurationSeconds, transcript);
+                    e.DurationSeconds, transcript,
+                    talkBreaks.TryGetValue(e.ItemId, out var talkBreak)
+                        ? talkBreak.Parts
+                            .OrderBy(part => part.SortOrder)
+                            .Select(ToDto)
+                            .ToList()
+                        : null);
             }).ToList();
 
             return Results.Ok(result);
@@ -315,6 +332,67 @@ public static class RadioApiEndpoints
             return File.Exists(path)
                 ? Results.File(path, "audio/wav", enableRangeProcessing: true)
                 : Results.NotFound();
+        });
+    }
+
+    private static void MapTalkBreaks(RouteGroupBuilder api)
+    {
+        api.MapPost("/talkbreaks/emergency", async (
+            EmergencyTalkBreakRequestDto request,
+            RadioDbContext db,
+            ScheduleService schedule,
+            AnnouncementFactory factory,
+            PriorityTalkBreakDispatcher dispatcher,
+            TimeProvider timeProvider,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Text))
+            {
+                return Results.BadRequest("Text is required.");
+            }
+
+            var priority = ParseOnDemandPriority(request.Priority);
+            Moderator? moderator;
+            if (request.ModeratorId is int moderatorId)
+            {
+                moderator = await db.Moderators.AsNoTracking()
+                    .FirstOrDefaultAsync(item => item.Id == moderatorId && item.IsActive, ct);
+                if (moderator is null)
+                {
+                    return Results.NotFound();
+                }
+            }
+            else
+            {
+                moderator = (await schedule.GetCurrentAsync(ct)).Moderator;
+            }
+
+            var stationName = (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).StationName;
+            var expiresInMinutes = Math.Clamp(request.ExpiresInMinutes ?? 60, 5, 24 * 60);
+            var announcement = await factory.ProduceDirectAsync(
+                AnnouncementKind.EmergencyMessage,
+                TalkPartKind.EmergencyMessage,
+                priority,
+                moderator,
+                request.Text,
+                "EmergencyMessage",
+                ct,
+                expiresAtUtc: timeProvider.GetUtcNow().UtcDateTime.AddMinutes(expiresInMinutes));
+
+            var talkBreakId = await db.TalkBreaks.AsNoTracking()
+                .Where(talkBreak => talkBreak.AnnouncementId == announcement.Id)
+                .Select(talkBreak => talkBreak.Id)
+                .FirstAsync(ct);
+
+            await dispatcher.PushReadyAsync(ct);
+
+            return Results.Accepted(
+                $"/api/announcements/{announcement.Id}/audio",
+                new EmergencyTalkBreakDto(
+                    announcement.Id,
+                    talkBreakId,
+                    priority.ToString(),
+                    TalkBreakStatus.Rendered.ToString()));
         });
     }
 
@@ -363,14 +441,15 @@ public static class RadioApiEndpoints
 
     private static void MapModerators(RouteGroupBuilder api)
     {
-        api.MapGet("/moderators", async (RadioDbContext db, CancellationToken ct) =>
+        api.MapGet("/moderators", async (RadioDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var moderators = await db.Moderators.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
-            return Results.Ok(moderators.Select(ToDto).ToList());
+            var now = time.GetLocalNow();
+            return Results.Ok(moderators.Select(m => ToDto(m, now)).ToList());
         });
 
         api.MapPost("/moderators", async (CreateModeratorDto request, RadioDbContext db,
-            VoiceCatalogService voices, CancellationToken ct) =>
+            VoiceCatalogService voices, TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -380,6 +459,7 @@ public static class RadioApiEndpoints
             // Hosts always speak the station language (the main language).
             var stationLanguage = StationLanguages.Normalize(
                 (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).DefaultLanguage);
+            var baselineTraits = ParseBaselineTraits(request.BaselineTraits, request.Style, request.Talkativeness);
 
             var moderator = new Moderator
             {
@@ -392,15 +472,22 @@ public static class RadioApiEndpoints
                 PrefersVocals = request.PrefersVocals,
                 PreferredGenres = request.PreferredGenres,
                 Talkativeness = Math.Clamp(request.Talkativeness, 0, 1),
+                IsWeatherSpecialist = request.IsWeatherSpecialist,
+                BaselineEnergy = baselineTraits.Energy,
+                BaselineFormality = baselineTraits.Formality,
+                BaselineHumorLevel = baselineTraits.HumorLevel,
+                BaselineTalkativeness = baselineTraits.Talkativeness,
+                BaselineWarmth = baselineTraits.Warmth,
                 PhotoUrl = string.IsNullOrWhiteSpace(request.PhotoUrl) ? null : request.PhotoUrl.Trim(),
                 IsActive = true,
                 SpeechRate = 1.0,
             };
+            ApplyTalkProfile(moderator, request.TalkProfile);
             moderator.VoiceId = await voices.PickVoiceAsync(moderator, ct);
 
             db.Moderators.Add(moderator);
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(moderator));
+            return Results.Ok(ToDto(moderator, time.GetLocalNow()));
         });
 
         api.MapPost("/moderators/{id:int}/toggle", async (int id, RadioDbContext db, CancellationToken ct) =>
@@ -417,7 +504,7 @@ public static class RadioApiEndpoints
         });
 
         api.MapPut("/moderators/{id:int}/photo", async (int id, ModeratorPhotoDto request,
-            RadioDbContext db, CancellationToken ct) =>
+            RadioDbContext db, TimeProvider time, CancellationToken ct) =>
         {
             var moderator = await db.Moderators.FirstOrDefaultAsync(m => m.Id == id, ct);
             if (moderator is null)
@@ -427,7 +514,7 @@ public static class RadioApiEndpoints
 
             moderator.PhotoUrl = string.IsNullOrWhiteSpace(request.PhotoUrl) ? null : request.PhotoUrl.Trim();
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToDto(moderator));
+            return Results.Ok(ToDto(moderator, time.GetLocalNow()));
         });
 
         api.MapGet("/moderators/{id:int}/talks", async (int id, RadioDbContext db, CancellationToken ct) =>
@@ -468,6 +555,9 @@ public static class RadioApiEndpoints
 
             var previousLanguage = settings.DefaultLanguage;
             settings.StationName = string.IsNullOrWhiteSpace(request.StationName) ? settings.StationName : request.StationName.Trim();
+            settings.StationSlogan = SanitizeOptional(request.StationSlogan, settings.StationSlogan);
+            settings.StationVision = SanitizeOptional(request.StationVision, settings.StationVision);
+            settings.StationMission = SanitizeOptional(request.StationMission, settings.StationMission);
             settings.DefaultLanguage = StationLanguages.Normalize(request.DefaultLanguage);
             settings.TargetQueueLength = Math.Clamp(request.TargetQueueLength, 1, 20);
             settings.AnnouncementEveryNTracks = Math.Clamp(request.AnnouncementEveryNTracks, 0, 10);
@@ -488,6 +578,14 @@ public static class RadioApiEndpoints
             settings.ElevenLabsEnabled = request.ElevenLabsEnabled;
             settings.ElevenLabsApiKey = request.ElevenLabsApiKey ?? string.Empty;
             settings.GreetingsEnabled = request.GreetingsEnabled;
+            settings.WeatherEnabled = request.WeatherEnabled;
+            settings.WeatherCadenceMinutes = WeatherScheduler.NormalizeCadence(request.WeatherCadenceMinutes);
+            settings.WeatherFullHandoverEnabled = request.WeatherFullHandoverEnabled;
+            settings.WeatherSpecialistModeratorId = request.WeatherSpecialistModeratorId is int specialistId
+                && await db.Moderators.AsNoTracking()
+                    .AnyAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct)
+                    ? specialistId
+                    : null;
 
             await db.SaveChangesAsync(ct);
 
@@ -498,6 +596,162 @@ public static class RadioApiEndpoints
             }
 
             return Results.Ok(ToDto(settings));
+        });
+    }
+
+    private static void MapBranding(RouteGroupBuilder api)
+    {
+        api.MapGet("/branding", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var jingles = await db.Jingles.AsNoTracking()
+                .OrderBy(jingle => jingle.Label)
+                .ThenByDescending(jingle => jingle.CreatedAtUtc)
+                .ToListAsync(ct);
+
+            return Results.Ok(ToBrandingDto(settings, jingles));
+        });
+
+        api.MapPut("/branding", async (
+            SaveBrandingDto request,
+            RadioDbContext db,
+            CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
+            if (settings is null)
+            {
+                settings = new StationSettings { Id = StationSettings.SingletonId };
+                db.StationSettings.Add(settings);
+            }
+
+            settings.StationName = string.IsNullOrWhiteSpace(request.StationName)
+                ? settings.StationName
+                : request.StationName.Trim();
+            settings.StationSlogan = SanitizeOptional(request.StationSlogan, settings.StationSlogan);
+            settings.StationVision = SanitizeOptional(request.StationVision, settings.StationVision);
+            settings.StationMission = SanitizeOptional(request.StationMission, settings.StationMission);
+
+            await db.SaveChangesAsync(ct);
+
+            var jingles = await db.Jingles.AsNoTracking()
+                .OrderBy(jingle => jingle.Label)
+                .ThenByDescending(jingle => jingle.CreatedAtUtc)
+                .ToListAsync(ct);
+
+            return Results.Ok(ToBrandingDto(settings, jingles));
+        });
+
+        api.MapGet("/jingles", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var jingles = await db.Jingles.AsNoTracking()
+                .OrderBy(jingle => jingle.Label)
+                .ThenByDescending(jingle => jingle.CreatedAtUtc)
+                .ToListAsync(ct);
+            return Results.Ok(jingles.Select(ToDto).ToList());
+        });
+
+        api.MapPost("/jingles", async (
+            CreateJingleDto request,
+            JingleProductionService production,
+            IHubContext<RadioHub> hub,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Label))
+            {
+                return Results.BadRequest("Label is required.");
+            }
+
+            try
+            {
+                var jingle = await production.GenerateAsync(request, ct);
+                await hub.Clients.All.SendAsync("JinglesChanged", ct);
+                return Results.Ok(ToDto(jingle));
+            }
+            catch (MusicBackendUnavailableException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 503);
+            }
+            catch (MusicProviderValidationException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
+            catch (MusicGenerationFailedException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 502);
+            }
+            catch (TimeoutException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 504);
+            }
+        });
+
+        api.MapGet("/jingles/{id:guid}/audio", async (
+            Guid id,
+            RadioDbContext db,
+            IOptions<RadioOptions> radio,
+            CancellationToken ct) =>
+        {
+            var jingle = await db.Jingles.AsNoTracking().FirstOrDefaultAsync(item => item.Id == id, ct);
+            if (jingle is null)
+            {
+                return Results.NotFound();
+            }
+
+            var path = Path.Combine(radio.Value.DataRoot, jingle.FilePath);
+            return File.Exists(path)
+                ? Results.File(path, "audio/wav", enableRangeProcessing: true)
+                : Results.NotFound();
+        });
+
+        api.MapPost("/jingles/{id:guid}/toggle", async (
+            Guid id,
+            RadioDbContext db,
+            IHubContext<RadioHub> hub,
+            CancellationToken ct) =>
+        {
+            var jingle = await db.Jingles.FirstOrDefaultAsync(item => item.Id == id, ct);
+            if (jingle is null)
+            {
+                return Results.NotFound();
+            }
+
+            jingle.IsActive = !jingle.IsActive;
+            await db.SaveChangesAsync(ct);
+            await hub.Clients.All.SendAsync("JinglesChanged", ct);
+            return Results.Ok(ToDto(jingle));
+        });
+
+        api.MapDelete("/jingles/{id:guid}", async (
+            Guid id,
+            RadioDbContext db,
+            IHubContext<RadioHub> hub,
+            IOptions<RadioOptions> radio,
+            CancellationToken ct) =>
+        {
+            var jingle = await db.Jingles.FirstOrDefaultAsync(item => item.Id == id, ct);
+            if (jingle is null)
+            {
+                return Results.NotFound();
+            }
+
+            db.Jingles.Remove(jingle);
+            await db.SaveChangesAsync(ct);
+            await hub.Clients.All.SendAsync("JinglesChanged", ct);
+
+            try
+            {
+                var path = Path.Combine(radio.Value.DataRoot, jingle.FilePath);
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // DB row is gone; a stray WAV can be cleaned by storage maintenance.
+            }
+
+            return Results.NoContent();
         });
     }
 
@@ -514,7 +768,8 @@ public static class RadioApiEndpoints
             return Results.Ok(formats.Select(f => new FormatDto(
                 f.Id, f.Name, f.Description, f.Genre, f.Subgenre,
                 f.Moderator?.Name, f.ModeratorId, f.Reason, f.IsEnabled, f.UpVotes, f.DownVotes,
-                NextOnAir(slots.Where(s => s.FormatId == f.Id), now), f.Talkativeness)).ToList());
+                NextOnAir(slots.Where(s => s.FormatId == f.Id), now), f.Talkativeness,
+                f.TalkDepth.ToString(), f.TalkDensity)).ToList());
         });
 
         api.MapPost("/formats/{id:guid}/toggle", async (Guid id, RadioDbContext db, CancellationToken ct) =>
@@ -1010,18 +1265,123 @@ public static class RadioApiEndpoints
         t.Id, t.Title, t.Genre, t.Subgenre, t.Artist?.Name ?? "—", t.ArtistId, t.HasVocals,
         t.DurationSeconds, t.PlayCount, t.UpVotes, t.DownVotes, t.IsRetired, t.Backend, t.CreatedAt);
 
-    private static ModeratorDto ToDto(Moderator m) => new(
+    private static TalkPartDto ToDto(TalkPart part)
+        => new(
+            part.SortOrder,
+            part.Kind.ToString(),
+            part.Purpose,
+            part.Priority.ToString(),
+            part.DesiredDurationSeconds,
+            part.WordBudget);
+
+    private static TalkBreakPriority ParseOnDemandPriority(string? value)
+        => Enum.TryParse<TalkBreakPriority>(value, ignoreCase: true, out var parsed)
+            && parsed == TalkBreakPriority.High
+                ? TalkBreakPriority.High
+                : TalkBreakPriority.Emergency;
+
+    private static ModeratorDto ToDto(Moderator m, DateTimeOffset localNow) => new(
         m.Id, m.Name, m.Language, m.Gender, m.TtsEngine, m.VoiceId, m.SpeechRate, m.Style,
         m.PersonaPrompt, m.PrefersVocals, m.PreferredGenres, m.IsActive, m.IsAutoGenerated,
-        m.Talkativeness, m.PhotoUrl);
+        m.Talkativeness, m.IsWeatherSpecialist, m.PhotoUrl, ToDto(MoodEngine.Baseline(m)), ToDto(MoodEngine.Current(m, localNow)),
+        ToDto(HostTalkProfile.FromModerator(m)));
+
+    private static HostTalkProfileDto ToDto(HostTalkProfile profile)
+        => new(
+            profile.BreakFrequencyTracks,
+            profile.MinPartsPerBreak,
+            profile.MaxPartsPerBreak,
+            string.Join(",", profile.AllowedKinds.OrderBy(kind => kind.ToString())),
+            profile.ExactReplayTolerance,
+            profile.EvergreenBitTolerance);
+
+    private static void ApplyTalkProfile(Moderator moderator, HostTalkProfileDto? profile)
+    {
+        if (profile is null)
+        {
+            return;
+        }
+
+        moderator.TalkBreakFrequencyTracks = Math.Max(0, profile.BreakFrequencyTracks);
+        moderator.MinTalkPartsPerBreak = Math.Clamp(profile.MinPartsPerBreak, 0, 10);
+        moderator.MaxTalkPartsPerBreak = Math.Clamp(
+            Math.Max(profile.MaxPartsPerBreak, moderator.MinTalkPartsPerBreak),
+            1,
+            10);
+        moderator.AllowedTalkPartKinds = string.IsNullOrWhiteSpace(profile.AllowedTalkPartKinds)
+            ? new HostTalkProfileDto().AllowedTalkPartKinds
+            : profile.AllowedTalkPartKinds;
+        moderator.ExactReplayTolerance = Math.Max(0, profile.ExactReplayTolerance);
+        moderator.EvergreenBitTolerance = Math.Clamp(profile.EvergreenBitTolerance, 0, 1);
+    }
+
+    private static ModeratorTraitsDto ToDto(HostPersonalityTraits traits)
+        => new(
+            traits.Energy.ToString(),
+            traits.Formality.ToString(),
+            traits.HumorLevel.ToString(),
+            traits.Talkativeness.ToString(),
+            traits.Warmth.ToString());
+
+    private static HostPersonalityTraits ParseBaselineTraits(
+        ModeratorTraitsDto? request,
+        string style,
+        double talkativeness)
+    {
+        var inferred = MoodEngine.InferBaseline(style, talkativeness);
+        if (request is null)
+        {
+            return inferred;
+        }
+
+        return new HostPersonalityTraits(
+            ParseTrait(request.Energy, inferred.Energy),
+            ParseTrait(request.Formality, inferred.Formality),
+            ParseTrait(request.HumorLevel, inferred.HumorLevel),
+            ParseTrait(request.Talkativeness, inferred.Talkativeness),
+            ParseTrait(request.Warmth, inferred.Warmth));
+    }
+
+    private static T ParseTrait<T>(string value, T fallback)
+        where T : struct, Enum
+        => Enum.TryParse<T>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
+
+    private static BrandingDto ToBrandingDto(StationSettings s, IReadOnlyList<Jingle> jingles) => new(
+        s.StationName,
+        s.StationSlogan,
+        s.StationVision,
+        s.StationMission,
+        jingles.Select(ToDto).ToList());
+
+    private static JingleDto ToDto(Jingle jingle) => new(
+        jingle.Id,
+        jingle.Label,
+        jingle.Prompt,
+        jingle.Style,
+        jingle.Language,
+        jingle.DurationSeconds,
+        jingle.Backend,
+        jingle.Status.ToString(),
+        jingle.IsActive,
+        jingle.CreatedAtUtc,
+        jingle.LastUsedAtUtc,
+        jingle.PlayCount);
 
     private static StationSettingsDto ToDto(StationSettings s) => new(
-        s.StationName, s.DefaultLanguage, s.TargetQueueLength, s.AnnouncementEveryNTracks,
+        s.StationName, s.StationSlogan, s.StationVision, s.StationMission,
+        s.DefaultLanguage, s.TargetQueueLength, s.AnnouncementEveryNTracks,
         s.MusicProductionEnabled, s.PlayoutEnabled, s.MaxLibrarySize,
         s.MinTrackDurationSeconds, s.MaxTrackDurationSeconds, s.EnableBreathMarkers,
         s.FrequencyMhz, s.FirstDayOfWeek, MusicBackends.Normalize(s.DefaultMusicProvider),
         s.TextProvider, s.OpenAiApiKey, s.OpenAiModel,
-        s.ElevenLabsEnabled, s.ElevenLabsApiKey, s.GreetingsEnabled);
+        s.ElevenLabsEnabled, s.ElevenLabsApiKey, s.GreetingsEnabled,
+        s.WeatherEnabled,
+        WeatherScheduler.NormalizeCadence(s.WeatherCadenceMinutes),
+        s.WeatherSpecialistModeratorId,
+        s.WeatherFullHandoverEnabled);
+
+    private static string SanitizeOptional(string? value, string fallback)
+        => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
 
     private static string HashClient(string value)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..16];

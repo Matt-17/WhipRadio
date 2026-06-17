@@ -14,6 +14,15 @@ public class TalkPlannerTests
     }
 
     [TestMethod]
+    public void EffectiveTalkativeness_UsesFormatTalkDensity()
+    {
+        var moderator = new Moderator { Talkativeness = 0.8 };
+        var format = new Format { Talkativeness = 0.2, TalkDensity = 0.4 };
+
+        Assert.Equal(0.6, TalkPlanner.EffectiveTalkativeness(moderator, format), precision: 10);
+    }
+
+    [TestMethod]
     public void PickGapTalkCount_QuietHostIsMostlySilent()
     {
         var random = new Random(7);
@@ -51,6 +60,36 @@ public class TalkPlannerTests
     }
 
     [TestMethod]
+    public void PickGapTalkCount_ProfileCanDisableFreeTalk()
+    {
+        var random = new Random(7);
+        var moderator = new Moderator { Talkativeness = 1, TalkBreakFrequencyTracks = 0 };
+
+        var count = TalkPlanner.PickGapTalkCount(random, hasMandatoryTalk: false, moderator, format: null);
+
+        Assert.Equal(0, count);
+    }
+
+    [TestMethod]
+    public void PickGapTalkCount_ProfileClampsPartCount()
+    {
+        var random = new Random(7);
+        var moderator = new Moderator
+        {
+            Talkativeness = 1,
+            TalkBreakFrequencyTracks = 1,
+            MinTalkPartsPerBreak = 1,
+            MaxTalkPartsPerBreak = 1,
+        };
+
+        var counts = Enumerable.Range(0, 200)
+            .Select(_ => TalkPlanner.PickGapTalkCount(random, hasMandatoryTalk: false, moderator, format: null))
+            .ToList();
+
+        Assert.DoesNotContain(counts, c => c > 1);
+    }
+
+    [TestMethod]
     public void PickLengthHint_AllVariantsReachable()
     {
         var random = new Random(7);
@@ -60,6 +99,16 @@ public class TalkPlannerTests
             .ToList();
 
         Assert.Equal(4, hints.Count); // one-liner, short, medium, story
+    }
+
+    [TestMethod]
+    public void PickLengthHint_TalkDepthControlsInstruction()
+    {
+        var nameOnly = TalkPlanner.PickLengthHint(new Random(7), TalkDepth.NameOnly, talkativeness: 0.8);
+        var deepDive = TalkPlanner.PickLengthHint(new Random(7), TalkDepth.DeepDive, talkativeness: 0.8);
+
+        Assert.Contains("only identify", nameOnly);
+        Assert.DoesNotContain("only identify", deepDive);
     }
 
     [TestMethod]
@@ -97,5 +146,26 @@ public class TalkPlannerTests
         Assert.DoesNotContain(AnnouncementKind.SongIntro, kinds);
         Assert.DoesNotContain(AnnouncementKind.SongOutro, kinds);
         Assert.Contains(AnnouncementKind.Banter, kinds);
+    }
+
+    [TestMethod]
+    public void PickFreeTalkKind_RespectsAllowedKinds()
+    {
+        var random = new Random(7);
+        var profile = new HostTalkProfile(
+            BreakFrequencyTracks: 1,
+            MinPartsPerBreak: 1,
+            MaxPartsPerBreak: 3,
+            AllowedKinds: new HashSet<AnnouncementKind> { AnnouncementKind.Joke },
+            ExactReplayTolerance: 2,
+            EvergreenBitTolerance: 0.5);
+
+        var kind = TalkPlanner.PickFreeTalkKind(
+            random,
+            hasNextTrack: true,
+            hasPreviousTrack: true,
+            profile);
+
+        Assert.Equal(AnnouncementKind.Joke, kind);
     }
 }

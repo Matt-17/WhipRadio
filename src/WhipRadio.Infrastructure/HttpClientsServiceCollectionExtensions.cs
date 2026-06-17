@@ -1,10 +1,12 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Infrastructure.Prompting;
 using WhipRadio.Infrastructure.Studios;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Infrastructure.Weather;
@@ -74,11 +76,13 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddScoped<IVoiceDesignClient, VoiceDesignClient>();
         services.AddScoped<IMusicGenerator, StudioMusicGenerator>();
 
-        services.AddHttpClient<IAnnouncementDataSource, OpenMeteoWeatherSource>(client =>
+        services.AddHttpClient<OpenMeteoWeatherSource>(client =>
         {
             client.BaseAddress = new Uri(configuration["Weather:Endpoint"] ?? "https://api.open-meteo.com");
             client.Timeout = TimeSpan.FromSeconds(30);
         });
+        services.AddScoped<IAnnouncementDataSource>(sp => sp.GetRequiredService<OpenMeteoWeatherSource>());
+        services.AddScoped<IWeatherReportSource>(sp => sp.GetRequiredService<OpenMeteoWeatherSource>());
 
         // Mixer audio analysis sidecar (CPU-only; started by start-studios.ps1).
         services.AddHttpClient<IAudioAnalysisClient, HttpAudioAnalysisClient>(client =>
@@ -90,6 +94,15 @@ public static class HttpClientsServiceCollectionExtensions
 
         services.AddScoped<IScriptWriter, ScriptWriter>();
         services.AddScoped<IVoiceDirector, VoiceDirector>();
+        services.AddSingleton<ICharacterToolCallParser, CharacterToolCallParser>();
+        services.AddSingleton<ICharacterToolCatalog, CharacterToolCatalog>();
+        services.AddSingleton<ICharacterTool, AnnounceTool>();
+        services.AddSingleton<ICharacterTool, PlayTool>();
+        services.AddSingleton<ICharacterTool, MessageTool>();
+        services.AddSingleton<ICharacterTool, StartTalkBreakTool>();
+        services.AddSingleton<ICharacterTool, RememberTool>();
+        services.AddSingleton<ICharacterTool, RequestBitTool>();
+        services.AddSingleton<ICharacterTool, NoOpTool>();
 
         return services;
     }

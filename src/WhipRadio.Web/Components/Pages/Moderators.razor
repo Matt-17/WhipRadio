@@ -42,7 +42,7 @@ else
                     </div>
                     <div>
                         <div class="host-row-name">@moderator.Name</div>
-                        <div class="host-row-sub">@moderator.TtsEngine · @TalkLabel(moderator.Talkativeness)</div>
+                        <div class="host-row-sub">@moderator.TtsEngine · @TalkLabel(moderator.Talkativeness) · @MoodSummary(moderator.CurrentTraits)</div>
                     </div>
                     <span class="status-dot @(moderator.IsActive ? "on" : null)"
                           title="@(moderator.IsActive ? "on roster" : "off roster")"></span>
@@ -90,11 +90,46 @@ else
                             {
                                 <span class="tag green">director's pick</span>
                             }
+                            @if (host.IsWeatherSpecialist)
+                            {
+                                <span class="tag amber">weather</span>
+                            }
                             <span class="tag @(host.IsActive ? "green" : "red")">
                                 @(host.IsActive ? "on roster" : "off roster")
                             </span>
                         </div>
                         <div class="mod-persona">@host.PersonaPrompt</div>
+                        @if (host.BaselineTraits is not null && host.CurrentTraits is not null)
+                        {
+                            <div class="trait-board">
+                                <div class="trait-row stable">
+                                    <span class="trait-label">baseline</span>
+                                    <span class="trait-chip"><b>energy</b>@TraitLabel(host.BaselineTraits.Energy)</span>
+                                    <span class="trait-chip"><b>formality</b>@TraitLabel(host.BaselineTraits.Formality)</span>
+                                    <span class="trait-chip"><b>humor</b>@TraitLabel(host.BaselineTraits.HumorLevel)</span>
+                                    <span class="trait-chip"><b>talk</b>@TraitLabel(host.BaselineTraits.Talkativeness)</span>
+                                    <span class="trait-chip"><b>warmth</b>@TraitLabel(host.BaselineTraits.Warmth)</span>
+                                </div>
+                                <div class="trait-row variable">
+                                    <span class="trait-label">current</span>
+                                    <span class="trait-chip"><b>energy</b>@TraitLabel(host.CurrentTraits.Energy)</span>
+                                    <span class="trait-chip"><b>formality</b>@TraitLabel(host.CurrentTraits.Formality)</span>
+                                    <span class="trait-chip"><b>humor</b>@TraitLabel(host.CurrentTraits.HumorLevel)</span>
+                                    <span class="trait-chip"><b>talk</b>@TraitLabel(host.CurrentTraits.Talkativeness)</span>
+                                    <span class="trait-chip"><b>warmth</b>@TraitLabel(host.CurrentTraits.Warmth)</span>
+                                </div>
+                            </div>
+                        }
+                        @if (host.TalkProfile is not null)
+                        {
+                            <div class="trait-row stable talk-profile-row">
+                                <span class="trait-label">profile</span>
+                                <span class="trait-chip"><b>break</b>@BreakFrequencyLabel(host.TalkProfile.BreakFrequencyTracks)</span>
+                                <span class="trait-chip"><b>parts</b>@host.TalkProfile.MinPartsPerBreak-@host.TalkProfile.MaxPartsPerBreak</span>
+                                <span class="trait-chip"><b>replay</b>@host.TalkProfile.ExactReplayTolerance</span>
+                                <span class="trait-chip"><b>evergreen</b>@host.TalkProfile.EvergreenBitTolerance.ToString("0.##")</span>
+                            </div>
+                        }
                         @if (!string.IsNullOrWhiteSpace(host.VoiceId) && _redesignFor == host.Id && _redesigned is not null)
                         {
                             <div class="btn-row" style="margin-top:12px">
@@ -163,11 +198,72 @@ else
             </div>
             <div class="field"><label>Style</label><input @bind="_newStyle" placeholder="fast-energetic / slow-thoughtful / …" /></div>
             <div class="field">
+                <label>Weather specialist</label>
+                <select @bind="_newWeatherSpecialist">
+                    <option value="false">no</option>
+                    <option value="true">yes</option>
+                </select>
+            </div>
+            <div class="field">
                 <label>Talkativeness</label>
                 <select @bind="_newTalkativeness">
                     <option value="0.2">quiet — mostly music</option>
                     <option value="0.5">balanced</option>
                     <option value="0.8">talky — loves the mic</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Energy</label>
+                <select @bind="_newEnergy">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Formality</label>
+                <select @bind="_newFormality">
+                    <option value="VeryCasual">very casual</option>
+                    <option value="Casual">casual</option>
+                    <option value="Balanced">balanced</option>
+                    <option value="Formal">formal</option>
+                    <option value="VeryFormal">very formal</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Humor</label>
+                <select @bind="_newHumorLevel">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Warmth</label>
+                <select @bind="_newWarmth">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Break Frequency</label>
+                <select @bind="_newBreakFrequency">
+                    <option value="0">music only</option>
+                    <option value="1">every track</option>
+                    <option value="2">every second track</option>
+                    <option value="3">every third track</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Parts Per Break</label>
+                <select @bind="_newMaxPartsPerBreak">
+                    <option value="1">one part</option>
+                    <option value="2">up to two parts</option>
+                    <option value="3">up to three parts</option>
                 </select>
             </div>
             <div class="field"><label>Preferred Genres (csv)</label><input @bind="_newGenres" placeholder="electronic,lofi" /></div>
@@ -224,6 +320,13 @@ else
     private string _newStyle = "";
     private string _newGenres = "";
     private string _newTalkativeness = "0.5";
+    private string _newWeatherSpecialist = "false";
+    private string _newEnergy = "Medium";
+    private string _newFormality = "Balanced";
+    private string _newHumorLevel = "Medium";
+    private string _newWarmth = "Medium";
+    private string _newBreakFrequency = "1";
+    private string _newMaxPartsPerBreak = "3";
     private string _newPersona = "";
     private string _newPhotoUrl = "";
     private string? _created;
@@ -278,7 +381,10 @@ else
         var created = await Api.CreateModeratorAsync(new CreateModeratorDto(
             _newName, _stationLanguage, _newGender, _newEngine, _newStyle, _newPersona, null, _newGenres,
             double.TryParse(_newTalkativeness, System.Globalization.CultureInfo.InvariantCulture, out var talk) ? talk : 0.5,
-            string.IsNullOrWhiteSpace(_newPhotoUrl) ? null : _newPhotoUrl));
+            _newWeatherSpecialist == "true",
+            string.IsNullOrWhiteSpace(_newPhotoUrl) ? null : _newPhotoUrl,
+            NewBaselineTraits(),
+            NewTalkProfile()));
 
         // Designed Qwen voices are applied explicitly after creation.
         if (created is not null && _newEngine == "qwen" && _newVoiceHandle is not null)
@@ -290,6 +396,7 @@ else
         _newName = "";
         _newPersona = "";
         _newPhotoUrl = "";
+        _newWeatherSpecialist = "false";
         _newVoiceHandle = null;
         _newDesigned = null;
         _hireOpen = false;
@@ -399,4 +506,46 @@ else
         > 0.65 => "talky",
         _ => "balanced",
     };
+
+    private static readonly string[] TraitLevels = ["VeryLow", "Low", "Medium", "High", "VeryHigh"];
+
+    private ModeratorTraitsDto NewBaselineTraits()
+        => new(_newEnergy, _newFormality, _newHumorLevel, TalkTraitFromScore(_newTalkativeness), _newWarmth);
+
+    private HostTalkProfileDto NewTalkProfile()
+        => new(
+            BreakFrequencyTracks: int.TryParse(_newBreakFrequency, out var frequency) ? frequency : 1,
+            MinPartsPerBreak: 1,
+            MaxPartsPerBreak: int.TryParse(_newMaxPartsPerBreak, out var maxParts) ? maxParts : 3);
+
+    private static string TalkTraitFromScore(string score)
+    {
+        var talkativeness = double.TryParse(score, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, 0, 1)
+            : 0.5;
+        return talkativeness switch
+        {
+            < 0.2 => "VeryLow",
+            < 0.4 => "Low",
+            > 0.8 => "VeryHigh",
+            > 0.6 => "High",
+            _ => "Medium",
+        };
+    }
+
+    private static string MoodSummary(ModeratorTraitsDto? traits)
+        => traits is null ? "mood pending" : $"{TraitLabel(traits.Energy)} energy";
+
+    private static string BreakFrequencyLabel(int frequency)
+        => frequency <= 0 ? "music only" : frequency == 1 ? "every track" : $"every {frequency}";
+
+    private static string TraitLabel(string value)
+        => value switch
+        {
+            "VeryLow" => "very low",
+            "VeryHigh" => "very high",
+            "VeryCasual" => "very casual",
+            "VeryFormal" => "very formal",
+            _ => value.ToLowerInvariant(),
+        };
 }

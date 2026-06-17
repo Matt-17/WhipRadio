@@ -1,5 +1,6 @@
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
 using WhipRadio.Core.Speech;
 
 namespace WhipRadio.Infrastructure.Llm;
@@ -16,6 +17,11 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
             ["LengthHint"] = string.IsNullOrEmpty(request.LengthHint) ? "2-5 sentences." : request.LengthHint,
         });
 
+        if (request.PromptContext is not null)
+        {
+            systemPrompt = $"{systemPrompt}\n\n{request.PromptContext.RenderSituation()}";
+        }
+
         var userPrompt = BuildUserPrompt(request);
         var script = await llm.CompleteAsync(systemPrompt, userPrompt, ct);
         return LlmOutputSanitizer.Sanitize(script);
@@ -23,8 +29,12 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
 
     private static string BuildUserPrompt(AnnouncementRequest request) => request.Kind switch
     {
-        AnnouncementKind.SongIntro => PromptTemplates.Render("ScriptWriter.SongIntro", TrackValues(request)),
-        AnnouncementKind.SongOutro => PromptTemplates.Render("ScriptWriter.SongOutro", TrackValues(request)),
+        AnnouncementKind.SongIntro => WithTalkDepthInstruction(
+            PromptTemplates.Render("ScriptWriter.SongIntro", TrackValues(request)),
+            request),
+        AnnouncementKind.SongOutro => WithTalkDepthInstruction(
+            PromptTemplates.Render("ScriptWriter.SongOutro", TrackValues(request)),
+            request),
         AnnouncementKind.Weather => PromptTemplates.Render("ScriptWriter.Weather", new Dictionary<string, string>
         {
             ["WeatherFacts"] = request.Facts ?? string.Empty,
@@ -37,6 +47,18 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         AnnouncementKind.PersonalNote => PromptTemplates.Render("ScriptWriter.PersonalNote", new Dictionary<string, string>
         {
             ["Facts"] = string.IsNullOrWhiteSpace(request.Facts) ? "nothing yet" : request.Facts,
+        }),
+        AnnouncementKind.TalkBit => PromptTemplates.Render("ScriptWriter.TalkBit", new Dictionary<string, string>
+        {
+            ["Premise"] = string.IsNullOrWhiteSpace(request.Facts)
+                ? "a short evergreen host story"
+                : request.Facts,
+        }),
+        AnnouncementKind.EmergencyMessage => PromptTemplates.Render("ScriptWriter.EmergencyMessage", new Dictionary<string, string>
+        {
+            ["Message"] = string.IsNullOrWhiteSpace(request.Facts)
+                ? "an important station update"
+                : request.Facts,
         }),
         AnnouncementKind.HostChange => PromptTemplates.Render("ScriptWriter.HostChange", new Dictionary<string, string>
         {
@@ -56,6 +78,11 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }),
         _ => throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unknown announcement kind"),
     };
+
+    private static string WithTalkDepthInstruction(string prompt, AnnouncementRequest request)
+        => request.PromptContext?.FormatTalkDepth is TalkDepth depth
+            ? $"{prompt}\n{TalkPlanner.ScriptInstruction(depth, request.Kind)}"
+            : prompt;
 
     /// <summary>Dedication facts arrive as "SenderName|MessageText|Genre"; the track rides on the request.</summary>
     private static Dictionary<string, string> ParseDedicationFacts(AnnouncementRequest request)

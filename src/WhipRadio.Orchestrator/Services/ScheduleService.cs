@@ -30,10 +30,47 @@ public class ScheduleService(IDbContextFactory<RadioDbContext> dbFactory, TimePr
 
         if (slot?.Format is { IsEnabled: true } format && format.Moderator is { IsActive: true } host)
         {
-            return new ShowContext(format.Genre, format.Subgenre, host, format);
+            var nextFormatName = await GetNextFormatNameAsync(db, day, minuteOfDay, ct);
+            return new ShowContext(
+                format.Genre,
+                format.Subgenre,
+                host,
+                format,
+                slot.StartMinute,
+                slot.DurationMinutes,
+                Math.Max(0, slot.StartMinute + slot.DurationMinutes - minuteOfDay),
+                nextFormatName);
         }
 
         return await FallbackContextAsync(db, now, ct);
+    }
+
+    private static async Task<string?> GetNextFormatNameAsync(
+        RadioDbContext db,
+        int day,
+        int minuteOfDay,
+        CancellationToken ct)
+    {
+        var slots = await db.ProgramSlots.AsNoTracking()
+            .Include(s => s.Format)
+            .Where(s => s.Format != null && s.Format.IsEnabled)
+            .ToListAsync(ct);
+
+        return slots
+            .Select(s =>
+            {
+                var dayOffset = (s.DayOfWeek - day + 7) % 7;
+                var minutesAway = dayOffset * 24 * 60 + s.StartMinute - minuteOfDay;
+                if (minutesAway <= 0)
+                {
+                    minutesAway += 7 * 24 * 60;
+                }
+
+                return new { Slot = s, MinutesAway = minutesAway };
+            })
+            .OrderBy(x => x.MinutesAway)
+            .Select(x => x.Slot.Format?.Name)
+            .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name));
     }
 
     private static async Task<ShowContext> FallbackContextAsync(
@@ -63,6 +100,14 @@ public class ScheduleService(IDbContextFactory<RadioDbContext> dbFactory, TimePr
         }
 
         var subgenre = GenreCatalog.PickSubgenre(genre, new Random(now.DayOfYear * 24 + now.Hour));
-        return new ShowContext(genre, subgenre, moderator);
+        var slotStartMinute = (now.Hour / 2) * 120;
+        var minuteOfDay = now.Hour * 60 + now.Minute;
+        return new ShowContext(
+            genre,
+            subgenre,
+            moderator,
+            SlotStartMinute: slotStartMinute,
+            SlotDurationMinutes: 120,
+            RemainingSlotMinutes: Math.Max(0, slotStartMinute + 120 - minuteOfDay));
     }
 }

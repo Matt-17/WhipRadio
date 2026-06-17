@@ -5,6 +5,11 @@ namespace WhipRadio.Core.Audio;
 /// <summary>Tiny RIFF/WAVE header reader — enough to compute a duration without decoding.</summary>
 public static class WavFile
 {
+    private sealed record PcmLayout(short Channels, int SampleRate, short BitsPerSample, ReadOnlyMemory<byte> Data)
+    {
+        public int BytesPerSampleFrame => Channels * (BitsPerSample / 8);
+    }
+
     /// <summary>Computes the duration from the fmt byte rate and the data chunk size.</summary>
     /// <exception cref="InvalidDataException">Not a parsable WAV file.</exception>
     public static double GetDurationSeconds(ReadOnlySpan<byte> wav)
@@ -75,5 +80,95 @@ public static class WavFile
         pcm.CopyTo(span[44..]);
 
         return wav;
+    }
+
+    /// <summary>Concatenates matching PCM WAV files without decoding or resampling.</summary>
+    public static byte[] ConcatPcm16(IReadOnlyList<byte[]> wavFiles)
+    {
+        if (wavFiles.Count == 0)
+        {
+            throw new ArgumentException("At least one WAV file is required.", nameof(wavFiles));
+        }
+
+        var layouts = wavFiles.Select(ParsePcm16).ToList();
+        var first = layouts[0];
+        if (layouts.Any(layout => layout.Channels != first.Channels
+            || layout.SampleRate != first.SampleRate
+            || layout.BitsPerSample != first.BitsPerSample))
+        {
+            throw new InvalidDataException("Cannot concatenate WAV files with different PCM formats.");
+        }
+
+        var totalBytes = layouts.Sum(layout => layout.Data.Length);
+        var pcm = new byte[totalBytes];
+        var offset = 0;
+        foreach (var layout in layouts)
+        {
+            layout.Data.Span.CopyTo(pcm.AsSpan(offset));
+            offset += layout.Data.Length;
+        }
+
+        return WrapPcm16(pcm, first.SampleRate, first.Channels);
+    }
+
+    private static PcmLayout ParsePcm16(byte[] wav)
+    {
+        if (wav.Length < 12 ||
+            !wav.AsSpan()[..4].SequenceEqual("RIFF"u8) ||
+            !wav.AsSpan()[8..12].SequenceEqual("WAVE"u8))
+        {
+            throw new InvalidDataException("Not a RIFF/WAVE file.");
+        }
+
+        short audioFormat = 0;
+        short channels = 0;
+        var sampleRate = 0;
+        short bitsPerSample = 0;
+        ReadOnlyMemory<byte>? data = null;
+
+        var offset = 12;
+        while (offset + 8 <= wav.Length)
+        {
+            var span = wav.AsSpan(offset);
+            var chunkId = span[..4];
+            var chunkSize = BinaryPrimitives.ReadUInt32LittleEndian(span[4..8]);
+            var payloadOffset = offset + 8;
+            var available = wav.Length - payloadOffset;
+            var payloadLength = chunkSize is 0 or uint.MaxValue
+                ? available
+                : Math.Min((int)chunkSize, available);
+
+            if (chunkId.SequenceEqual("fmt "u8) && payloadLength >= 16)
+            {
+                var payload = wav.AsSpan(payloadOffset, payloadLength);
+                audioFormat = BinaryPrimitives.ReadInt16LittleEndian(payload);
+                channels = BinaryPrimitives.ReadInt16LittleEndian(payload[2..]);
+                sampleRate = BinaryPrimitives.ReadInt32LittleEndian(payload[4..]);
+                bitsPerSample = BinaryPrimitives.ReadInt16LittleEndian(payload[14..]);
+            }
+            else if (chunkId.SequenceEqual("data"u8))
+            {
+                data = wav.AsMemory(payloadOffset, payloadLength);
+            }
+
+            offset += 8 + (int)chunkSize + ((int)chunkSize & 1);
+            if (chunkSize is 0 or uint.MaxValue)
+            {
+                break;
+            }
+        }
+
+        if (audioFormat != 1 || channels <= 0 || sampleRate <= 0 || bitsPerSample != 16 || data is null)
+        {
+            throw new InvalidDataException("WAV file is not 16-bit PCM or is missing fmt/data chunks.");
+        }
+
+        var layout = new PcmLayout(channels, sampleRate, bitsPerSample, data.Value);
+        if (layout.Data.Length % layout.BytesPerSampleFrame != 0)
+        {
+            throw new InvalidDataException("WAV data chunk is not aligned to the PCM frame size.");
+        }
+
+        return layout;
     }
 }

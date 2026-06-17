@@ -61,3 +61,19 @@ approved images exist.
 
 **Done when:** architecture changes have an explicit doc update or an explicit note that
 no Phase 0 decision changed.
+
+## 5. Add Manual Jingle Import Only If It Becomes A Real Need
+
+**Problem:** Phase 3b supports generated jingles, but not uploads/imports. That is
+intentional for now: generated audio keeps provenance clear and avoids introducing
+media validation, loudness, and copyright handling in the identity page.
+
+**Fix:**
+- If Phase 6 or an operator workflow needs it, add a controlled import path for WAV
+  jingles.
+- Run imported audio through the same duration, format, loudness, and analysis checks
+  used for generated station audio.
+- Store imported jingles as `Jingle` records with explicit provenance.
+
+**Done when:** operators can import vetted jingle WAVs without bypassing storage,
+metadata, or audio safety checks.

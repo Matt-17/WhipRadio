@@ -1,5 +1,13 @@
 namespace WhipRadio.Core.Entities;
 
+public enum TalkDepth
+{
+    NameOnly,
+    Light,
+    Detailed,
+    DeepDive,
+}
+
 /// <summary>
 /// A show format created by the program director (e.g. "Friday Party Night",
 /// "Lofi Sundowner"). Formats own a host, a musical direction and a reason.
@@ -25,6 +33,11 @@ public class Format
 
     /// <summary>0–1: how talk-heavy this format is (a party night ≈ 0.2, a morning show ≈ 0.8).</summary>
     public double Talkativeness { get; set; } = 0.5;
+
+    public TalkDepth TalkDepth { get; set; } = TalkDepth.Light;
+
+    /// <summary>0-1: how often the format wants talk breaks. Supersedes Talkativeness for new planning.</summary>
+    public double TalkDensity { get; set; } = 0.5;
 
     /// <summary>Disabled formats are replaced by the director over time, not instantly.</summary>
     public bool IsEnabled { get; set; } = true;

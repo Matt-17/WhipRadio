@@ -5,8 +5,8 @@
 <div class="console">
     <header class="masthead">
         <div class="brand">
-            <div class="brand-name">Whip<em>Radio</em></div>
-            <div class="brand-slogan">Llamas whipped the radio's mix.</div>
+            <div class="brand-name">@RenderBrandName()</div>
+            <div class="brand-slogan">@_slogan</div>
         </div>
         <div class="spacer"></div>
         <StudioClock />
@@ -35,6 +35,8 @@
 </div>
 
 @code {
+    private string _stationName = "WhipRadio";
+    private string _slogan = "Llamas whipped the radio's mix.";
     private double _frequency = 104.4;
 
     protected override async Task OnInitializedAsync()
@@ -42,7 +44,25 @@
         var settings = await Api.GetSettingsAsync();
         if (settings is not null)
         {
+            _stationName = settings.StationName;
+            _slogan = settings.StationSlogan;
             _frequency = settings.FrequencyMhz;
         }
+    }
+
+    private MarkupString RenderBrandName()
+    {
+        var name = string.IsNullOrWhiteSpace(_stationName) ? "WhipRadio" : _stationName.Trim();
+        var encoded = System.Net.WebUtility.HtmlEncode(name);
+        var radioIndex = name.IndexOf("radio", StringComparison.OrdinalIgnoreCase);
+        if (radioIndex < 0)
+        {
+            return new MarkupString(encoded);
+        }
+
+        var before = System.Net.WebUtility.HtmlEncode(name[..radioIndex]);
+        var radio = System.Net.WebUtility.HtmlEncode(name[radioIndex..(radioIndex + 5)]);
+        var after = System.Net.WebUtility.HtmlEncode(name[(radioIndex + 5)..]);
+        return new MarkupString($"{before}<em>{radio}</em>{after}");
     }
 }

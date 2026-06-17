@@ -35,6 +35,24 @@
                        @oninput="OnSeekAsync" title="drag to seek" />
             </div>
         }
+        else if (Player.CurrentJingle is { } jinglePreview)
+        {
+            var jingle = jinglePreview.Jingle;
+            <div class="player-title">
+                @jingle.Label
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
+            </div>
+            <div class="player-meta">
+                Jingle preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+            </div>
+            <div class="player-progress seekable">
+                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+                <input type="range" class="seek-overlay"
+                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="OnSeekAsync" title="drag to seek" />
+            </div>
+        }
         else if (Player.CurrentTrack is { } track)
         {
             <div class="player-title">
@@ -112,11 +130,15 @@
 
     private double SongDuration => _songDur > 0
         ? _songDur
-        : Player.CurrentTrack?.DurationSeconds ?? Player.CurrentVoice?.DurationSeconds ?? 0;
+        : Player.CurrentTrack?.DurationSeconds
+            ?? Player.CurrentVoice?.DurationSeconds
+            ?? Player.CurrentJingle?.Jingle.DurationSeconds
+            ?? 0;
 
     private double SongProgress => SongDuration > 0 ? Math.Clamp(_songPos / SongDuration * 100, 0, 100) : 0;
 
     private bool CanVote => Player.CurrentVoice is null
+        && Player.CurrentJingle is null
         && (Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track");
 
     private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
@@ -199,6 +221,10 @@
         else if (Player.CurrentVoice is { } voice)
         {
             await StartPreviewAsync(voice.Url, voice.DurationSeconds);
+        }
+        else if (Player.CurrentJingle is { } jingle)
+        {
+            await StartPreviewAsync(jingle.Url, jingle.Jingle.DurationSeconds);
         }
 
         StateHasChanged();

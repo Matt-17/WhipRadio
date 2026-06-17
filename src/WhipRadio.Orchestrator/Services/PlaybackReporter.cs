@@ -110,9 +110,18 @@ public class PlaybackReporter(
         }
         else
         {
+            var playedAt = DateTime.UtcNow;
             await db.Announcements
                 .Where(a => a.Id == item.ItemId)
                 .ExecuteUpdateAsync(s => s.SetProperty(a => a.WasPlayed, true), ct);
+            await db.TalkBreaks
+                .Where(t => t.AnnouncementId == item.ItemId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(t => t.Status, TalkBreakStatus.Played)
+                    .SetProperty(t => t.PlayedAtUtc, playedAt), ct);
+            await db.TalkParts
+                .Where(p => p.AnnouncementId == item.ItemId)
+                .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, TalkPartStatus.Played), ct);
 
             var voicedText = (await db.Announcements.AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == item.ItemId, ct))?.VoicedText;

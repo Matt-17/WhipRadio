@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\WhipRadio.Infrastructure\WhipRadio.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\WhipRadio.Core\WhipRadio.Core.csproj" />
+    <ProjectReference Include="..\..\src\WhipRadio.Orchestrator\WhipRadio.Orchestrator.csproj" />
   </ItemGroup>
 
 </Project>

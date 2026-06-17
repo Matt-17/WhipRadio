@@ -17,6 +17,7 @@ public class ShowRunnerService(
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
     IPlayoutQueue playoutQueue,
+    PriorityTalkBreakDispatcher priorityTalkBreakDispatcher,
     TimeProvider timeProvider,
     ILogger<ShowRunnerService> logger) : BackgroundService
 {
@@ -30,7 +31,6 @@ public class ShowRunnerService(
     private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(150);
 
     private readonly Queue<Guid> _recentlyEnqueued = new();
-    private readonly HashSet<Guid> _frontPushedGreetingIds = [];
     private int _tracksSinceAnnouncement;
     private int _previousModeratorId = -1;
     private Track? _lastEnqueuedTrack;
@@ -80,8 +80,8 @@ public class ShowRunnerService(
 
         _previousModeratorId = context.Moderator.Id;
 
-        // Fresh greeting segments jump the whole queue: right after the current item.
-        await FrontPushGreetingSegmentsAsync(context.Moderator, ct);
+        // High and emergency TalkBreaks jump the queue: right after the current item.
+        await priorityTalkBreakDispatcher.PushReadyAsync(ct);
 
         // A fulfilled music request takes over the next slot: dedication talk + THE track.
         var dedication = await FindReadyDedicationAsync(ct);
@@ -112,10 +112,12 @@ public class ShowRunnerService(
                     return TimeSpan.Zero;
                 }
 
-                var talks = await PlanGapTalksAsync(scope, track!, context, settings.StationName, ct);
-                foreach (var talk in talks)
+                var talks = await PlanGapTalksAsync(scope, track!, context, settings, ct);
+                var playoutTalks = await RenderGapTalksAsync(scope, talks, context.Moderator, ct);
+                foreach (var talk in playoutTalks)
                 {
-                    playoutQueue.Enqueue(ToPlayoutItem(talk, context.Moderator));
+                    var talkModerator = await ResolveModeratorForAnnouncementAsync(talk, context.Moderator, ct);
+                    playoutQueue.Enqueue(ToPlayoutItem(talk, talkModerator));
                 }
 
                 _tracksSinceAnnouncement = talks.Count > 0 ? 0 : _tracksSinceAnnouncement + 1;
@@ -132,32 +134,6 @@ public class ShowRunnerService(
         }
     }
 
-    /// <summary>
-    /// Pushes unplayed greeting segments to the FRONT of the playout queue so they
-    /// air right after the current item — listeners shouldn't wait three songs to
-    /// hear their name. The id set guards against double-enqueueing across cycles.
-    /// </summary>
-    private async Task FrontPushGreetingSegmentsAsync(Moderator moderator, CancellationToken ct)
-    {
-        List<Announcement> unplayed;
-        await using (var db = await dbFactory.CreateDbContextAsync(ct))
-        {
-            unplayed = await db.Announcements.AsNoTracking()
-                .Where(a => a.Kind == AnnouncementKind.ListenerGreeting && !a.WasPlayed)
-                .OrderByDescending(a => a.CreatedAt) // newest pushed first → oldest ends up frontmost
-                .ToListAsync(ct);
-        }
-
-        _frontPushedGreetingIds.RemoveWhere(id => unplayed.All(a => a.Id != id)); // aired → forget
-
-        foreach (var greeting in unplayed.Where(g => _frontPushedGreetingIds.Add(g.Id)))
-        {
-            playoutQueue.EnqueueFront(ToPlayoutItem(greeting, moderator));
-            logger.LogInformation("Greeting segment {Id} jumps to the front of the queue", greeting.Id);
-        }
-    }
-
-    /// <summary>Oldest queued request whose track has been produced — ready for a dedication.</summary>
     private async Task<ReadyDedication?> FindReadyDedicationAsync(CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -274,48 +250,94 @@ public class ShowRunnerService(
     /// lengths, scaled by the host's and format's talkativeness.
     /// </summary>
     private async Task<List<Announcement>> PlanGapTalksAsync(
-        IServiceScope scope, Track nextTrack, ShowContext context, string stationName, CancellationToken ct)
+        IServiceScope scope, Track nextTrack, ShowContext context, StationSettings settings, CancellationToken ct)
     {
         var moderator = context.Moderator;
         var talks = new List<Announcement>();
+        var factory = scope.ServiceProvider.GetRequiredService<AnnouncementFactory>();
 
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             // Weather: once per hour, first talk slot after the full hour — and only
             // a freshly prepared report (≤ 30 min old), never a stale one.
             var localNow = timeProvider.GetLocalNow();
-            if (WeatherScheduler.IsAirWindow(localNow.Minute) && !await WeatherAiredThisHourAsync(db, localNow, ct))
+            if (settings.WeatherEnabled
+                && WeatherScheduler.IsAirWindow(localNow, settings.WeatherCadenceMinutes)
+                && !await WeatherAiredThisWindowAsync(db, localNow, settings.WeatherCadenceMinutes, ct))
             {
-                var freshCutoff = DateTime.UtcNow.AddMinutes(-30);
-                var weather = await db.Announcements.AsNoTracking()
-                    .Where(a => a.Kind == AnnouncementKind.Weather && !a.WasPlayed && a.CreatedAt >= freshCutoff)
-                    .OrderByDescending(a => a.CreatedAt)
-                    .FirstOrDefaultAsync(ct);
+                var weather = await FindFreshWeatherReportAsync(db, settings.WeatherCadenceMinutes, ct);
                 if (weather is not null)
                 {
+                    if (weather.ModeratorId != moderator.Id && !settings.WeatherFullHandoverEnabled)
+                    {
+                        var weatherHost = await db.Moderators.AsNoTracking()
+                            .FirstOrDefaultAsync(host => host.Id == weather.ModeratorId, ct);
+                        if (weatherHost is not null)
+                        {
+                            talks.Add(await ProduceWeatherHandoffAsync(
+                                factory,
+                                moderator,
+                                weatherHost,
+                                settings.StationName,
+                                ct));
+                        }
+                    }
+
                     talks.Add(weather);
                 }
             }
         }
 
         // The host's mood: 0–3 fresh talks, scaled by host + format talkativeness.
-        var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator.Talkativeness, context.Format?.Talkativeness);
-        var freeTalkCount = TalkPlanner.PickGapTalkCount(Random.Shared, talks.Count > 0, talkativeness);
+        var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator, context.Format);
+        var talkProfile = HostTalkProfile.FromModerator(moderator);
+        var talkDepth = context.Format?.TalkDepth ?? TalkDepth.Light;
+        var freeTalkCount = TalkPlanner.PickGapTalkCount(Random.Shared, talks.Count > 0, moderator, context.Format);
 
-        var factory = scope.ServiceProvider.GetRequiredService<AnnouncementFactory>();
+        var talkBitRuntime = scope.ServiceProvider.GetRequiredService<TalkBitRuntimeService>();
+        var preferTalkBit = freeTalkCount > 0
+            && talkProfile.Allows(AnnouncementKind.TalkBit)
+            && Random.Shared.NextDouble() < talkProfile.EvergreenBitTolerance;
         var introDone = false;
 
         for (var i = 0; i < freeTalkCount; i++)
         {
-            var kind = TalkPlanner.PickFreeTalkKind(
-                Random.Shared,
-                hasNextTrack: !introDone,
-                hasPreviousTrack: _lastEnqueuedTrack is not null && i == 0); // "that was …" only opens a gap
+            var kind = preferTalkBit && i == 0
+                ? AnnouncementKind.TalkBit
+                : TalkPlanner.PickFreeTalkKind(
+                    Random.Shared,
+                    hasNextTrack: !introDone,
+                    hasPreviousTrack: _lastEnqueuedTrack is not null && i == 0,
+                    talkProfile); // "that was ..." only opens a gap
 
             try
             {
                 using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 budget.CancelAfter(SyncProductionBudget);
+
+                if (kind == AnnouncementKind.TalkBit)
+                {
+                    var bitTalk = await talkBitRuntime.TryProduceAsync(
+                        moderator,
+                        settings.StationName,
+                        budget.Token,
+                        TalkPlanner.PickLengthHint(Random.Shared, talkDepth, talkativeness));
+                    if (bitTalk is not null)
+                    {
+                        talks.Add(bitTalk);
+                        continue;
+                    }
+
+                    kind = TalkPlanner.PickFreeTalkKind(
+                        Random.Shared,
+                        hasNextTrack: !introDone,
+                        hasPreviousTrack: _lastEnqueuedTrack is not null && i == 0,
+                        talkProfile);
+                    if (kind == AnnouncementKind.TalkBit)
+                    {
+                        continue;
+                    }
+                }
 
                 var relatedTrack = kind switch
                 {
@@ -325,8 +347,8 @@ public class ShowRunnerService(
                 };
 
                 var talk = await factory.ProduceAsync(
-                    kind, moderator, relatedTrack, null, stationName, budget.Token,
-                    lengthHint: TalkPlanner.PickLengthHint(Random.Shared, talkativeness));
+                    kind, moderator, relatedTrack, null, settings.StationName, budget.Token,
+                    lengthHint: TalkPlanner.PickLengthHint(Random.Shared, talkDepth, talkativeness));
                 talks.Add(talk);
                 introDone |= kind == AnnouncementKind.SongIntro;
             }
@@ -339,12 +361,61 @@ public class ShowRunnerService(
         return talks;
     }
 
-    private static async Task<bool> WeatherAiredThisHourAsync(
-        RadioDbContext db, DateTimeOffset localNow, CancellationToken ct)
+    private async Task<IReadOnlyList<Announcement>> RenderGapTalksAsync(
+        IServiceScope scope,
+        List<Announcement> talks,
+        Moderator fallbackModerator,
+        CancellationToken ct)
     {
-        var hourStartUtc = localNow.UtcDateTime.AddMinutes(-localNow.Minute).AddSeconds(-localNow.Second);
+        if (talks.Count <= 1)
+        {
+            return talks;
+        }
+
+        try
+        {
+            var renderer = scope.ServiceProvider.GetRequiredService<SegmentRenderer>();
+            return [await renderer.RenderAsync(talks, fallbackModerator, ct)];
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                ex,
+                "Talk segment rendering failed for {Count} part(s); queueing individual announcements",
+                talks.Count);
+            return talks;
+        }
+    }
+
+    private async Task<Announcement?> FindFreshWeatherReportAsync(
+        RadioDbContext db,
+        int cadenceMinutes,
+        CancellationToken ct)
+    {
+        var freshCutoff = timeProvider.GetUtcNow().UtcDateTime
+            .AddMinutes(-WeatherScheduler.NormalizeCadence(cadenceMinutes));
+        var weatherIds = await db.TalkParts.AsNoTracking()
+            .Where(part => part.Kind == TalkPartKind.Weather
+                && part.Purpose == "WeatherReport"
+                && part.Status == TalkPartStatus.Rendered
+                && part.AnnouncementId != null)
+            .Select(part => part.AnnouncementId!.Value)
+            .ToListAsync(ct);
+
+        return weatherIds.Count == 0
+            ? null
+            : await db.Announcements.AsNoTracking()
+                .Where(a => weatherIds.Contains(a.Id) && !a.WasPlayed && a.CreatedAt >= freshCutoff)
+                .OrderByDescending(a => a.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+    }
+
+    private static async Task<bool> WeatherAiredThisWindowAsync(
+        RadioDbContext db, DateTimeOffset localNow, int cadenceMinutes, CancellationToken ct)
+    {
+        var windowStartUtc = WeatherScheduler.CurrentWindowStart(localNow, cadenceMinutes).UtcDateTime;
         var airedIds = await db.PlayLog.AsNoTracking()
-            .Where(e => e.PlayedAt >= hourStartUtc && e.ItemType == PlayoutItemType.Announcement)
+            .Where(e => e.PlayedAt >= windowStartUtc && e.ItemType == PlayoutItemType.Announcement)
             .Select(e => e.ItemId)
             .ToListAsync(ct);
         if (airedIds.Count == 0)
@@ -352,8 +423,52 @@ public class ShowRunnerService(
             return false;
         }
 
-        return await db.Announcements.AsNoTracking()
-            .AnyAsync(a => airedIds.Contains(a.Id) && a.Kind == AnnouncementKind.Weather, ct);
+        return await db.TalkParts.AsNoTracking()
+            .AnyAsync(part => part.Kind == TalkPartKind.Weather
+                && part.Purpose == "WeatherReport"
+                && part.AnnouncementId != null
+                && airedIds.Contains(part.AnnouncementId.Value), ct);
+    }
+
+    private async Task<Announcement> ProduceWeatherHandoffAsync(
+        AnnouncementFactory factory,
+        Moderator mainHost,
+        Moderator weatherHost,
+        string stationName,
+        CancellationToken ct)
+    {
+        var isGerman = mainHost.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase);
+        var text = isGerman
+            ? $"Hier ist {weatherHost.Name} mit dem Wetter."
+            : $"Here is {weatherHost.Name} with the weather.";
+
+        return await factory.ProduceDirectAsync(
+            AnnouncementKind.StationId,
+            TalkPartKind.WeatherHandoff,
+            TalkBreakPriority.Scheduled,
+            mainHost,
+            text,
+            "WeatherHandoff",
+            ct,
+            expiresAtUtc: timeProvider.GetUtcNow().UtcDateTime.AddMinutes(15),
+            desiredDurationSeconds: 5,
+            wordBudget: 12);
+    }
+
+    private async Task<Moderator> ResolveModeratorForAnnouncementAsync(
+        Announcement announcement,
+        Moderator fallback,
+        CancellationToken ct)
+    {
+        if (announcement.ModeratorId == fallback.Id)
+        {
+            return fallback;
+        }
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.Moderators.AsNoTracking()
+            .FirstOrDefaultAsync(moderator => moderator.Id == announcement.ModeratorId, ct)
+            ?? fallback;
     }
 
     private async Task EnqueueHostChangeAsync(

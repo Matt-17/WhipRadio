@@ -11,6 +11,14 @@ public class StationSettings
 
     public string StationName { get; set; } = "WhipRadio";
 
+    public string StationSlogan { get; set; } = "Llamas whipped the radio's mix.";
+
+    public string StationVision { get; set; } =
+        "A living AI radio station with original music, distinct hosts, and a coherent on-air identity.";
+
+    public string StationMission { get; set; } =
+        "Create a continuous local radio experience where music, talk, weather, and listener moments feel intentional.";
+
     public string DefaultLanguage { get; set; } = "en";
 
     public string DefaultMusicProvider { get; set; } = MusicBackends.MusicGen;
@@ -41,7 +49,7 @@ public class StationSettings
     /// <summary>[breath] markers sound bad on some engines — off by default.</summary>
     public bool EnableBreathMarkers { get; set; }
 
-    // --- Branding ----------------------------------------------------------------
+    // --- Station defaults ---------------------------------------------------------
 
     /// <summary>Display frequency shown in the masthead.</summary>
     public double FrequencyMhz { get; set; } = 104.4;
@@ -67,6 +75,17 @@ public class StationSettings
     public bool GreetingsEnabled { get; set; } = true;
 
     public int MaxPendingGreetings { get; set; } = 10;
+
+    // --- Weather ---------------------------------------------------------------
+
+    public bool WeatherEnabled { get; set; } = true;
+
+    public int WeatherCadenceMinutes { get; set; } = 60;
+
+    public int? WeatherSpecialistModeratorId { get; set; }
+
+    /// <summary>Reserved for a later full show handover; default flow is a quick cutaway.</summary>
+    public bool WeatherFullHandoverEnabled { get; set; }
 
     // --- Mixer (Phase 3a) — hot-reloadable, read once per transition -------------
 

@@ -134,7 +134,7 @@ public class AceStepGenerationProviderTests
         var handler = new FakeHttpMessageHandler(req => req.RequestUri!.AbsolutePath switch
         {
             "/release_task" => JsonResponse("""{"data":{"task_id":"task-1","status":"queued"},"code":200,"error":null}"""),
-            "/query_result" => JsonResponse("""{"data":[{"task_id":"task-1","status":2,"result":null}],"code":200,"error":null}"""),
+            "/query_result" => JsonResponse("""{"data":[{"task_id":"task-1","status":2,"result":null,"progress_text":"RuntimeError: Insufficient KV cache to schedule sequence."}],"code":200,"error":null}"""),
             _ => throw new InvalidOperationException("unexpected"),
         });
         var provider = CreateProvider(handler);
@@ -142,6 +142,37 @@ public class AceStepGenerationProviderTests
         var ex = await Assert.ThrowsAsync<MusicGenerationFailedException>(() => provider.GenerateAsync(Request(), CancellationToken.None));
 
         Assert.Contains("Task task-1 failed", ex.Message);
+        Assert.Contains("Insufficient KV cache", ex.Message);
+    }
+
+    [TestMethod]
+    public async Task JingleRequestUsesDirectShortPrompt()
+    {
+        var handler = SuccessHandler(WavTestData.Pcm(128));
+        var provider = CreateProvider(handler);
+
+        await provider.GenerateAsync(new MusicRequest(
+            "Vocal 9s radio jingle for Night Lab FM. Mood: Made after dark. Style: tight analog drums. Sung station ID and slogan hook.",
+            "jingle",
+            WantVocals: true,
+            Lyrics: "Night Lab FM\nMade after dark.",
+            DurationSeconds: 9)
+        {
+            LyricsMode = LyricsMode.Provided,
+            Provider = MusicBackends.AceStep,
+            SubGenre = "radio identity",
+        }, CancellationToken.None);
+
+        using var body = JsonDocument.Parse(handler.RequestBodies[0]!);
+        var prompt = body.RootElement.GetProperty("prompt").GetString();
+        Assert.False(body.RootElement.GetProperty("thinking").GetBoolean());
+        Assert.False(body.RootElement.GetProperty("sample_mode").GetBoolean());
+        Assert.Equal("Night Lab FM\nMade after dark.", body.RootElement.GetProperty("lyrics").GetString());
+        Assert.Contains("radio jingle", prompt);
+        Assert.Contains("slogan hook", prompt);
+        Assert.DoesNotContain("full-length", prompt);
+        Assert.DoesNotContain("complete song structure", prompt);
+        Assert.DoesNotContain("no vocals", prompt);
     }
 
     [TestMethod]

@@ -10,16 +10,17 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddHttpClient<RadioApiClient>(client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
+    client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+})
+    .RemoveAllResilienceHandlers();
 
 // Voice design runs for minutes (transient 1.7B model; first call downloads
 // weights). The default 10 s timeout + Polly retries would cancel and then
 // QUEUE THREE designs — this client has neither.
 builder.Services.AddHttpClient("orchestrator-long", client =>
     {
-        client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
+        client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
         client.Timeout = TimeSpan.FromMinutes(12);
     })
     .RemoveAllResilienceHandlers();
@@ -29,10 +30,12 @@ builder.Services.AddHttpClient("orchestrator-long", client =>
 // live stream is endless by design.
 builder.Services.AddHttpClient("orchestrator-media", client =>
 {
-    client.BaseAddress = new Uri(builder.Configuration["Orchestrator:Endpoint"] ?? "http://orchestrator");
+    client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
     client.Timeout = Timeout.InfiniteTimeSpan;
-});
-builder.Services.AddHttpClient("live-stream", client => client.Timeout = Timeout.InfiniteTimeSpan);
+})
+    .RemoveAllResilienceHandlers();
+builder.Services.AddHttpClient("live-stream", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .RemoveAllResilienceHandlers();
 
 builder.Services.AddScoped<RadioLiveClient>();
 builder.Services.AddScoped<ConsoleLiveClient>();
@@ -66,6 +69,9 @@ app.MapGet("/media/track/{id:guid}", (Guid id, IHttpClientFactory factory, HttpC
 app.MapGet("/media/announcement/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
     ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/announcements/{id}/audio"));
 
+app.MapGet("/media/jingle/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/jingles/{id}/audio"));
+
 app.MapGet("/media/live", (IHttpClientFactory factory, IConfiguration config, HttpContext context) =>
     ProxyMediaAsync(
         context,
@@ -77,6 +83,11 @@ app.MapGet("/media/voice-preview/{handle}", (string handle, IHttpClientFactory f
         $"/api/voices/{Uri.EscapeDataString(handle)}/preview"));
 
 app.Run();
+
+static string GetOrchestratorEndpoint(IConfiguration configuration, IHostEnvironment environment)
+    => configuration["services:orchestrator:http:0"]
+        ?? configuration["Orchestrator:Endpoint"]
+        ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
 
 static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl)
 {

@@ -15,24 +15,29 @@
 else
 {
     <div class="panel reveal">
-        <div class="panel-label">Station</div>
+        <div class="panel-label">Station Defaults</div>
         <div class="form-grid">
-            <div class="field"><label>Station Name</label><input @bind="_stationName" /></div>
             <div class="field">
-                <label>Station Language (hosts &amp; all texts follow it)</label>
+                <label>Station language</label>
                 <select @bind="_defaultLanguage">
                     <option value="en">English (en)</option>
                     <option value="de">Deutsch (de)</option>
                 </select>
             </div>
-            <div class="field"><label>Display Frequency (MHz)</label><input type="number" step="0.1" min="76" max="108" @bind="_frequencyMhz" /></div>
+            <div class="field"><label>Display frequency (MHz)</label><input type="number" step="0.1" min="76" max="108" @bind="_frequencyMhz" /></div>
             <div class="field">
-                <label>First Day of Week</label>
+                <label>First day of week</label>
                 <select @bind="_firstDayOfWeek">
                     <option value="1">Monday</option>
                     <option value="0">Sunday</option>
                 </select>
             </div>
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Speech And Automation</div>
+        <div class="form-grid">
             <div class="field"><label>Announcement every N tracks</label><input type="number" min="0" max="10" @bind="_announceEvery" /></div>
             <div class="field">
                 <label>Breath markers in speech</label>
@@ -83,6 +88,45 @@ else
         </div>
     </div>
 
+    <div class="panel reveal">
+        <div class="panel-label">Weather</div>
+        <div class="form-grid">
+            <div class="field">
+                <label>Weather reports</label>
+                <select @bind="_weatherEnabled">
+                    <option value="true">enabled</option>
+                    <option value="false">disabled</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Cadence</label>
+                <select @bind="_weatherCadence">
+                    <option value="30">every 30 minutes</option>
+                    <option value="60">hourly</option>
+                    <option value="120">every 2 hours</option>
+                    <option value="180">every 3 hours</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Weather specialist</label>
+                <select @bind="_weatherSpecialistId">
+                    <option value="">automatic</option>
+                    @foreach (var host in WeatherSpecialists)
+                    {
+                        <option value="@host.Id">@host.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Full weather handover</label>
+                <select @bind="_weatherFullHandover">
+                    <option value="false">off</option>
+                    <option value="true">on</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
     <div class="btn-row" style="margin-top:22px">
         <button class="btn primary" @onclick="SaveAsync">Save to Console</button>
         @if (_saved)
@@ -94,10 +138,10 @@ else
 
 @code {
     private StationSettingsDto? _settings;
+    private List<ModeratorDto> _moderators = [];
     private bool _saved;
 
-    private string _stationName = "";
-    private string _defaultLanguage = "";
+    private string _defaultLanguage = "en";
     private double _frequencyMhz = 104.4;
     private int _firstDayOfWeek = 1;
     private int _announceEvery = 1;
@@ -107,13 +151,20 @@ else
     private string _openAiModel = "gpt-4o-mini";
     private string _elevenLabs = "false";
     private string _elevenLabsKey = "";
+    private string _weatherEnabled = "true";
+    private int _weatherCadence = 60;
+    private string _weatherSpecialistId = "";
+    private string _weatherFullHandover = "false";
+
+    private IEnumerable<ModeratorDto> WeatherSpecialists
+        => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true });
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await Api.GetSettingsAsync();
+        _moderators = await Api.GetModeratorsAsync();
         if (_settings is not null)
         {
-            _stationName = _settings.StationName;
             _defaultLanguage = _settings.DefaultLanguage;
             _frequencyMhz = _settings.FrequencyMhz;
             _firstDayOfWeek = _settings.FirstDayOfWeek;
@@ -124,6 +175,10 @@ else
             _openAiModel = _settings.OpenAiModel;
             _elevenLabs = _settings.ElevenLabsEnabled.ToString().ToLowerInvariant();
             _elevenLabsKey = _settings.ElevenLabsApiKey;
+            _weatherEnabled = _settings.WeatherEnabled.ToString().ToLowerInvariant();
+            _weatherCadence = _settings.WeatherCadenceMinutes;
+            _weatherSpecialistId = _settings.WeatherSpecialistModeratorId?.ToString() ?? "";
+            _weatherFullHandover = _settings.WeatherFullHandoverEnabled.ToString().ToLowerInvariant();
         }
     }
 
@@ -139,7 +194,6 @@ else
 
         _settings = await Api.SaveSettingsAsync(fresh with
         {
-            StationName = _stationName,
             DefaultLanguage = _defaultLanguage,
             FrequencyMhz = _frequencyMhz,
             FirstDayOfWeek = _firstDayOfWeek,
@@ -150,6 +204,12 @@ else
             OpenAiModel = _openAiModel,
             ElevenLabsEnabled = _elevenLabs == "true",
             ElevenLabsApiKey = _elevenLabsKey,
+            WeatherEnabled = _weatherEnabled == "true",
+            WeatherCadenceMinutes = _weatherCadence,
+            WeatherSpecialistModeratorId = int.TryParse(_weatherSpecialistId, out var specialistId)
+                ? specialistId
+                : null,
+            WeatherFullHandoverEnabled = _weatherFullHandover == "true",
         });
         _saved = true;
     }

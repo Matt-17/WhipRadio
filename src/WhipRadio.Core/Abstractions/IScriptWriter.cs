@@ -1,4 +1,5 @@
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Prompting;
 
 namespace WhipRadio.Core.Abstractions;
 
@@ -9,7 +10,8 @@ public sealed record AnnouncementRequest(
     string Language,
     Track? Track = null,
     string? Facts = null,
-    string? LengthHint = null);
+    string? LengthHint = null,
+    PromptContext? PromptContext = null);
 
 /// <summary>Stage 1: produces the announcement content.</summary>
 public interface IScriptWriter

@@ -1,0 +1,4 @@
+Turn this urgent station message into a clear on-air announcement:
+{Message}
+
+Keep the facts intact. Do not add jokes, speculation, or extra details.

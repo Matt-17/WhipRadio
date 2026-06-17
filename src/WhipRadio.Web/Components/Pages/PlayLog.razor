@@ -73,9 +73,36 @@
                                         @(_openTranscripts.Contains(entry.ItemId) ? "hide text" : "text")
                                     </button>
                                 }
+                                @if (entry.TalkParts?.Count > 0)
+                                {
+                                    <button class="btn small" @onclick="() => ToggleParts(entry.ItemId)">
+                                        @(_openParts.Contains(entry.ItemId) ? "hide parts" : "parts")
+                                    </button>
+                                }
                             }
                         </td>
                     </tr>
+                    @if (entry.TalkParts?.Count > 0 && _openParts.Contains(entry.ItemId))
+                    {
+                        <tr>
+                            <td colspan="6">
+                                <div class="talk-parts">
+                                    @foreach (var part in entry.TalkParts.OrderBy(part => part.SortOrder))
+                                    {
+                                        <div class="talk-part-row">
+                                            <span class="tag">@part.Kind</span>
+                                            <span>@part.Purpose</span>
+                                            <span class="dim">@part.Priority</span>
+                                            @if (part.WordBudget is not null)
+                                            {
+                                                <span class="dim">@part.WordBudget words</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
                     @if (entry.Transcript is not null && _openTranscripts.Contains(entry.ItemId))
                     {
                         <tr>
@@ -91,6 +118,7 @@
 @code {
     private List<PlayLogEntryDto>? _entries;
     private readonly HashSet<Guid> _openTranscripts = [];
+    private readonly HashSet<Guid> _openParts = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -108,6 +136,14 @@
         if (!_openTranscripts.Remove(id))
         {
             _openTranscripts.Add(id);
+        }
+    }
+
+    private void ToggleParts(Guid id)
+    {
+        if (!_openParts.Remove(id))
+        {
+            _openParts.Add(id);
         }
     }
 

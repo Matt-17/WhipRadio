@@ -9,6 +9,11 @@ public sealed class AceStepPromptBuilder
 
     public string Build(MusicRequest request)
     {
+        if (IsJingleRequest(request))
+        {
+            return BuildJinglePrompt(request);
+        }
+
         var style = FirstNonEmpty(request.Style, request.ArtistStyleDescription, request.Prompt, request.SubGenre, request.Genre)
             ?? "radio-ready music";
         var songType = request.LyricsMode == LyricsMode.Instrumental ? "instrumental song" : "song";
@@ -114,6 +119,17 @@ public sealed class AceStepPromptBuilder
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+
+    private static bool IsJingleRequest(MusicRequest request)
+        => string.Equals(request.Genre, "jingle", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.SubGenre, "radio identity", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildJinglePrompt(MusicRequest request)
+    {
+        var prompt = FirstNonEmpty(request.Prompt, request.Style, request.SubGenre)
+            ?? "short instrumental radio jingle";
+        return TrimToSentence(prompt, 220);
+    }
 
     private static string CleanSentence(string value)
         => value.Trim().TrimEnd('.', '!', '?');

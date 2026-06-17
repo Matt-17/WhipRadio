@@ -102,6 +102,7 @@ public sealed class AceStepGenerationProvider(
     {
         var hasSeed = request.Seed.HasValue;
         var seed = request.Seed ?? -1;
+        var thinking = options.Thinking && !IsJingleRequest(request);
         return request.LyricsMode switch
         {
             LyricsMode.Auto => new ReleaseTaskRequest(
@@ -109,7 +110,7 @@ public sealed class AceStepGenerationProvider(
                 SampleQuery: prompt,
                 SampleMode: true,
                 Lyrics: null,
-                Thinking: options.Thinking,
+                Thinking: thinking,
                 VocalLanguage: request.Language ?? "en",
                 AudioFormat: "wav",
                 AudioDuration: durationSeconds,
@@ -126,7 +127,7 @@ public sealed class AceStepGenerationProvider(
                 SampleQuery: null,
                 SampleMode: false,
                 Lyrics: request.LyricsMode == LyricsMode.Instrumental ? string.Empty : request.Lyrics,
-                Thinking: options.Thinking,
+                Thinking: thinking,
                 VocalLanguage: request.Language ?? "en",
                 AudioFormat: "wav",
                 AudioDuration: durationSeconds,
@@ -140,6 +141,10 @@ public sealed class AceStepGenerationProvider(
                 BatchSize: 1),
         };
     }
+
+    private static bool IsJingleRequest(MusicRequest request)
+        => string.Equals(request.Genre, "jingle", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.SubGenre, "radio identity", StringComparison.OrdinalIgnoreCase);
 
     private async Task<QueryResultItem> PollUntilCompleteAsync(
         string taskId,
@@ -187,6 +192,13 @@ public sealed class AceStepGenerationProvider(
 
             if (task.Status == 2)
             {
+                var detail = DescribeFailedTask(task);
+                if (!string.IsNullOrWhiteSpace(detail))
+                {
+                    logger.LogWarning("ACE-Step task {TaskId} failed: {Detail}", taskId, detail);
+                    throw new MusicGenerationFailedException(Id, $"Task {taskId} failed: {Truncate(detail, 600)}");
+                }
+
                 throw new MusicGenerationFailedException(Id, $"Task {taskId} failed.");
             }
 
@@ -223,6 +235,54 @@ public sealed class AceStepGenerationProvider(
             throw new MusicGenerationFailedException(MusicBackends.AceStep, $"Task result JSON was malformed: {ex.Message}");
         }
     }
+
+    private static string? DescribeFailedTask(QueryTaskData task)
+    {
+        var progress = NormalizeFailureText(task.ProgressText);
+        if (!string.IsNullOrWhiteSpace(progress))
+        {
+            return progress;
+        }
+
+        if (string.IsNullOrWhiteSpace(task.Result))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(task.Result);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            {
+                var first = doc.RootElement.EnumerateArray().FirstOrDefault();
+                if (first.ValueKind == JsonValueKind.Object
+                    && first.TryGetProperty("stage", out var stage)
+                    && stage.ValueKind == JsonValueKind.String)
+                {
+                    return $"stage={stage.GetString()}";
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return NormalizeFailureText(task.Result);
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeFailureText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string Truncate(string value, int maxLength)
+        => value.Length <= maxLength ? value : value[..maxLength].TrimEnd() + "...";
 
     private async Task<byte[]> DownloadAudioAsync(string file, CancellationToken cancellationToken)
     {
@@ -323,7 +383,8 @@ public sealed class AceStepGenerationProvider(
     private sealed record QueryTaskData(
         [property: JsonPropertyName("task_id")] string TaskId,
         [property: JsonPropertyName("status")] int Status,
-        [property: JsonPropertyName("result")] string? Result);
+        [property: JsonPropertyName("result")] string? Result,
+        [property: JsonPropertyName("progress_text")] string? ProgressText);
 
     private sealed record QueryResultItem(
         [property: JsonPropertyName("file")] string File,

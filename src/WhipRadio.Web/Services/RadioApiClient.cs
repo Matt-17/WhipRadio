@@ -66,6 +66,12 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<MusicProductionStatusDto?> GetMusicProductionStatusAsync(CancellationToken ct = default)
         => await SafeGetAsync<MusicProductionStatusDto>("/api/music/status", ct);
 
+    public async Task<bool> CancelMusicProductionAsync(CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync("/api/music/cancel", null, ct);
+        return response.IsSuccessStatusCode;
+    }
+
     /// <summary>Returns null on success, otherwise the error message.</summary>
     public async Task<string?> DeleteTrackAsync(Guid id, CancellationToken ct = default)
     {
@@ -112,6 +118,50 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     public async Task<StationSettingsDto?> GetSettingsAsync(CancellationToken ct = default)
         => await SafeGetAsync<StationSettingsDto>("/api/settings", ct);
+
+    public async Task<BrandingDto?> GetBrandingAsync(CancellationToken ct = default)
+        => await SafeGetAsync<BrandingDto>("/api/branding", ct);
+
+    public async Task<BrandingDto?> SaveBrandingAsync(SaveBrandingDto branding, CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync("/api/branding", branding, ct);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync<BrandingDto>(ct);
+    }
+
+    public async Task<(JingleDto? Jingle, string? Error)> CreateJingleAsync(CreateJingleDto request, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/jingles", request, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<JingleDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Jingle generation timed out or the studio is unreachable.");
+        }
+    }
+
+    public async Task<List<JingleDto>> GetJinglesAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<JingleDto>>("/api/jingles", ct) ?? [];
+
+    public async Task<JingleDto?> ToggleJingleAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/jingles/{id}/toggle", null, ct);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<JingleDto>(ct)
+            : null;
+    }
+
+    public async Task<string?> DeleteJingleAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/jingles/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public string JingleAudioUrl(Guid id) => $"/media/jingle/{id}";
 
     public async Task<List<StudioDto>> GetStudiosAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<StudioDto>>("/api/studios", ct) ?? [];
@@ -313,9 +363,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         {
             return await http.GetFromJsonAsync<T>(url, ct);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or NotSupportedException)
+        catch (Exception ex)
         {
-            logger.LogDebug(ex, "GET {Url} failed (orchestrator starting?)", url);
+            logger.LogDebug(ex, "GET {Url} failed (orchestrator starting or returned unexpected data?)", url);
             return null;
         }
     }

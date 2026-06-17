@@ -661,6 +661,69 @@ table.console-table {
 
 .host-detail-info .mod-persona { min-height: 0; font-size: 14.5px; }
 
+.trait-board {
+    display: grid;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.trait-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+}
+
+.trait-label {
+    width: 64px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.trait-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: rgba(255, 255, 255, 0.015);
+}
+
+.trait-chip b {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.trait-row.variable .trait-chip {
+    color: var(--amber-hot);
+    border-color: var(--amber-dim);
+    background: rgba(255, 180, 84, 0.045);
+}
+
+.talk-profile-row { margin-top: 10px; }
+
+.talk-parts {
+    display: grid;
+    gap: 6px;
+    padding: 8px 0;
+}
+
+.talk-part-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+}
+
 .host-detail footer {
     margin-top: 18px;
     display: flex;
@@ -784,7 +847,8 @@ table.console-table {
     margin-bottom: 7px;
 }
 
-.field input {
+.field input,
+.field textarea {
     width: 100%;
     font-family: var(--font-mono);
     font-size: 14px;
@@ -797,7 +861,10 @@ table.console-table {
     transition: border-color .15s, box-shadow .15s;
 }
 
-.field input:focus {
+.field textarea { resize: vertical; min-height: 86px; }
+
+.field input:focus,
+.field textarea:focus {
     border-color: var(--amber-dim);
     box-shadow: 0 0 0 3px rgba(255, 180, 84, 0.12);
 }
@@ -883,11 +950,11 @@ table.console-table {
     text-align: left;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 6px;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 7px;
-    padding: 8px 11px;
+    padding: 10px 12px;
     color: var(--text);
     font-family: var(--font-mono);
     font-size: 13px;
@@ -901,9 +968,43 @@ table.console-table {
     background: rgba(255, 180, 84, 0.08);
 }
 
-.artist-item .artist-name { color: var(--amber-hot); letter-spacing: 1px; }
+.artist-name-line,
+.artist-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
 
-.artist-item .artist-meta { font-size: 11px; }
+.artist-name-line {
+    justify-content: space-between;
+}
+
+.artist-meta-row {
+    justify-content: space-between;
+}
+
+.artist-item .artist-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--amber-hot);
+    letter-spacing: 1px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.artist-item .artist-meta {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.artist-meta-row .tag {
+    flex: 0 0 auto;
+    padding: 2px 7px;
+}
 
 .artist-header { display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
 
@@ -938,7 +1039,297 @@ table.console-table {
     white-space: nowrap;
 }
 
-.generating-row td { padding-top: 12px; padding-bottom: 12px; }
+.library-song-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.library-song-grid {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 64px 48px 62px 70px 40px;
+    column-gap: 14px;
+    align-items: center;
+}
+
+.library-song-head {
+    grid-template-areas: "action title length plays votes created delete";
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+}
+
+.library-song-head button {
+    all: unset;
+    cursor: pointer;
+    color: inherit;
+    letter-spacing: 2.5px;
+}
+
+.library-song-head button:hover,
+.library-song-head button.sorted {
+    color: var(--amber);
+}
+
+.library-head-title {
+    grid-area: title;
+    display: flex;
+    gap: 18px;
+    min-width: 0;
+}
+
+.library-song-item {
+    grid-template-areas:
+        "action title title title title title delete"
+        "action meta length plays votes created delete";
+    row-gap: 5px;
+    min-height: 54px;
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    transition: background .12s;
+}
+
+.library-song-item:hover {
+    background: rgba(255, 180, 84, 0.045);
+}
+
+.library-song-item:hover .track-title {
+    color: var(--amber-hot);
+}
+
+.library-action-cell {
+    grid-area: action;
+}
+
+.library-title-line {
+    grid-area: title;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.track-title {
+    min-width: 0;
+    overflow: hidden;
+    color: #fff3dd;
+    text-overflow: ellipsis;
+    transition: color .12s;
+    white-space: nowrap;
+}
+
+.library-title-line .tag {
+    flex: 0 0 auto;
+}
+
+.library-song-meta {
+    grid-area: meta;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.library-song-meta span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.library-recording-status {
+    grid-area: status;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.library-recording-status span {
+    flex: 0 0 auto;
+}
+
+.library-recording-status span:first-child {
+    min-width: 0;
+    flex: 0 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.library-meta-dot {
+    flex: 0 0 auto;
+    color: var(--line);
+}
+
+.library-length-cell { grid-area: length; }
+.library-plays-cell { grid-area: plays; }
+.library-votes-cell { grid-area: votes; }
+.library-created-cell { grid-area: created; }
+.library-delete-cell { grid-area: delete; }
+
+.library-length-cell,
+.library-plays-cell,
+.library-created-cell {
+    font-variant-numeric: tabular-nums;
+}
+
+.library-created-cell {
+    font-size: 12px;
+}
+
+.library-votes-cell {
+    justify-self: start;
+}
+
+.library-delete-cell {
+    justify-self: end;
+}
+
+.library-action-cell .btn.small,
+.library-delete-cell .btn.small,
+.library-preview-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 26px;
+    padding: 0;
+}
+
+.library-votes-cell .jingle-toggle-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 64px;
+    height: 24px;
+    padding: 0;
+    font-size: 10px;
+    text-transform: uppercase;
+}
+
+.library-votes-cell .jingle-toggle-btn.active {
+    border-color: rgba(83, 214, 139, 0.42);
+    color: var(--green);
+}
+
+.jingle-song-grid {
+    grid-template-columns: 40px minmax(220px, 1fr) 70px 54px 86px 82px 40px;
+}
+
+.jingle-song-item {
+    grid-template-areas:
+        "action title length plays votes created delete"
+        "action meta meta meta meta meta delete";
+    min-height: 62px;
+}
+
+.jingle-song-item.generating-row {
+    grid-template-areas:
+        "action title title title title title delete"
+        "action status status status status status delete";
+}
+
+.library-vote-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 5px;
+    min-width: 42px;
+    height: 21px;
+    box-sizing: border-box;
+    padding: 0 7px;
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.library-vote-mark {
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: var(--muted);
+}
+
+.library-vote-pill.positive {
+    border-color: rgba(83, 214, 139, 0.32);
+    color: var(--green);
+}
+
+.library-vote-pill.positive .library-vote-mark { background: var(--green); }
+
+.library-vote-pill.negative {
+    border-color: rgba(226, 74, 61, 0.34);
+    color: var(--red);
+}
+
+.library-vote-pill.negative .library-vote-mark { background: var(--red); }
+
+.library-vote-pill.neutral .library-vote-mark { opacity: .55; }
+
+.generating-row {
+    grid-template-areas:
+        "action title title title title title delete"
+        "action status status status status status delete";
+    background: rgba(166, 45, 37, 0.035);
+}
+
+.generating-row:hover {
+    background: rgba(166, 45, 37, 0.065);
+}
+
+@media (max-width: 760px) {
+    .library-song-grid {
+        grid-template-columns: 36px minmax(0, 1fr) 52px 42px 54px 36px;
+    }
+
+    .library-song-head {
+        grid-template-areas: "action title length plays votes delete";
+    }
+
+    .library-song-item {
+        grid-template-areas:
+            "action title title title title delete"
+            "action meta length plays votes delete";
+    }
+
+    .jingle-song-grid {
+        grid-template-columns: 36px minmax(0, 1fr) 52px 42px 68px 36px;
+    }
+
+    .jingle-song-item {
+        grid-template-areas:
+            "action title title title title delete"
+            "action meta length plays votes delete";
+    }
+
+    .generating-row {
+        grid-template-areas:
+            "action title title title title delete"
+            "action status status status status delete";
+    }
+
+    .library-created-cell {
+        display: none;
+    }
+}
 
 .vote-up-text { color: var(--green); }
 .vote-down-text { color: var(--red); }
@@ -947,10 +1338,25 @@ table.console-table {
 
 .rec-dot { color: var(--red); }
 
-/* REC indicator in the song list — framed like the ▶ preview button, but inert */
-.btn.rec-cell { display: inline-block; cursor: default; }
-.btn.rec-cell:hover { border-color: var(--line); color: var(--text); }
-.btn.rec-cell:active { transform: none; box-shadow: 0 3px 0 #0a0805, inset 0 1px 0 rgba(255, 217, 160, 0.08); }
+.rec-cell {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 26px;
+    box-sizing: border-box;
+    border: 1px solid rgba(226, 74, 61, 0.72);
+    border-radius: 7px;
+    background: rgba(166, 45, 37, 0.055);
+}
+
+.rec-cell .rec-dot-lg {
+    display: block;
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: var(--red);
+    box-shadow: 0 0 10px rgba(226, 74, 61, 0.55);
+}
 
 .library-search {
     width: 100%;

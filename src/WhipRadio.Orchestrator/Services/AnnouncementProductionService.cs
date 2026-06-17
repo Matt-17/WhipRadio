@@ -51,40 +51,81 @@ public class AnnouncementProductionService(
     {
         using var scope = scopeFactory.CreateScope();
         var factory = scope.ServiceProvider.GetRequiredService<AnnouncementFactory>();
-        var weatherSource = scope.ServiceProvider.GetRequiredService<IAnnouncementDataSource>();
+        var weatherSource = scope.ServiceProvider.GetRequiredService<IWeatherReportSource>();
 
         var context = await schedule.GetCurrentAsync(ct);
         var moderator = context.Moderator;
 
-        string stationName;
+        StationSettings settings;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            stationName = (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).StationName;
+            settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
         }
 
         // Queued listener greetings jump the line — listeners are waiting.
-        if (await TryProduceGreetingAsync(factory, context, stationName, ct))
+        if (await TryProduceGreetingAsync(factory, context, settings.StationName, ct))
         {
             return;
         }
 
         // Weather is hourly, on the full hour: prepare a FRESH report in the last
         // minutes of the hour so it's ready to air right after the top.
-        var minute = timeProvider.GetLocalNow().Minute;
-        var freshCutoff = DateTime.UtcNow.AddMinutes(-30);
-        if (WeatherScheduler.ShouldPrepare(minute)
-            && !await HasFreshUnplayedWeatherAsync(freshCutoff, ct))
+        var localNow = timeProvider.GetLocalNow();
+        if (settings.WeatherEnabled
+            && WeatherScheduler.ShouldPrepare(localNow, settings.WeatherCadenceMinutes)
+            && !await HasFreshUnplayedWeatherAsync(settings.WeatherCadenceMinutes, ct))
         {
-            var facts = await weatherSource.GetSummaryAsync(moderator.Language, ct);
-            await factory.ProduceAsync(AnnouncementKind.Weather, moderator, null, facts, stationName, ct);
+            var weatherModerator = await ResolveWeatherModeratorAsync(settings, moderator, ct);
+            var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
+            await factory.ProduceAsync(
+                AnnouncementKind.Weather,
+                weatherModerator,
+                null,
+                report.ToFacts(),
+                settings.StationName,
+                ct);
         }
     }
 
-    private async Task<bool> HasFreshUnplayedWeatherAsync(DateTime freshCutoff, CancellationToken ct)
+    private async Task<bool> HasFreshUnplayedWeatherAsync(int cadenceMinutes, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        return await db.Announcements.AnyAsync(
-            a => a.Kind == AnnouncementKind.Weather && !a.WasPlayed && a.CreatedAt >= freshCutoff, ct);
+        var freshCutoff = timeProvider.GetUtcNow().UtcDateTime
+            .AddMinutes(-WeatherScheduler.NormalizeCadence(cadenceMinutes));
+        var weatherAnnouncementIds = await db.TalkParts.AsNoTracking()
+            .Where(part => part.Kind == TalkPartKind.Weather
+                && part.Purpose == "WeatherReport"
+                && part.Status == TalkPartStatus.Rendered
+                && part.AnnouncementId != null)
+            .Select(part => part.AnnouncementId!.Value)
+            .ToListAsync(ct);
+
+        return weatherAnnouncementIds.Count > 0
+            && await db.Announcements.AsNoTracking()
+                .AnyAsync(a => weatherAnnouncementIds.Contains(a.Id) && !a.WasPlayed && a.CreatedAt >= freshCutoff, ct);
+    }
+
+    private async Task<Moderator> ResolveWeatherModeratorAsync(
+        StationSettings settings,
+        Moderator fallback,
+        CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        if (settings.WeatherSpecialistModeratorId is int specialistId)
+        {
+            var configured = await db.Moderators.AsNoTracking()
+                .FirstOrDefaultAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct);
+            if (configured is not null)
+            {
+                return configured;
+            }
+        }
+
+        return await db.Moderators.AsNoTracking()
+            .Where(m => m.IsActive && m.IsWeatherSpecialist)
+            .OrderBy(m => m.Id)
+            .FirstOrDefaultAsync(ct)
+            ?? fallback;
     }
 
     /// <summary>
@@ -96,7 +137,7 @@ public class AnnouncementProductionService(
         AnnouncementFactory factory, ShowContext context, string stationName, CancellationToken ct)
     {
         var moderator = context.Moderator;
-        var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator.Talkativeness, context.Format?.Talkativeness);
+        var talkativeness = TalkPlanner.EffectiveTalkativeness(moderator, context.Format);
         var batchSize = TalkPlanner.PickGreetingBatchSize(Random.Shared, talkativeness);
 
         // Requests whose track is in production are NOT read here — they air as a

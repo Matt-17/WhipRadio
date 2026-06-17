@@ -1,0 +1,433 @@
+@page "/branding"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IAsyncDisposable
+@inject RadioApiClient Api
+@inject RadioLiveClient Live
+@inject PlayerState Player
+
+<PageTitle>WhipRadio - Branding</PageTitle>
+
+<h1 class="stage-title">Branding</h1>
+<div class="stage-sub">station identity, mission and sonic labels</div>
+
+@if (_branding is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">?</span> loading station identity...</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Station Identity</div>
+        <div class="form-grid">
+            <div class="field"><label>Station name</label><input @bind="_stationName" /></div>
+            <div class="field"><label>Slogan</label><input @bind="_stationSlogan" /></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">
+                <label>Vision</label>
+                <textarea rows="4" @bind="_stationVision"></textarea>
+            </div>
+            <div class="field">
+                <label>Mission</label>
+                <textarea rows="4" @bind="_stationMission"></textarea>
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveBrandingAsync">Save Identity</button>
+            @if (_saved)
+            {
+                <span class="flash">stored</span>
+            }
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Jingle Generator</div>
+        <div class="form-grid">
+            <div class="field"><label>Label</label><input @bind="_jingleLabel" placeholder="Top of hour ID" /></div>
+            <div class="field"><label>Duration (s)</label><input type="number" min="5" max="20" @bind="_jingleDuration" /></div>
+            <div class="field">
+                <label>Style</label>
+                <input @bind="_jingleStyle" placeholder="warm analog FM, short sonic logo" />
+            </div>
+        </div>
+        <div class="artist-actions">
+            <button class="btn primary" @onclick="QueueJingleAsync">Queue Jingle</button>
+            @if (ActiveJingle is { } active)
+            {
+                <div class="queue-box">Recording · @active.Label</div>
+            }
+            @if (QueuedJingleCount > 0)
+            {
+                <div class="queue-box">Queue · @QueuedJingleCount jingle@(QueuedJingleCount == 1 ? "" : "s")</div>
+            }
+            @if (_jingleError is not null)
+            {
+                <span class="dim">@_jingleError</span>
+            }
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Jingle Library</div>
+        @if (_branding.Jingles.Count == 0 && _jingleQueue.Count == 0)
+        {
+            <div class="empty-state">no jingles generated yet</div>
+        }
+        else
+        {
+            <div class="library-song-list">
+                <div class="library-song-grid jingle-song-grid library-song-head">
+                    <span class="library-action-cell"></span>
+                    <div class="library-head-title">Label</div>
+                    <span class="library-length-cell num">Length</span>
+                    <span class="library-plays-cell num">Uses</span>
+                    <span class="library-votes-cell">Active</span>
+                    <span class="library-created-cell">Created</span>
+                    <span class="library-delete-cell"></span>
+                </div>
+
+                @foreach (var item in VisibleJingleQueue)
+                {
+                    <div class="library-song-grid jingle-song-grid library-song-item jingle-song-item generating-row">
+                        <div class="library-action-cell">
+                            @if (item.State == JingleQueueState.Recording)
+                            {
+                                <span class="rec-cell" title="Recording" aria-label="Recording"><span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span></span>
+                            }
+                        </div>
+                        <div class="library-title-line" title="@item.Label">
+                            <span class="track-title">@item.Label</span>
+                            <span class="tag @QueueTag(item)">@QueueLabel(item)</span>
+                        </div>
+                        <div class="library-recording-status">
+                            <span>@item.Style</span>
+                            @if (item.Error is not null)
+                            {
+                                <span class="library-meta-dot">·</span>
+                                <span>@item.Error</span>
+                            }
+                        </div>
+                        <div class="library-delete-cell">
+                            @if (item.State != JingleQueueState.Recording)
+                            {
+                                <button class="btn small vote-down" title="remove from queue"
+                                        @onclick="() => RemoveQueuedJingle(item)"><Icon Name="trash" /></button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                @foreach (var jingle in _branding.Jingles)
+                {
+                    var createdLocal = jingle.CreatedAtUtc.ToLocalTime();
+
+                    <div class="library-song-grid jingle-song-grid library-song-item jingle-song-item">
+                        <div class="library-action-cell">
+                            <button class="btn small library-preview-btn" title="play in the footer player"
+                                    @onclick="() => Player.PlayJingle(jingle, Api.JingleAudioUrl(jingle.Id))"><Icon Name="play" /></button>
+                        </div>
+                        <div class="library-title-line" title="@jingle.Label">
+                            <span class="track-title">@jingle.Label</span>
+                        </div>
+                        <div class="library-song-meta">
+                            <span>@jingle.Style</span>
+                            <span class="library-meta-dot">·</span>
+                            <span>@jingle.Backend</span>
+                        </div>
+                        <div class="library-length-cell num">@FormatDuration(jingle.DurationSeconds)</div>
+                        <div class="library-plays-cell num">@jingle.PlayCount</div>
+                        <div class="library-votes-cell">
+                            <button class="btn small jingle-toggle-btn @(jingle.IsActive ? "active" : null)" title="@(jingle.IsActive ? "disable jingle" : "enable jingle")"
+                                    @onclick="() => ToggleJingleAsync(jingle.Id)">@(jingle.IsActive ? "active" : "off")</button>
+                        </div>
+                        <div class="library-created-cell dim" title="@createdLocal.ToString("dd.MM.yyyy HH:mm")">@createdLocal.ToString("dd.MM.")</div>
+                        <div class="library-delete-cell">
+                            <button class="btn small vote-down" title="delete this jingle"
+                                    @onclick="() => _deleteTarget = jingle"><Icon Name="trash" /></button>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete jingle"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Delete <strong>"@doomed.Label"</strong>?
+        The jingle row and audio file are gone for good.</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private readonly List<QueuedJingle> _jingleQueue = [];
+    private BrandingDto? _branding;
+    private JingleDto? _deleteTarget;
+    private bool _saved;
+    private bool _queueWorkerRunning;
+    private bool _disposed;
+    private string? _jingleError;
+    private int _nextJingleQueueId;
+
+    private string _stationName = "";
+    private string _stationSlogan = "";
+    private string _stationVision = "";
+    private string _stationMission = "";
+
+    private string _jingleLabel = "Station ID";
+    private string _jingleStyle = "warm analog FM, memorable sonic logo, tight drums, bright synth tag";
+    private int _jingleDuration = 10;
+
+    private QueuedJingle? ActiveJingle => _jingleQueue.FirstOrDefault(item => item.State == JingleQueueState.Recording);
+
+    private int QueuedJingleCount => _jingleQueue.Count(item => item.State == JingleQueueState.Queued);
+
+    private IEnumerable<QueuedJingle> VisibleJingleQueue => _jingleQueue.OrderBy(item => item.Id);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.JinglesChanged += OnJinglesChanged;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Live.EnsureStartedAsync();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        _branding = await Api.GetBrandingAsync();
+        if (_branding is null)
+        {
+            return;
+        }
+
+        _stationName = _branding.StationName;
+        _stationSlogan = _branding.StationSlogan;
+        _stationVision = _branding.StationVision;
+        _stationMission = _branding.StationMission;
+    }
+
+    private async Task RefreshJinglesAsync()
+    {
+        var jingles = await Api.GetJinglesAsync();
+        if (_branding is null)
+        {
+            await LoadAsync();
+            return;
+        }
+
+        _branding = _branding with { Jingles = jingles };
+    }
+
+    private async Task SaveBrandingAsync()
+    {
+        _branding = await Api.SaveBrandingAsync(new SaveBrandingDto(
+            _stationName,
+            _stationSlogan,
+            _stationVision,
+            _stationMission));
+        _saved = true;
+    }
+
+    private Task QueueJingleAsync()
+    {
+        _jingleError = null;
+        _jingleQueue.Add(new QueuedJingle(
+            ++_nextJingleQueueId,
+            CleanLabel(_jingleLabel),
+            string.IsNullOrWhiteSpace(_jingleStyle) ? "radio station ID jingle" : _jingleStyle.Trim(),
+            Math.Clamp(_jingleDuration, 5, 20)));
+
+        if (!_queueWorkerRunning)
+        {
+            _queueWorkerRunning = true;
+            _ = ProcessJingleQueueAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ProcessJingleQueueAsync()
+    {
+        try
+        {
+            while (!_disposed)
+            {
+                var next = _jingleQueue.FirstOrDefault(item => item.State == JingleQueueState.Queued);
+                if (next is null)
+                {
+                    return;
+                }
+
+                next.State = JingleQueueState.Recording;
+                await InvokeStateChangedAsync();
+
+                var (jingle, error) = await Api.CreateJingleAsync(new CreateJingleDto(
+                    next.Label,
+                    next.Style,
+                    next.DurationSeconds));
+
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (jingle is null)
+                {
+                    next.State = JingleQueueState.Failed;
+                    next.Error = CleanError(error);
+                    _jingleError = next.Error;
+                }
+                else
+                {
+                    _jingleQueue.Remove(next);
+                    await RefreshJinglesAsync();
+                }
+
+                await InvokeStateChangedAsync();
+            }
+        }
+        finally
+        {
+            _queueWorkerRunning = false;
+            if (!_disposed && _jingleQueue.Any(item => item.State == JingleQueueState.Queued))
+            {
+                _queueWorkerRunning = true;
+                _ = ProcessJingleQueueAsync();
+            }
+
+            if (!_disposed)
+            {
+                await InvokeStateChangedAsync();
+            }
+        }
+    }
+
+    private async Task ToggleJingleAsync(Guid id)
+    {
+        _jingleError = null;
+        var updated = await Api.ToggleJingleAsync(id);
+        if (updated is null)
+        {
+            _jingleError = "Could not update jingle status.";
+        }
+
+        await RefreshJinglesAsync();
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } target)
+        {
+            return;
+        }
+
+        _jingleError = await Api.DeleteJingleAsync(target.Id);
+        if (_jingleError is null && Player.CurrentJingle?.Jingle.Id == target.Id)
+        {
+            Player.BackToLive();
+        }
+
+        _deleteTarget = null;
+        await RefreshJinglesAsync();
+    }
+
+    private void OnJinglesChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            await RefreshJinglesAsync();
+            StateHasChanged();
+        });
+
+    private void RemoveQueuedJingle(QueuedJingle item)
+    {
+        if (item.State != JingleQueueState.Recording)
+        {
+            _jingleQueue.Remove(item);
+        }
+    }
+
+    private Task InvokeStateChangedAsync()
+        => InvokeAsync(StateHasChanged);
+
+    private static string CleanLabel(string label)
+        => string.IsNullOrWhiteSpace(label) ? "Station ID" : label.Trim();
+
+    private static string CleanError(string? error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return "generation failed";
+        }
+
+        var compact = error.ReplaceLineEndings(" ").Trim();
+        return compact.Length <= 180 ? compact : $"{compact[..180]}...";
+    }
+
+    private static string QueueLabel(QueuedJingle item) => item.State switch
+    {
+        JingleQueueState.Queued => "queued",
+        JingleQueueState.Recording => "recording",
+        JingleQueueState.Failed => "failed",
+        _ => "queued",
+    };
+
+    private static string? QueueTag(QueuedJingle item) => item.State switch
+    {
+        JingleQueueState.Recording => "red",
+        JingleQueueState.Failed => "red",
+        _ => "amber",
+    };
+
+    private static string FormatDuration(double seconds)
+        => seconds >= 60
+            ? TimeSpan.FromSeconds(seconds).ToString(@"m\:ss")
+            : $"{seconds:0.0} s";
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        Live.JinglesChanged -= OnJinglesChanged;
+        return ValueTask.CompletedTask;
+    }
+
+    private enum JingleQueueState
+    {
+        Queued,
+        Recording,
+        Failed,
+    }
+
+    private sealed class QueuedJingle(
+        int id,
+        string label,
+        string style,
+        int durationSeconds)
+    {
+        public int Id { get; } = id;
+
+        public string Label { get; } = label;
+
+        public string Style { get; } = style;
+
+        public int DurationSeconds { get; } = durationSeconds;
+
+        public JingleQueueState State { get; set; } = JingleQueueState.Queued;
+
+        public string? Error { get; set; }
+    }
+}

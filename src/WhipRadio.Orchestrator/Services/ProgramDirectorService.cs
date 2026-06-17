@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Personality;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Llm;
@@ -158,6 +160,7 @@ public partial class ProgramDirectorService(
         {
             using var scope = scopeFactory.CreateScope();
             var llm = scope.ServiceProvider.GetRequiredService<ITextGenerationService>();
+            var promptContextBuilder = scope.ServiceProvider.GetRequiredService<IPromptContextBuilder>();
 
             string stationName;
             List<string> formatNames;
@@ -182,9 +185,16 @@ public partial class ProgramDirectorService(
                 ["Formats"] = formatNames.Count == 0 ? "(none yet)" : string.Join("; ", formatNames),
                 ["Hosts"] = hostNames.Count == 0 ? "(none)" : string.Join("; ", hostNames),
             });
+            var promptContext = await promptContextBuilder.BuildAsync(
+                new PromptContextInput(
+                    PromptScope.ProgramDirector,
+                    Facts: $"Planning day: {dayOfWeek}; day type: {(isWeekend ? "weekend" : "weekday")}",
+                    Purpose: "Director day plan"),
+                ct);
 
             var reply = await llm.CompleteAsync(
-                "You are an experienced radio program director. Follow the output format EXACTLY.",
+                "You are an experienced radio program director. Follow the output format EXACTLY.\n\n"
+                + promptContext.RenderSituation(),
                 prompt, ct);
             return ParsePlan(LlmOutputSanitizer.Sanitize(reply));
         }
@@ -301,6 +311,7 @@ public partial class ProgramDirectorService(
                 string.Equals(f.Name, block.FormatName, StringComparison.OrdinalIgnoreCase));
             if (format is null)
             {
+                var talkDensity = GuessFormatTalkativeness(block);
                 format = new Format
                 {
                     Id = Guid.NewGuid(),
@@ -311,7 +322,9 @@ public partial class ProgramDirectorService(
                     ModeratorId = moderator.Id,
                     Reason = block.Reason,
                     IsEnabled = true,
-                    Talkativeness = GuessFormatTalkativeness(block),
+                    Talkativeness = talkDensity,
+                    TalkDensity = talkDensity,
+                    TalkDepth = GuessFormatTalkDepth(block),
                     CreatedAt = DateTime.UtcNow,
                 };
                 db.Formats.Add(format);
@@ -381,6 +394,7 @@ public partial class ProgramDirectorService(
         try
         {
             var llm = scope.ServiceProvider.GetRequiredService<ITextGenerationService>();
+            var promptContextBuilder = scope.ServiceProvider.GetRequiredService<IPromptContextBuilder>();
             var prompt = PromptTemplates.Render("HostPersona", new Dictionary<string, string>
             {
                 ["Name"] = name,
@@ -388,8 +402,16 @@ public partial class ProgramDirectorService(
                 ["Language"] = language,
                 ["Style"] = style,
             });
+            var promptContext = await promptContextBuilder.BuildAsync(
+                new PromptContextInput(
+                    PromptScope.ProgramDirector,
+                    Facts: $"New host name: {name}; gender: {gender}; language: {language}; style: {style}",
+                    Purpose: "Create host persona"),
+                ct);
             persona = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
-                "You write radio host personas. Output only the persona.", prompt, ct));
+                "You write radio host personas. Output only the persona.\n\n" + promptContext.RenderSituation(),
+                prompt,
+                ct));
         }
         catch (Exception ex)
         {
@@ -397,6 +419,12 @@ public partial class ProgramDirectorService(
         }
 
         var styleWords = style.ToLowerInvariant();
+        var talkativeness = styleWords.Contains("energetic") || styleWords.Contains("chatty") || styleWords.Contains("fast")
+            ? 0.75
+            : styleWords.Contains("calm") || styleWords.Contains("slow") || styleWords.Contains("laid")
+                ? 0.35
+                : 0.5;
+        var baselineTraits = MoodEngine.InferBaseline(style, talkativeness);
         var moderator = new Moderator
         {
             Name = name,
@@ -406,11 +434,12 @@ public partial class ProgramDirectorService(
             PersonaPrompt = persona,
             TtsEngine = language.StartsWith("de") ? TtsEngines.Piper : TtsEngines.Kokoro,
             SpeechRate = 1.0,
-            Talkativeness = styleWords.Contains("energetic") || styleWords.Contains("chatty") || styleWords.Contains("fast")
-                ? 0.75
-                : styleWords.Contains("calm") || styleWords.Contains("slow") || styleWords.Contains("laid")
-                    ? 0.35
-                    : 0.5,
+            Talkativeness = talkativeness,
+            BaselineEnergy = baselineTraits.Energy,
+            BaselineFormality = baselineTraits.Formality,
+            BaselineHumorLevel = baselineTraits.HumorLevel,
+            BaselineTalkativeness = baselineTraits.Talkativeness,
+            BaselineWarmth = baselineTraits.Warmth,
             IsActive = true,
             IsAutoGenerated = true,
         };
@@ -441,6 +470,27 @@ public partial class ProgramDirectorService(
         }
 
         return block.StartMinute < 6 * 60 ? 0.3 : 0.5; // overnight blocks stay quiet
+    }
+
+    private static TalkDepth GuessFormatTalkDepth(PlannedBlock block)
+    {
+        var name = block.FormatName.ToLowerInvariant();
+        if (name.Contains("party") || name.Contains("club"))
+        {
+            return TalkDepth.NameOnly;
+        }
+
+        if (name.Contains("morning") || name.Contains("drive") || name.Contains("talk"))
+        {
+            return TalkDepth.Detailed;
+        }
+
+        if (name.Contains("night") || name.Contains("lounge") || name.Contains("session"))
+        {
+            return TalkDepth.Light;
+        }
+
+        return TalkDepth.Light;
     }
 
     private static string NormalizeGenre(string genre)

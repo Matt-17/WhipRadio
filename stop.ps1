@@ -21,8 +21,15 @@ else {
     # encoder ffmpeg can keep pushing stale audio to the Icecast mount and
     # fight the next session (weird sounds after restart). Kill ONLY ffmpeg
     # processes that talk to Icecast or decode from our data folder.
-    $orphans = Get-CimInstance Win32_Process -Filter "Name='ffmpeg.exe'" |
-        Where-Object { $_.CommandLine -match 'icecast://' -or $_.CommandLine -match 'WhipRadio' }
+    $orphans = @()
+    try {
+        $orphans = Get-CimInstance Win32_Process -Filter "Name='ffmpeg.exe'" -ErrorAction Stop |
+            Where-Object { $_.CommandLine -match 'icecast://' -or $_.CommandLine -match 'WhipRadio' }
+    }
+    catch {
+        Write-Host "Skipping ffmpeg orphan check: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+
     if ($orphans) {
         $orphans | ForEach-Object {
             Write-Host "Stopping orphaned ffmpeg (PID $($_.ProcessId))"

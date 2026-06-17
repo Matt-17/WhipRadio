@@ -7,7 +7,11 @@ namespace WhipRadio.Web.Services;
 /// Per-circuit live console state: SignalR log push from the orchestrator with
 /// an HTTP snapshot on connect/reconnect.
 /// </summary>
-public class ConsoleLiveClient(RadioApiClient api, IConfiguration configuration, ILogger<ConsoleLiveClient> logger)
+public class ConsoleLiveClient(
+    RadioApiClient api,
+    IConfiguration configuration,
+    IHostEnvironment environment,
+    ILogger<ConsoleLiveClient> logger)
     : IAsyncDisposable
 {
     private const int MaxLines = 300;
@@ -60,9 +64,11 @@ public class ConsoleLiveClient(RadioApiClient api, IConfiguration configuration,
                 return;
             }
 
+            await RefreshSnapshotAsync();
+
             var baseUrl = configuration["services:orchestrator:http:0"]
                 ?? configuration["Orchestrator:Endpoint"]
-                ?? "http://orchestrator";
+                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
 
             _connection = new HubConnectionBuilder()
                 .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
@@ -101,14 +107,14 @@ public class ConsoleLiveClient(RadioApiClient api, IConfiguration configuration,
 
             try
             {
-                await _connection.StartAsync();
+                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _connection.StartAsync(timeout.Token);
             }
             catch (Exception ex)
             {
                 logger.LogWarning(ex, "SignalR console connect failed; falling back to snapshot only");
             }
 
-            await RefreshSnapshotAsync();
             _started = true;
         }
         finally
@@ -119,8 +125,17 @@ public class ConsoleLiveClient(RadioApiClient api, IConfiguration configuration,
 
     public async Task RefreshSnapshotAsync()
     {
-        var snapshot = await api.GetConsoleAsync();
-        var studios = await api.GetStudiosAsync();
+        List<ConsoleLineDto> snapshot = [];
+        List<StudioDto> studios = [];
+        try
+        {
+            snapshot = await api.GetConsoleAsync();
+            studios = await api.GetStudiosAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Console snapshot failed; showing an empty console snapshot");
+        }
 
         lock (_stateLock)
         {

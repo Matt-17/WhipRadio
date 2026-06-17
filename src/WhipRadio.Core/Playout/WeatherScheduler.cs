@@ -13,4 +13,37 @@ public static class WeatherScheduler
 
     /// <summary>Air window: the first talk slot after the full hour.</summary>
     public static bool IsAirWindow(int minuteOfHour) => minuteOfHour < 10;
+
+    public static bool ShouldPrepare(DateTimeOffset localNow, int cadenceMinutes)
+    {
+        var cadence = NormalizeCadence(cadenceMinutes);
+        var minuteOfDay = localNow.Hour * 60 + localNow.Minute;
+        var minutesUntilNext = cadence - minuteOfDay % cadence;
+        return minutesUntilNext is > 0 and <= 10;
+    }
+
+    public static bool IsAirWindow(DateTimeOffset localNow, int cadenceMinutes)
+    {
+        var cadence = NormalizeCadence(cadenceMinutes);
+        var minuteOfDay = localNow.Hour * 60 + localNow.Minute;
+        return minuteOfDay % cadence < 10;
+    }
+
+    public static DateTimeOffset CurrentWindowStart(DateTimeOffset localNow, int cadenceMinutes)
+    {
+        var cadence = NormalizeCadence(cadenceMinutes);
+        var minuteOfDay = localNow.Hour * 60 + localNow.Minute;
+        var startMinute = minuteOfDay - minuteOfDay % cadence;
+        return new DateTimeOffset(
+            localNow.Year,
+            localNow.Month,
+            localNow.Day,
+            0,
+            0,
+            0,
+            localNow.Offset).AddMinutes(startMinute);
+    }
+
+    public static int NormalizeCadence(int cadenceMinutes)
+        => Math.Clamp(cadenceMinutes, 15, 180);
 }
