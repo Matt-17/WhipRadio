@@ -19,6 +19,7 @@ namespace WhipRadio.Orchestrator.Services;
 public sealed class AudioMixerEngine(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
+    PlayoutStateStore stateStore,
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
     FfmpegProcessRegistry ffmpegRegistry,
@@ -162,6 +163,7 @@ public sealed class AudioMixerEngine(
                                 a.Item.Title, earlySeconds);
                         }
 
+                        stateStore.Complete(a.Item);
                         a.Reader.Dispose();
                         actives.RemoveAt(i);
                         if (actives.Count > 0 && i == actives.Count)
@@ -268,10 +270,12 @@ public sealed class AudioMixerEngine(
     {
         var introEnd = songInfo.Analysis!.IntroEndSeconds!.Value;
         var talkStartOffset = plan.IncomingStartOffsetSeconds ?? 0;
+        var songStartOffsetSeconds = PlaybackStartSeconds(song, songInfo);
+        var talkPlaybackStartSeconds = PlaybackStartSeconds(talk, talkInfo);
         var songStart = masterPos;
         var talkStart = songStart + Format.SecondsToSamples(talkStartOffset);
-        var talkEnd = talkStart + Format.SecondsToSamples(talkInfo.DurationSeconds);
-        var songEnd = songStart + Format.SecondsToSamples(songInfo.DurationSeconds);
+        var talkEnd = talkStart + Format.SecondsToSamples(RemainingSeconds(talkInfo, talkPlaybackStartSeconds));
+        var songEnd = songStart + Format.SecondsToSamples(RemainingSeconds(songInfo, songStartOffsetSeconds));
         var duckReleaseEnd = songStart + Format.SecondsToSamples(introEnd);
 
         // Song bed: ducked under the talk; release ramp ENDS exactly at IntroEnd.
@@ -280,7 +284,7 @@ public sealed class AudioMixerEngine(
             duckStartSample: songStart,
             duckEndSample: Math.Max(talkEnd, duckReleaseEnd),
             settings.DuckLevelDb, settings.DuckRampMs);
-        var songReader = CreateReader(song, songInfo, startAtSeconds: songInfo.Analysis?.LeadingSilenceSeconds ?? 0);
+        var songReader = CreateReader(song, songInfo, startAtSeconds: songStartOffsetSeconds);
         actives.Add(new ActiveSource
         {
             Slot = new SourceSlot
@@ -297,7 +301,7 @@ public sealed class AudioMixerEngine(
         });
 
         var talkEnvelope = EnvelopeFactory.FullLevel(Format, talkStart, talkEnd);
-        var talkReader = CreateReader(talk, talkInfo, startAtSeconds: 0);
+        var talkReader = CreateReader(talk, talkInfo, startAtSeconds: talkPlaybackStartSeconds);
         actives.Add(new ActiveSource
         {
             Slot = new SourceSlot
@@ -335,7 +339,7 @@ public sealed class AudioMixerEngine(
         diagnostics.DecisionMade($"{outgoing.Item.Title} → {incoming.Title}: {plan.ReasonTrace}");
         var rate = Format.SampleRate;
         var outgoingEnd = outgoing.EndAtMaster;
-        var leadIn = incomingInfo.Analysis?.LeadingSilenceSeconds ?? 0;
+        var leadIn = PlaybackStartSeconds(incoming, incomingInfo);
 
         long incomingStart;
         long reportAt;
@@ -383,7 +387,7 @@ public sealed class AudioMixerEngine(
                 outgoing.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
                 outgoing.EndAtMaster = fadeEnd;
 
-                incomingEnd = incomingStart + Format.SecondsToSamples(incomingInfo.DurationSeconds - leadIn);
+                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
                 incomingEnvelope = EnvelopeFactory.FadeIn(Format, Math.Max(incomingStart, fadeStart), fadeEnd, incomingEnd);
                 reportAt = (fadeStart + fadeEnd) / 2; // crossfade midpoint
                 pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, fadeEnd));
@@ -407,7 +411,7 @@ public sealed class AudioMixerEngine(
                 outgoing.Slot.Envelope.AddBreakpoint(outgoingEnd, 0f, RampShape.Hold);
 
                 incomingStart = talkStart;
-                incomingEnd = incomingStart + Format.SecondsToSamples(incomingInfo.DurationSeconds);
+                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
                 incomingEnvelope = EnvelopeFactory.FullLevel(Format, incomingStart, incomingEnd);
                 reportAt = incomingStart;
                 pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, outgoingEnd));
@@ -417,7 +421,7 @@ public sealed class AudioMixerEngine(
             default: // HardCut (and IntroTalkOver never reaches here: planned at item start)
             {
                 incomingStart = outgoingEnd + Format.SecondsToSamples(plan.GapMs / 1000.0);
-                incomingEnd = incomingStart + Format.SecondsToSamples(incomingInfo.DurationSeconds - leadIn);
+                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
                 incomingEnvelope = EnvelopeFactory.FullLevel(Format, incomingStart, incomingEnd);
                 reportAt = incomingStart;
                 pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, incomingStart));
@@ -454,9 +458,9 @@ public sealed class AudioMixerEngine(
     private ActiveSource CreateSource(
         PlayoutItem item, ItemInfo info, long startAt, MixerSettings settings, EnvelopeKind _, long reportAt)
     {
-        var leadIn = info.Analysis?.LeadingSilenceSeconds ?? 0;
-        var end = startAt + Format.SecondsToSamples(info.DurationSeconds - leadIn);
-        var reader = CreateReader(item, info, startAtSeconds: leadIn);
+        var startOffset = PlaybackStartSeconds(item, info);
+        var end = startAt + Format.SecondsToSamples(RemainingSeconds(info, startOffset));
+        var reader = CreateReader(item, info, startAtSeconds: startOffset);
         return new ActiveSource
         {
             Slot = new SourceSlot
@@ -479,6 +483,17 @@ public sealed class AudioMixerEngine(
         return new FfmpegPcmSampleReader(
             streamOptions.Value.FfmpegPath, absolutePath, Format, startAtSeconds, ffmpegRegistry);
     }
+
+    private static double PlaybackStartSeconds(PlayoutItem item, ItemInfo info)
+    {
+        var duration = Math.Max(0, info.DurationSeconds);
+        var resumeOffset = Math.Clamp(double.IsFinite(item.StartOffsetSeconds) ? item.StartOffsetSeconds : 0, 0, duration);
+        var leadIn = Math.Clamp(info.Analysis?.LeadingSilenceSeconds ?? 0, 0, duration);
+        return Math.Max(resumeOffset, leadIn);
+    }
+
+    private static double RemainingSeconds(ItemInfo info, double startOffsetSeconds)
+        => Math.Max(0, info.DurationSeconds - startOffsetSeconds);
 
     private static float Makeup(ItemInfo info, MixerSettings settings)
         => TransitionMath.MakeupGainLinear(
@@ -564,6 +579,7 @@ public sealed class AudioMixerEngine(
             if (!active.Reported && masterPos >= active.ReportAtMaster)
             {
                 active.Reported = true;
+                stateStore.MarkStarted(active.Item);
                 await reporter.ReportStartedAsync(active.Item, ct);
             }
         }

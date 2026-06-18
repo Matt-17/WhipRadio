@@ -9,7 +9,8 @@ public sealed record PlayoutItem(
     string FilePath,
     string Title,
     double DurationSeconds,
-    int? ModeratorId = null);
+    int? ModeratorId = null,
+    double StartOffsetSeconds = 0);
 
 /// <summary>Thread-safe FIFO consumed by the PlayoutService.</summary>
 public interface IPlayoutQueue

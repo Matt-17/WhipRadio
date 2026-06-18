@@ -46,10 +46,12 @@ builder.Services.AddSingleton<ProductionGate>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ScheduleService>();
 builder.Services.AddSingleton<QueueStateTracker>();
+builder.Services.AddSingleton<PlayoutStateStore>();
 builder.Services.AddSingleton<ChannelPlayoutQueue>();
 builder.Services.AddSingleton<IPlayoutQueue>(sp => new TrackedPlayoutQueue(
     sp.GetRequiredService<ChannelPlayoutQueue>(),
-    sp.GetRequiredService<QueueStateTracker>()));
+    sp.GetRequiredService<QueueStateTracker>(),
+    sp.GetRequiredService<PlayoutStateStore>()));
 builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<VoiceCatalogService>();
@@ -72,6 +74,7 @@ var logBuffer = new InMemoryLogBuffer();
 builder.Services.AddSingleton(logBuffer);
 builder.Logging.AddProvider(new BufferLoggerProvider(logBuffer));
 
+builder.Services.AddHostedService<PlayoutRecoveryService>();
 builder.Services.AddHostedService<PlayoutService>();
 builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<MusicProductionService>();

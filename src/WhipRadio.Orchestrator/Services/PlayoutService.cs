@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -16,6 +17,7 @@ namespace WhipRadio.Orchestrator.Services;
 /// </summary>
 public class PlayoutService(
     IPlayoutQueue queue,
+    PlayoutStateStore stateStore,
     IPlaybackReporter reporter,
     AudioMixerEngine mixerEngine,
     FfmpegProcessRegistry ffmpegRegistry,
@@ -109,8 +111,22 @@ public class PlayoutService(
                 continue;
             }
 
+            stateStore.MarkStarted(item);
             await reporter.ReportStartedAsync(item, ct);
-            await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
+            try
+            {
+                await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
+                stateStore.Complete(item);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                stateStore.Complete(item);
+                throw;
+            }
         }
     }
 
@@ -173,7 +189,7 @@ public class PlayoutService(
             return true;
         }
 
-        using var decoder = StartDecoder(absolutePath);
+        using var decoder = StartDecoder(absolutePath, item.StartOffsetSeconds);
         try
         {
             // Manual pump instead of CopyToAsync so the off-air switch is honored
@@ -231,11 +247,17 @@ public class PlayoutService(
         return StartFfmpeg(args, redirectStdin: true, redirectStdout: false);
     }
 
-    private Process StartDecoder(string absolutePath)
-        => StartFfmpeg(
-            $"-hide_banner -loglevel error -i \"{absolutePath}\" -f s16le -ar 44100 -ac 2 pipe:1",
+    private Process StartDecoder(string absolutePath, double startOffsetSeconds)
+    {
+        var seek = startOffsetSeconds > 0
+            ? $"-ss {startOffsetSeconds.ToString("0.###", CultureInfo.InvariantCulture)} "
+            : string.Empty;
+
+        return StartFfmpeg(
+            $"-hide_banner -loglevel error {seek}-i \"{absolutePath}\" -f s16le -ar 44100 -ac 2 pipe:1",
             redirectStdin: false,
             redirectStdout: true);
+    }
 
     private Process StartFfmpeg(string arguments, bool redirectStdin, bool redirectStdout)
     {

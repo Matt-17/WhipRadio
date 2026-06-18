@@ -103,6 +103,11 @@ not a replacement for the internal protocol.
 `MixerCore` is the pure DSP core for sample-buffer mixing. The live mixer may use it
 directly for crossfades, ducking, and transition diagnostics.
 
+**Implemented:** live playout persists the active item plus listener-facing next-up
+queue under the configured data root. On process restart, WhipRadio restores the same
+timeline before the show runner refills anything; the active item resumes from its
+elapsed wall-clock offset, and queued scheduled items such as weather stay in order.
+
 **Implemented in Phase 3b:** station branding now includes slogan, vision, and mission
 as prompt context. Generated jingles are short instrumental station identity sources
 created through the existing ACE-Step recording backend and stored under the shared

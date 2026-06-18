@@ -42,7 +42,10 @@ public class QueueStateTracker
 }
 
 /// <summary>IPlayoutQueue decorator that keeps the QueueStateTracker in sync.</summary>
-public class TrackedPlayoutQueue(IPlayoutQueue inner, QueueStateTracker tracker) : IPlayoutQueue
+public class TrackedPlayoutQueue(
+    IPlayoutQueue inner,
+    QueueStateTracker tracker,
+    PlayoutStateStore stateStore) : IPlayoutQueue
 {
     public int Count => inner.Count;
 
@@ -50,12 +53,14 @@ public class TrackedPlayoutQueue(IPlayoutQueue inner, QueueStateTracker tracker)
     {
         inner.Enqueue(item);
         tracker.Enqueued(item);
+        stateStore.Enqueued(item);
     }
 
     public void EnqueueFront(PlayoutItem item)
     {
         inner.EnqueueFront(item);
         tracker.EnqueuedFront(item);
+        stateStore.EnqueuedFront(item);
     }
 
     public PlayoutItem? PeekNext() => inner.PeekNext();

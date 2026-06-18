@@ -30,21 +30,36 @@ public class TalkBreakRuntimeTests
             AddTalkBreak(db, TalkBreakPriority.Emergency, Now.AddMinutes(-10), out var oldEmergencyId);
             await db.SaveChangesAsync();
 
-            var tracker = new QueueStateTracker();
-            IPlayoutQueue queue = new TrackedPlayoutQueue(new ChannelPlayoutQueue(), tracker);
-            var dispatcher = new PriorityTalkBreakDispatcher(
-                fixture,
-                queue,
-                tracker,
-                new FixedTimeProvider(Now),
-                NullLogger<PriorityTalkBreakDispatcher>.Instance);
+            var root = Path.Combine(Path.GetTempPath(), "whipradio-queue-tests", Guid.NewGuid().ToString("N"));
+            try
+            {
+                var tracker = new QueueStateTracker();
+                var stateStore = new PlayoutStateStore(
+                    Options.Create(new RadioOptions { DataRoot = root }),
+                    new FixedTimeProvider(Now),
+                    NullLogger<PlayoutStateStore>.Instance);
+                IPlayoutQueue queue = new TrackedPlayoutQueue(new ChannelPlayoutQueue(), tracker, stateStore);
+                var dispatcher = new PriorityTalkBreakDispatcher(
+                    fixture,
+                    queue,
+                    tracker,
+                    new FixedTimeProvider(Now),
+                    NullLogger<PriorityTalkBreakDispatcher>.Instance);
 
-            var pushed = await dispatcher.PushReadyAsync(CancellationToken.None);
+                var pushed = await dispatcher.PushReadyAsync(CancellationToken.None);
 
-            Assert.Equal(3, pushed);
-            Assert.Equal(oldEmergencyId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
-            Assert.Equal(newEmergencyId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
-            Assert.Equal(highId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
+                Assert.Equal(3, pushed);
+                Assert.Equal(oldEmergencyId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
+                Assert.Equal(newEmergencyId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
+                Assert.Equal(highId, (await queue.DequeueAsync(CancellationToken.None)).ItemId);
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
         }
     }
 

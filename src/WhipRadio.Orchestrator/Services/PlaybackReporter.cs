@@ -26,6 +26,7 @@ public class PlaybackReporter(
     IDbContextFactory<RadioDbContext> dbFactory,
     INowPlayingState nowPlaying,
     QueueStateTracker queueTracker,
+    PlayoutStateStore stateStore,
     IHubContext<RadioHub> hub,
     IHttpClientFactory httpClientFactory,
     ScheduleService schedule,
@@ -79,11 +80,14 @@ public class PlaybackReporter(
 
     private async Task ReportNowAsync(PlayoutItem item, CancellationToken ct)
     {
+        var nowUtc = DateTime.UtcNow;
+        var visibleStartedAtUtc = nowUtc - TimeSpan.FromSeconds(
+            Math.Clamp(item.StartOffsetSeconds, 0, Math.Max(0, item.DurationSeconds)));
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         db.PlayLog.Add(new PlayLogEntry
         {
-            PlayedAt = DateTime.UtcNow,
+            PlayedAt = nowUtc,
             ItemType = item.ItemType,
             ItemId = item.ItemId,
             ModeratorId = item.ModeratorId,
@@ -110,7 +114,6 @@ public class PlaybackReporter(
         }
         else
         {
-            var playedAt = DateTime.UtcNow;
             await db.Announcements
                 .Where(a => a.Id == item.ItemId)
                 .ExecuteUpdateAsync(s => s.SetProperty(a => a.WasPlayed, true), ct);
@@ -118,7 +121,7 @@ public class PlaybackReporter(
                 .Where(t => t.AnnouncementId == item.ItemId)
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(t => t.Status, TalkBreakStatus.Played)
-                    .SetProperty(t => t.PlayedAtUtc, playedAt), ct);
+                    .SetProperty(t => t.PlayedAtUtc, nowUtc), ct);
             await db.TalkParts
                 .Where(p => p.AnnouncementId == item.ItemId)
                 .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, TalkPartStatus.Played), ct);
@@ -149,11 +152,12 @@ public class PlaybackReporter(
         }
 
         nowPlaying.SetCurrent(new NowPlayingInfo(
-            item.ItemType, item.ItemId, item.Title, DateTime.UtcNow, item.DurationSeconds, moderatorName));
+            item.ItemType, item.ItemId, item.Title, visibleStartedAtUtc, item.DurationSeconds, moderatorName));
         queueTracker.Started(item.ItemId);
+        stateStore.BecameVisible(item);
 
         var dto = new NowPlayingDto(
-            item.ItemType.ToString(), item.ItemId, item.Title, DateTime.UtcNow, item.DurationSeconds,
+            item.ItemType.ToString(), item.ItemId, item.Title, visibleStartedAtUtc, item.DurationSeconds,
             moderatorName, artistName, transcript, upVotes, downVotes, formatName);
 
         await PublishAsync(dto, ct);
