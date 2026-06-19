@@ -35,23 +35,78 @@ function Wait-Http($Url, [int]$Seconds = 60) {
     return $false
 }
 
-function Ensure-Container($Name, $Image, $HostPort, $TargetPort, $Volume, [bool]$UseGpu = $false) {
+function Get-VolumeDestination($Volume) {
+    if (-not $Volume) { return $null }
+    if ($Volume -match ':(/[^:]+)(?::[^:]*)?$') { return $Matches[1] }
+    return $null
+}
+
+function Test-ContainerHasVolumes($Name, $Volumes) {
+    $required = @($Volumes | Where-Object { $_ } | ForEach-Object { Get-VolumeDestination $_ } | Where-Object { $_ })
+    if ($required.Count -eq 0) { return $true }
+
+    $mounts = docker inspect --format "{{range .Mounts}}{{.Destination}};{{end}}" $Name 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $mounts) { return $false }
+
+    foreach ($destination in $required) {
+        if ($mounts -notmatch "(^|;)$([regex]::Escape($destination))(;|$)") {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Test-ContainerHasEnvironment($Name, $Environment) {
+    $required = @($Environment | Where-Object { $_ })
+    if ($required.Count -eq 0) { return $true }
+
+    $actual = @(docker inspect --format "{{range .Config.Env}}{{println .}}{{end}}" $Name 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $actual.Count -eq 0) { return $false }
+
+    foreach ($entry in $required) {
+        if ($actual -notcontains $entry) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
+function Test-ContainerMatchesRuntimeConfig($Name, $Volumes, $Environment) {
+    return (Test-ContainerHasVolumes $Name $Volumes) -and (Test-ContainerHasEnvironment $Name $Environment)
+}
+
+function Ensure-Container($Name, $Image, $HostPort, $TargetPort, $Volumes, [bool]$UseGpu = $false, $Environment = @()) {
+    $volumeList = @($Volumes | Where-Object { $_ })
+    $environmentList = @($Environment | Where-Object { $_ })
     $running = docker ps --filter "name=^$Name$" --format "{{.Names}}"
     if ($running) {
-        Write-Host "  $Name -> http://localhost:$HostPort (already running)"
-        return
+        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList)) {
+            Write-Host "  $Name uses older runtime settings; recreating container and keeping mounted volumes" -ForegroundColor Yellow
+            docker rm -f $Name | Out-Null
+        } else {
+            Write-Host "  $Name -> http://localhost:$HostPort (already running)"
+            return
+        }
     }
 
     $existing = docker ps -a --filter "name=^$Name$" --format "{{.Names}}"
     if ($existing) {
-        docker start $Name | Out-Null
-        Write-Host "  $Name -> http://localhost:$HostPort (existing container started)"
-        return
+        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList)) {
+            Write-Host "  $Name uses older runtime settings; recreating container and keeping mounted volumes" -ForegroundColor Yellow
+            docker rm -f $Name | Out-Null
+        } else {
+            docker start $Name | Out-Null
+            Write-Host "  $Name -> http://localhost:$HostPort (existing container started)"
+            return
+        }
     }
 
     $args = @("run", "-d", "--name", $Name, "--restart", "unless-stopped",
               "-p", "$HostPort`:$TargetPort")
-    if ($Volume) { $args += @("-v", $Volume) }
+    foreach ($volume in $volumeList) { $args += @("-v", $volume) }
+    foreach ($entry in $environmentList) { $args += @("-e", $entry) }
     if ($UseGpu) { $args += @("--gpus", "all") }
     $args += $Image
 
@@ -167,6 +222,8 @@ function Ensure-OllamaModel($BaseUrl, $Model) {
 }
 
 Write-Host "Starting studios (GPU: $gpu)..." -ForegroundColor Cyan
+$dataDir = Join-Path $root "data"
+if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force $dataDir | Out-Null }
 
 if (-not $SkipWriterRoom) {
     Write-Host ""
@@ -217,9 +274,13 @@ if (-not $SkipWriterRoom) {
 
 Write-Host ""
 Write-Host "Recording studios:" -ForegroundColor Cyan
+$aceStepEnv = @(
+    "ACESTEP_GENERATION_TIMEOUT=1800",
+    "ACESTEP_STUCK_TIMEOUT_SECONDS=2400"
+)
 for ($i = 1; $i -le $Count; $i++) {
     Refresh-ContainerImage "whip-studio-acestep-$i" "whipradio-acestep:local" "acestep-models"
-    Ensure-Container "whip-studio-acestep-$i" "whipradio-acestep:local" (8100 + $i) 8002 "acestep-models:/models" $gpu
+    Ensure-Container "whip-studio-acestep-$i" "whipradio-acestep:local" (8100 + $i) 8002 @("acestep-models:/models", "$dataDir`:/app/data:ro") $gpu $aceStepEnv
 }
 if ($IncludeMusicGen) {
     Refresh-ContainerImage "whip-studio-musicgen-1" "whipradio-musicgen:local" "hf-cache"
@@ -233,8 +294,6 @@ Ensure-Container "whip-booth-tts-1" "whipradio-tts:local" 8201 8001 "hf-cache:/m
 
 Write-Host ""
 Write-Host "Analysis:" -ForegroundColor Cyan
-$dataDir = Join-Path $root "data"
-if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force $dataDir | Out-Null }
 Refresh-ContainerImage "whip-analysis" "whipradio-analysis:local" "the mounted data folder"
 Ensure-Container "whip-analysis" "whipradio-analysis:local" 8301 8301 "$dataDir`:/data:ro" $false
 

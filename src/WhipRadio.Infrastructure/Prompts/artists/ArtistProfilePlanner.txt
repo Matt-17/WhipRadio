@@ -13,14 +13,15 @@ Requirements:
 - Choose genre and subgenre from the hint when possible; otherwise choose a strong radio-ready lane.
 - A place-specific hint should affect origin, language, instruments, rhythm, imagery, and member biographies.
 - ShortBiography and PromotionText are public showcase copy.
-- DeepBackgroundBiography is hidden generation context: include formation story, member dynamics, creative conflicts, recurring themes, musical influences without naming real copyrighted artists, language identity, stage habits, and how their sound evolved.
+- DeepBackgroundBiography is hidden generation context: include formation story, member dynamics, creative conflicts, recurring themes, musical influences without naming real copyrighted artists, song-language identity, stage habits, and how their sound evolved.
 - Create enough members for the artist type. Solo acts still need one member. Bands normally need 3-6 members.
 - Member biographies must be specific and useful for future dialogue.
 - Voice creation prompts describe speaking/singing timbre, accent, age impression, energy, and microphone character.
 - Do not imitate real living artists. Do not use existing artist names.
 - Return valid JSON only. Do not use Markdown fences, comments, trailing commas, or function-call syntax.
 - JSON strings must use normal double quotes. Do not put quote characters inside string values.
-- The language field must be the normal song language as a BCP-47 tag when possible. Do not use a country, region, or cultural reference as a language code.
+- The language field is the canonical normal song language and must be a BCP-47 tag when possible. Do not use a country, region, or cultural reference as a language code.
+- DeepBackgroundBiography must explicitly agree with the language field. If language is "en", say the artist writes/sings primarily in English even when their origin, names, accent, imagery, or instruments are non-English.
 - The members array length must match the hint when a member count is given. Otherwise bands normally need 3-6 members, duos need 2, and solo acts need 1.
 
 Answer with exactly one JSON object in this schema:

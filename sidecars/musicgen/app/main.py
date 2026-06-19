@@ -1,7 +1,7 @@
 """WhipRadio music sidecar - FastAPI wrapper around MusicGen.
 
 Contract:
-  GET  /health    -> {"status":"ok","backends":{"musicgen":true}}
+  GET  /health    -> {"status":"ok","label":"...","backends":{"musicgen":true}}
   POST /generate  -> audio/wav (long-running; clients use generous timeouts)
 """
 
@@ -39,9 +39,15 @@ class GenerateRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
+    backend_details = {name: backend.status() for name, backend in BACKENDS.items()}
+    primary = backend_details["musicgen"]
     return {
         "status": "ok",
         "backends": {name: backend.available() for name, backend in BACKENDS.items()},
+        "backend_details": backend_details,
+        "service": "whipradio-musicgen",
+        "provider": "musicgen",
+        "label": primary.get("label", "MusicGen sidecar"),
     }
 
 

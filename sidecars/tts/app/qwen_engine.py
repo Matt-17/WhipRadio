@@ -51,6 +51,20 @@ DESIGN_SAMPLE_TEXTS = {
 }
 
 
+def _model_tail(model_id: str) -> str:
+    return model_id.rsplit("/", 1)[-1]
+
+
+def _model_size(model_id: str) -> str | None:
+    match = re.search(r"(\d+(?:\.\d+)?)B", model_id, flags=re.IGNORECASE)
+    return f"{match.group(1)}B" if match else None
+
+
+def _model_rate(model_id: str) -> str | None:
+    match = re.search(r"(\d+(?:\.\d+)?)Hz", model_id, flags=re.IGNORECASE)
+    return f"{match.group(1)}Hz" if match else None
+
+
 def _language_name(code: str) -> str:
     return LANGUAGE_NAMES.get((code or "en").lower()[:2], "English")
 
@@ -184,6 +198,24 @@ class QwenEngine(EngineBase):
             except (OSError, json.JSONDecodeError):
                 continue
         return result
+
+    def status(self) -> dict:
+        synth_size = _model_size(SYNTH_MODEL) or _model_tail(SYNTH_MODEL)
+        design_size = _model_size(DESIGN_MODEL) or _model_tail(DESIGN_MODEL)
+        rate = _model_rate(SYNTH_MODEL) or _model_rate(DESIGN_MODEL)
+        label_prefix = f"Qwen3-TTS {rate}" if rate else "Qwen3-TTS"
+        return {
+            "engine": self.name,
+            "label": f"{label_prefix} - {synth_size} synth / {design_size} voice design",
+            "sample_rate_hz": self.sample_rate,
+            "models": {
+                "synth": SYNTH_MODEL,
+                "voice_design": DESIGN_MODEL,
+            },
+            "resident_loaded": self._model is not None,
+            "designed_voices": len(self.voices()),
+            "attention": ATTN_IMPL,
+        }
 
     # --- voice design (transient 1.7B model) -------------------------------------
 

@@ -4,4 +4,7 @@ namespace WhipRadio.Core.Abstractions;
 public interface ITextGenerationService
 {
     Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct);
+
+    Task<string> CompleteAsync(string systemPrompt, string userPrompt, string? jobLabel, CancellationToken ct)
+        => CompleteAsync(systemPrompt, userPrompt, ct);
 }

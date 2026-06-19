@@ -15,7 +15,7 @@ ACE-Step is intentionally not installed in this image. It runs as the separate
 
 | Endpoint | Description |
 |---|---|
-| `GET /health` | `{"status":"ok","backends":{"musicgen":true}}` |
+| `GET /health` | `{"status":"ok","service":"whipradio-musicgen","label":"...","backends":{"musicgen":true}}` |
 | `POST /generate` | body `{"prompt","backend","duration_seconds","lyrics"}` -> `audio/wav` + `X-Backend` header |
 
 Generation is synchronous and long-running. Use a generous client timeout.

@@ -8,7 +8,7 @@ and imported tracks flow through the identical path.
 ## API
 
 ```
-GET  /health
+GET  /health    -> { "status": "ok", "service": "whipradio-analysis", "label": "..." }
 POST /analyze   { "path": "library/tracks/{id}.wav", "mode": "music" | "speech" }
 ```
 

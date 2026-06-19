@@ -71,4 +71,21 @@ public class WavFileTests
 
         Assert.Throws<InvalidDataException>(() => WavFile.ConcatPcm16([first, second]));
     }
+
+    [TestMethod]
+    public void SlicePcm16_CopiesRequestedTimeRange()
+    {
+        var pcm = new byte[100 * 2];
+        for (var frame = 0; frame < 100; frame++)
+        {
+            pcm[frame * 2] = (byte)frame;
+        }
+
+        var wav = WavFile.WrapPcm16(pcm, sampleRate: 10, channels: 1);
+        var slice = WavFile.SlicePcm16(wav, startSeconds: 2, durationSeconds: 3);
+
+        Assert.Equal(3.0, WavFile.GetDurationSeconds(slice), precision: 6);
+        Assert.Equal(20, slice[44]);
+        Assert.Equal(49, slice[44 + 58]);
+    }
 }

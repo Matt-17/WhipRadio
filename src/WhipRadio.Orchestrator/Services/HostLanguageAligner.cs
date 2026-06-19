@@ -79,7 +79,9 @@ public class HostLanguageAligner(
                 $"You translate radio host persona descriptions to {languageName}. " +
                 "Keep the character, tone and second-person form. Output ONLY the translated persona.\n\n" +
                 promptContext.RenderSituation(),
-                persona, ct));
+                persona,
+                "Translating host persona",
+                ct));
             return string.IsNullOrWhiteSpace(translated) ? persona : translated;
         }
         catch (Exception ex)

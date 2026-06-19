@@ -88,6 +88,15 @@ class PiperEngine(EngineBase):
             for vid, (_, lang, gender) in KNOWN_VOICES.items()
         ]
 
+    def status(self) -> dict:
+        return {
+            "engine": self.name,
+            "label": "Piper TTS",
+            "sample_rate_hz": self.sample_rate,
+            "voices": len(KNOWN_VOICES),
+            "resident_loaded": bool(self._voices),
+        }
+
     def unload(self) -> dict:
         loaded = bool(self._voices)
         self._voices.clear()

@@ -339,15 +339,9 @@ else
         };
 
     private static string ProviderLabel(StudioDto studio)
-        => studio.Kind switch
-        {
-            "Recording" when IsProvider(studio, "ace-step") => "ACE-Step 1.5",
-            "VoiceBooth" when IsProvider(studio, "local-tts") => "Qwen3-TTS 12Hz - 0.6B synth / 1.7B voice design",
-            _ => studio.Provider,
-        };
-
-    private static bool IsProvider(StudioDto studio, string provider)
-        => studio.Provider.StartsWith(provider, StringComparison.OrdinalIgnoreCase);
+        => !string.IsNullOrWhiteSpace(studio.Url) && !string.IsNullOrWhiteSpace(studio.RuntimeDetail)
+            ? studio.RuntimeDetail
+            : studio.Provider;
 
     private static IReadOnlyList<(string Value, string Label)> ApiProviders(string kind)
         => kind == "WriterRoom" ? WriterRoomApiProviders : StudioApiProviders;

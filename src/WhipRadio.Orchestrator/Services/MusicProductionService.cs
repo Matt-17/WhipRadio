@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -30,6 +32,8 @@ public class MusicProductionService(
     IOptions<MusicOptions> musicOptions,
     ILogger<MusicProductionService> logger) : BackgroundService
 {
+    private const double VoiceReferenceClipSeconds = 45;
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var backoff = TimeSpan.FromSeconds(musicOptions.Value.ProducerBackoffSeconds);
@@ -131,7 +135,9 @@ public class MusicProductionService(
         {
             // Library-driven: the track is for THIS artist, in THEIR genre.
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            artist = await db.Artists.AsNoTracking().FirstOrDefaultAsync(a => a.Id == forcedId, ct)
+            artist = await db.Artists.AsNoTracking()
+                .Include(a => a.Members)
+                .FirstOrDefaultAsync(a => a.Id == forcedId, ct)
                 ?? throw new InvalidOperationException($"Artist {forcedId} not found for manual production.");
             context = context with { Genre = artist.Genre, Subgenre = artist.Subgenre };
         }
@@ -220,6 +226,9 @@ public class MusicProductionService(
             ? MusicBackends.AceStep
             : MusicBackends.Normalize(await studios.GetPreferredMusicProviderAsync(ct));
         var artistSongHistory = FormatArtistSongHistoryForBackend(history);
+        var voiceContinuity = wantVocals && preferredProvider == MusicBackends.AceStep
+            ? await BuildVoiceContinuityContextAsync(artist.Id, ct)
+            : null;
 
         logger.LogInformation(
             "Generating \"{Title}\" by {Artist} ({Subgenre}, {Duration}s, planned {PlannedDuration}s, language: {Language}, provider: {Provider}, vocals: {Vocals})",
@@ -237,11 +246,21 @@ public class MusicProductionService(
                     LyricsMode = lyricsMode,
                     Language = plan.Language,
                     ArtistName = artist.Name,
-                    ArtistBackstory = ArtistGenerationBiography(artist),
+                    ArtistBackstory = ArtistGenerationContext(artist),
                     ArtistStyleDescription = artist.StyleDescriptor,
                     SongTitle = plan.Title,
                     SongStory = plan.Story,
                     ArtistSongHistory = artistSongHistory,
+                    ReferenceAudioPath = voiceContinuity?.ReferenceAudioPath,
+                    ReferenceAudioLabel = voiceContinuity?.ReferenceAudioLabel,
+                    AceStepLoraDatasetPath = voiceContinuity?.DatasetPath,
+                    AceStepLoraTensorPath = voiceContinuity?.TensorPath,
+                    AceStepLoraTrainingOutputPath = voiceContinuity?.TrainingOutputPath,
+                    AceStepLoraAdapterPath = voiceContinuity?.AdapterPath,
+                    AceStepLoraActivationTag = voiceContinuity?.ActivationTag,
+                    AceStepLoraReferences = voiceContinuity?.References ?? [],
+                    VocalGender = InferVocalGender(artist),
+                    VocalStyle = BuildVocalStyle(artist),
                     AllowProviderFallback = !wantVocals,
                 }, ct);
         }
@@ -250,6 +269,7 @@ public class MusicProductionService(
             logger.LogWarning(ex, "Vocal backend unavailable; falling back to instrumental");
             wantVocals = false;
             lyrics = null;
+            voiceContinuity = null;
             prompt = $"{plan.Style}, instrumental";
             result = await musicGenerator.GenerateAsync(
                 new MusicRequest(prompt, context.Genre, wantVocals, lyrics, plan.TargetDurationSeconds)
@@ -260,11 +280,13 @@ public class MusicProductionService(
                     LyricsMode = LyricsMode.Instrumental,
                     Language = plan.Language,
                     ArtistName = artist.Name,
-                    ArtistBackstory = ArtistGenerationBiography(artist),
+                    ArtistBackstory = ArtistGenerationContext(artist),
                     ArtistStyleDescription = artist.StyleDescriptor,
                     SongTitle = plan.Title,
                     SongStory = plan.Story,
                     ArtistSongHistory = artistSongHistory,
+                    VocalGender = InferVocalGender(artist),
+                    VocalStyle = BuildVocalStyle(artist),
                     AllowProviderFallback = false,
                 }, ct);
         }
@@ -290,7 +312,7 @@ public class MusicProductionService(
             TargetDurationSeconds = plan.TargetDurationSeconds,
             DurationSeconds = WavFile.GetDurationSeconds(result.WavData),
             FilePath = relativePath,
-            GenerationPrompt = BuildStoredGenerationPrompt(plan, artist, history, prompt),
+            GenerationPrompt = BuildStoredGenerationPrompt(plan, artist, history, prompt, voiceContinuity),
             Backend = result.BackendUsed,
             CreatedAt = DateTime.UtcNow,
         };
@@ -349,6 +371,7 @@ public class MusicProductionService(
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var candidates = await db.Artists
+            .Include(a => a.Members)
             .Where(a => !a.IsRetired && a.Genre == context.Genre)
             .ToListAsync(ct);
         var subgenreMatches = candidates
@@ -417,7 +440,8 @@ public class MusicProductionService(
         ArtistSongPlan plan,
         Artist artist,
         IReadOnlyCollection<ArtistSongHistoryItem> history,
-        string backendPrompt)
+        string backendPrompt,
+        ArtistVoiceContinuityContext? voiceContinuity)
     {
         var lines = new List<string>
         {
@@ -428,8 +452,18 @@ public class MusicProductionService(
             $"Style: {plan.Style}",
             $"Story: {plan.Story}",
             $"Artist: {artist.Name}",
+            $"Artist type: {artist.Type}",
+            $"Artist origin: {artist.Origin ?? "unknown"}",
+            $"Artist language: {artist.Language}",
             $"Artist style: {artist.StyleDescriptor}",
         };
+
+        if (voiceContinuity is not null)
+        {
+            lines.Add($"Reference audio: {voiceContinuity.ReferenceAudioLabel ?? "none"}");
+            lines.Add($"Artist voice LoRA adapter: {voiceContinuity.AdapterPath}");
+            lines.Add($"Artist voice LoRA sources: {voiceContinuity.References.Count}");
+        }
 
         if (!string.IsNullOrWhiteSpace(artist.Biography))
         {
@@ -441,6 +475,9 @@ public class MusicProductionService(
             lines.Add($"Artist deep background: {TrimForStoredPrompt(artist.DeepBackgroundBiography, 1200)}");
         }
 
+        lines.Add("Artist members:");
+        lines.Add(FormatArtistMembersForPrompt(artist.Members, includeVoicePrompt: true));
+
         lines.Add("Backend prompt:");
         lines.Add(backendPrompt);
         lines.Add("Artist song history:");
@@ -449,11 +486,304 @@ public class MusicProductionService(
         return string.Join(Environment.NewLine, lines);
     }
 
+    private async Task<ArtistVoiceContinuityContext?> BuildVoiceContinuityContextAsync(Guid artistId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var tracks = await db.Tracks
+            .AsNoTracking()
+            .Where(t => t.ArtistId == artistId
+                && t.HasVocals
+                && t.Backend == MusicBackends.AceStep
+                && !t.IsRetired)
+            .OrderBy(t => t.CreatedAt)
+            .Select(t => new ArtistVoiceTrack(
+                t.Id,
+                t.Title,
+                t.Style,
+                t.Language,
+                t.Lyrics,
+                t.FilePath,
+                t.TargetDurationSeconds,
+                t.DurationSeconds,
+                t.UpVotes,
+                t.DownVotes,
+                t.CreatedAt))
+            .ToListAsync(ct);
+
+        var usable = tracks
+            .Select(track => (Track: track, AbsolutePath: Path.Combine(radioOptions.Value.DataRoot, track.FilePath)))
+            .Where(item => File.Exists(item.AbsolutePath))
+            .ToList();
+        if (usable.Count == 0)
+        {
+            return null;
+        }
+
+        var bestReference = usable
+            .OrderByDescending(item => item.Track.UpVotes - item.Track.DownVotes)
+            .ThenByDescending(item => item.Track.CreatedAt)
+            .First();
+
+        var sources = usable
+            .OrderByDescending(item => item.Track.UpVotes - item.Track.DownVotes)
+            .ThenByDescending(item => item.Track.CreatedAt)
+            .Take(8)
+            .OrderBy(item => item.Track.CreatedAt)
+            .ToList();
+        var sourceKey = HashSourceTracks(sources.Select(item => item.Track.Id));
+        var datasetRelativeDirectory = Path.Combine(
+            "acestep",
+            "lora-datasets",
+            artistId.ToString("N"),
+            sourceKey);
+        var datasetHostDirectory = Path.Combine(radioOptions.Value.DataRoot, datasetRelativeDirectory);
+        Directory.CreateDirectory(datasetHostDirectory);
+
+        var loraReferences = new List<MusicVoiceReferenceTrack>();
+        for (var i = 0; i < sources.Count; i++)
+        {
+            var source = sources[i];
+            var fileName = $"{i + 1:0000}-{source.Track.Id:N}.wav";
+            var targetPath = Path.Combine(datasetHostDirectory, fileName);
+            CopyIfChanged(source.AbsolutePath, targetPath);
+            loraReferences.Add(new MusicVoiceReferenceTrack(
+                source.Track.Title,
+                fileName,
+                source.Track.Style,
+                source.Track.Lyrics,
+                source.Track.Language,
+                source.Track.TargetDurationSeconds,
+                source.Track.DurationSeconds,
+                source.Track.UpVotes,
+                source.Track.DownVotes));
+        }
+
+        var referenceAudioPath = CreateReferenceAudioClip(
+            bestReference.AbsolutePath,
+            datasetHostDirectory,
+            bestReference.Track);
+        var modelRoot = $"/models/whipradio/lora/artists/{artistId:N}/{sourceKey}";
+        return new ArtistVoiceContinuityContext(
+            referenceAudioPath,
+            bestReference.Track.Title,
+            ToContainerDataPath(datasetRelativeDirectory),
+            $"{modelRoot}/tensors",
+            $"{modelRoot}/training",
+            $"{modelRoot}/adapter",
+            $"whipradio_artist_{artistId:N}"[..29],
+            loraReferences);
+    }
+
     private static string TrimForStoredPrompt(string value, int maxChars)
         => value.Length <= maxChars ? value : value[..maxChars].TrimEnd() + "...";
 
-    private static string ArtistGenerationBiography(Artist artist)
-        => !string.IsNullOrWhiteSpace(artist.DeepBackgroundBiography)
-            ? artist.DeepBackgroundBiography
-            : artist.Biography ?? artist.StyleDescriptor;
+    private static string CreateReferenceAudioClip(
+        string sourcePath,
+        string outputDirectory,
+        ArtistVoiceTrack track)
+    {
+        try
+        {
+            var source = new FileInfo(sourcePath);
+            if (!source.Exists || source.Length == 0)
+            {
+                return sourcePath;
+            }
+
+            if (track.DurationSeconds <= VoiceReferenceClipSeconds + 5)
+            {
+                return sourcePath;
+            }
+
+            var clipPath = Path.Combine(outputDirectory, $"reference-{track.Id:N}.wav");
+            var existing = new FileInfo(clipPath);
+            if (existing.Exists && existing.Length > 0 && existing.LastWriteTimeUtc >= source.LastWriteTimeUtc)
+            {
+                return clipPath;
+            }
+
+            var wav = File.ReadAllBytes(sourcePath);
+            var duration = WavFile.GetDurationSeconds(wav);
+            if (duration <= VoiceReferenceClipSeconds + 5)
+            {
+                return sourcePath;
+            }
+
+            var clipSeconds = Math.Min(VoiceReferenceClipSeconds, duration);
+            var latestStart = Math.Max(0, duration - clipSeconds);
+            var startSeconds = Math.Min(Math.Max(15, duration * 0.25), latestStart);
+            var clip = WavFile.SlicePcm16(wav, startSeconds, clipSeconds);
+            File.WriteAllBytes(clipPath, clip);
+            return clipPath;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
+        {
+            return sourcePath;
+        }
+    }
+
+    private static void CopyIfChanged(string sourcePath, string targetPath)
+    {
+        var source = new FileInfo(sourcePath);
+        var target = new FileInfo(targetPath);
+        if (target.Exists && target.Length == source.Length)
+        {
+            return;
+        }
+
+        File.Copy(sourcePath, targetPath, overwrite: true);
+    }
+
+    private static string HashSourceTracks(IEnumerable<Guid> trackIds)
+    {
+        var input = string.Join("|", trackIds.Select(id => id.ToString("N")));
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
+    }
+
+    private static string ToContainerDataPath(string relativePath)
+        => "/app/data/" + relativePath.Replace('\\', '/');
+
+    private static string ArtistGenerationContext(Artist artist)
+    {
+        var lines = new List<string>
+        {
+            $"Name: {artist.Name}",
+            $"Type: {artist.Type}",
+            $"Genre: {artist.Genre}",
+            $"Subgenre: {artist.Subgenre}",
+            $"Origin: {artist.Origin ?? "unknown"}",
+            $"Formation year: {artist.FormationYear?.ToString() ?? "unknown"}",
+            $"Canonical song language: {artist.Language}",
+            $"Signature sound: {artist.StyleDescriptor}",
+        };
+
+        if (!string.IsNullOrWhiteSpace(artist.PromotionText))
+        {
+            lines.Add($"Promotion text: {artist.PromotionText}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(artist.Biography))
+        {
+            lines.Add($"Public biography: {artist.Biography}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(artist.DeepBackgroundBiography))
+        {
+            lines.Add($"Deep background: {artist.DeepBackgroundBiography}");
+        }
+
+        lines.Add("Members:");
+        lines.Add(FormatArtistMembersForPrompt(artist.Members, includeVoicePrompt: true));
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static VocalGender InferVocalGender(Artist artist)
+    {
+        var genders = VocalMembers(artist)
+            .Select(member => InferMemberGender(member))
+            .Where(gender => gender is VocalGender.Male or VocalGender.Female)
+            .Distinct()
+            .ToList();
+
+        return genders.Count switch
+        {
+            1 => genders[0],
+            > 1 => VocalGender.Mixed,
+            _ => VocalGender.Unspecified,
+        };
+    }
+
+    private static VocalGender InferMemberGender(ArtistMember member)
+    {
+        var text = $"{member.Role} {member.Biography} {member.VoiceCreationPrompt}".ToLowerInvariant();
+        if (ContainsAny(text, "female", "woman", "women", "soprano", "mezzo", "alto", "contralto"))
+        {
+            return VocalGender.Female;
+        }
+
+        if (ContainsAny(text, "male", "man", "men", "tenor", "baritone", "basso", "deep bass voice"))
+        {
+            return VocalGender.Male;
+        }
+
+        return VocalGender.Unspecified;
+    }
+
+    private static string? BuildVocalStyle(Artist artist)
+    {
+        var lines = VocalMembers(artist)
+            .Select(member =>
+            {
+                var voice = string.IsNullOrWhiteSpace(member.VoiceCreationPrompt)
+                    ? member.Biography
+                    : member.VoiceCreationPrompt;
+                return string.IsNullOrWhiteSpace(voice)
+                    ? null
+                    : $"{member.Name} ({member.Role}): {voice}";
+            })
+            .Where(line => !string.IsNullOrWhiteSpace(line))
+            .Select(line => TrimForStoredPrompt(line!, 260))
+            .ToList();
+
+        return lines.Count == 0 ? null : string.Join(" ", lines);
+    }
+
+    private static IReadOnlyList<ArtistMember> VocalMembers(Artist artist)
+    {
+        var members = artist.Members.OrderBy(member => member.SortOrder).ToList();
+        var vocalists = members
+            .Where(member => ContainsAny(member.Role, "vocal", "singer", "voice", "front"))
+            .ToList();
+
+        return vocalists.Count > 0 ? vocalists : members;
+    }
+
+    private static string FormatArtistMembersForPrompt(
+        IEnumerable<ArtistMember> members,
+        bool includeVoicePrompt)
+    {
+        var lines = members
+            .OrderBy(member => member.SortOrder)
+            .Select(member =>
+            {
+                var line = $"- {member.Name}: {member.Role}. {TrimForStoredPrompt(member.Biography, 260)}";
+                if (includeVoicePrompt && !string.IsNullOrWhiteSpace(member.VoiceCreationPrompt))
+                {
+                    line += $" Voice prompt: {TrimForStoredPrompt(member.VoiceCreationPrompt, 260)}";
+                }
+
+                return line;
+            })
+            .ToList();
+
+        return lines.Count == 0 ? "(no member roster recorded)" : string.Join(Environment.NewLine, lines);
+    }
+
+    private static bool ContainsAny(string value, params string[] needles)
+        => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+
+    private sealed record ArtistVoiceContinuityContext(
+        string ReferenceAudioPath,
+        string ReferenceAudioLabel,
+        string DatasetPath,
+        string TensorPath,
+        string TrainingOutputPath,
+        string AdapterPath,
+        string ActivationTag,
+        IReadOnlyList<MusicVoiceReferenceTrack> References);
+
+    private sealed record ArtistVoiceTrack(
+        Guid Id,
+        string Title,
+        string Style,
+        string Language,
+        string? Lyrics,
+        string FilePath,
+        int? TargetDurationSeconds,
+        double DurationSeconds,
+        int UpVotes,
+        int DownVotes,
+        DateTime CreatedAt);
 }

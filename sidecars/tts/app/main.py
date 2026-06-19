@@ -1,7 +1,7 @@
 """WhipRadio TTS sidecar — FastAPI wrapper around a pluggable TTS engine.
 
 Contract (Plan.md §7.1):
-  GET  /health      -> {"status": "ok", "engine": "kokoro"}
+  GET  /health      -> {"status": "ok", "engine": "kokoro", "label": "..."}
   GET  /voices      -> [{"id", "language", "gender"}, ...]
   POST /synthesize  -> audio/wav (44.1 kHz, 16-bit, mono), X-Duration-Seconds header
   POST /unload      -> releases cached model state/VRAM
@@ -83,7 +83,17 @@ def _breath_sample(target_rate: int) -> np.ndarray:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "engine": DEFAULT_ENGINE, "engines": list(ENGINES.keys())}
+    engine_details = [engine.status() for engine in ENGINES.values()]
+    primary = ENGINES.get("qwen", ENGINES[DEFAULT_ENGINE]).status()
+    return {
+        "status": "ok",
+        "service": "whipradio-tts",
+        "provider": "local-tts",
+        "engine": DEFAULT_ENGINE,
+        "engines": list(ENGINES.keys()),
+        "engine_details": engine_details,
+        "label": primary.get("label", "WhipRadio TTS"),
+    }
 
 
 @app.get("/voices")

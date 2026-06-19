@@ -43,10 +43,37 @@ public sealed record MusicRequest(
 
     public string? ArtistSongHistory { get; init; }
 
+    public string? ReferenceAudioPath { get; init; }
+
+    public string? ReferenceAudioLabel { get; init; }
+
+    public string? AceStepLoraDatasetPath { get; init; }
+
+    public string? AceStepLoraTensorPath { get; init; }
+
+    public string? AceStepLoraTrainingOutputPath { get; init; }
+
+    public string? AceStepLoraAdapterPath { get; init; }
+
+    public string? AceStepLoraActivationTag { get; init; }
+
+    public IReadOnlyList<MusicVoiceReferenceTrack> AceStepLoraReferences { get; init; } = [];
+
     public bool AllowProviderFallback { get; init; } = true;
 
     public Func<MusicGenerationProgress, CancellationToken, ValueTask>? ProgressReporter { get; init; }
 }
+
+public sealed record MusicVoiceReferenceTrack(
+    string Title,
+    string FileName,
+    string Style,
+    string? Lyrics,
+    string Language,
+    int? TargetDurationSeconds,
+    double DurationSeconds,
+    int UpVotes,
+    int DownVotes);
 
 public sealed record MusicGenerationProgress(
     string? TaskId,

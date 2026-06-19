@@ -130,3 +130,141 @@ alignment can come if news/traffic prove popular.
 - Podcast length ceiling for the homelab (production time vs library churn)?
 - Should talk/podcast transcripts surface on the existing /playlog + a new content page?
 - How aggressive should top-of-hour be before it's worth the complexity?
+
+
+infos from sonnet: 
+
+# WhipRadio — Externe Datenquellen ohne API-Key
+
+*Location-Autocomplete · News · Verkehrsmeldungen — Stand: 18. Juni 2026*
+
+---
+
+## 1. Location-Daten (Onboarding / Settings)
+
+Ziel: Der Nutzer tippt einen Ort ein (z. B. „Dresden") und bekommt sortierte Vorschläge nach Wahrscheinlichkeit/Relevanz — inklusive internationaler Gleichnamigkeit (Dresden, Germany vs. Dresden, USA).
+
+### Empfehlung: Photon (Komoot)
+
+Open-Source-Geocoder auf OpenStreetMap-Basis, speziell für Autocomplete entwickelt. Kein API-Key, keine Registrierung, kein Billing.
+
+```
+https://photon.komoot.io/api/?q=Dresden&limit=5&lang=de
+```
+
+Optional gefiltert auf Städte/Orte:
+
+```
+https://photon.komoot.io/api/?q=Dresden&limit=5&osm_tag=place:city&osm_tag=place:town
+```
+
+Die Sortierung nach Relevanz/Importance ist bereits in der API eingebaut — größere/bekanntere Orte erscheinen zuerst.
+
+### Warum nicht Nominatim direkt?
+
+Die offizielle Nominatim-API (nominatim.openstreetmap.org) verbietet Autocomplete-Nutzung in ihrer Policy explizit:
+
+> „Auto-complete search – This is not yet supported by Nominatim and you must not implement such a service on the client side using the API."
+
+Zusätzlich gilt ein hartes Rate-Limit von 1 Request/Sekunde. Photon nutzt dieselben OSM-Daten, ist aber genau für diesen Use Case gebaut und erlaubt Live-Suche während des Tippens (mit Debounce, z. B. 300–500 ms empfohlen).
+
+### Entscheidung
+
+| Komponente | Wahl |
+|---|---|
+| Geocoding/Autocomplete | Photon (photon.komoot.io) |
+| Fallback | Keiner — bewusst nicht eingeplant |
+| Debounce | ~300–500 ms client-seitig |
+| Kosten | Kostenlos, kein Key |
+
+---
+
+## 2. Nachrichten (International / National / Regional)
+
+Ziel: Aktuelle Nachrichten als Grundlage für KI-generierte Radiomoderation — ohne API-Key, ohne feste Kuratierung für „Hunderte Städte", da WhipRadio international funktionieren soll.
+
+### Lösung: RSS + bedarfsgesteuerte Volltext-Extraktion
+
+- RSS-Feed wird periodisch gepollt (z. B. alle 15–30 Minuten) → liefert Titel + Teaser
+- LLM (Gemma) bewertet: „Ist das interessant genug für einen Radiobeitrag?"
+- Bei „Ja": Artikel-URL wird vollständig abgeholt und der Volltext extrahiert
+- LLM generiert daraus den Moderationstext
+
+Dieser zweistufige Ansatz spart Traffic, weil nicht jeder Artikel blind vollständig geladen wird — nur die vom LLM als relevant eingestuften.
+
+### Volltext-Extraktion
+
+Library:
+
+```
+npm install @extractus/article-extractor
+
+import { extract } from '@extractus/article-extractor'
+const article = await extract(url)
+// article.content = sauberer Volltext
+```
+
+Basiert auf Mozillas Readability-Algorithmus (derselbe wie in Firefox Reader Mode). Funktioniert ohne API-Key bei den meisten Nachrichtenseiten gut; bei Paywalled-Inhalten wird nur der frei zugängliche Teil extrahiert — für Radio-Zwecke meist ausreichend.
+
+### Feed-Strategie: Kuratierte internationale Defaults + Nutzer-Erweiterung
+
+Da WhipRadio international und ohne festen Kernmarkt funktionieren soll, ist eine statische Mapping-Tabelle pro Stadt/Region nicht praktikabel. Stattdessen:
+
+- Internationale Feeds sind feste, mitgelieferte Defaults (laufen überall)
+- Nationale & regionale Feeds trägt der Nutzer selbst ein — mit automatischer Validierung (Test-Fetch prüft, ob es ein gültiger RSS-Feed ist)
+- UI-Hinweis beim Onboarding: „Suche nach '[deine Stadt] RSS Feed' oder '[dein Sender] RSS'"
+- Langfristig optional: community-gepflegte `feeds.json` im Repo (Open-Source-PRs)
+
+### Beispiel-Defaults (International)
+
+| Quelle | Feed-URL |
+|---|---|
+| BBC World | feeds.bbci.co.uk/news/world/rss.xml |
+| The Guardian (World) | theguardian.com/world/rss |
+| NYT World | rss.nytimes.com/services/xml/rss/nyt/World.xml |
+
+### Entscheidung
+
+| Komponente | Wahl |
+|---|---|
+| Nachrichtenquelle | RSS-Feeds (kein API-Key) |
+| International | Feste Defaults (BBC, Guardian, NYT o. ä.) |
+| National / Regional | Nutzer trägt eigene Feeds ein, App validiert |
+| Volltext bei Bedarf | @extractus/article-extractor (Readability-basiert) |
+| Selektionslogik | LLM entscheidet pro Teaser, ob Volltext geholt wird |
+
+---
+
+## 3. Verkehrsmeldungen (Stau, Unfall, Blitzer)
+
+Ziel: Kurze Verkehrshinweise wie „A13 Stau", „A4 Unfall", „Blitzer in Dresden" — keine Echtzeit-Flächendaten, sondern punktuelle Meldungen. International gewünscht.
+
+### Befund: Keine keylose internationale Quelle verfügbar
+
+Anders als bei Geocoding (Photon) und News (RSS) gibt es für Verkehrsmeldungen keine offene, internationale Alternative ohne API-Key. Diese Daten stammen entweder aus behördlichen Systemen (meist nur regional, z. B. nur ein US-Bundesstaat) oder aus kommerziellen Crowd-Netzwerken wie Waze, die lizenziert werden müssen.
+
+### Verfügbare Optionen (alle mit Key)
+
+| Anbieter | Abdeckung | Free-Tier |
+|---|---|---|
+| TomTom Traffic API | International | 2.500 Requests/Tag kostenlos |
+| Waze (via Drittanbieter-API) | International, gut für Unfälle/Blitzer/Stau | Meist kostenpflichtig nach Trial |
+| 511.org & ähnliche | Nur regional (z. B. US-Bundesstaat) | Begrenztes Free-Tier, regional |
+
+### Entscheidung
+
+- Traffic-Feature wird als optionales Modul eingeplant, nicht als Pflichtfeature
+- TomTom Traffic API mit kostenlosem Key als einzige sinnvolle Option (2.500 Req/Tag reichen für Polling alle 15–30 Min locker)
+- Nutzer trägt den TomTom-Key optional im Setup ein — ohne Key bleibt das Verkehrs-Segment in der Sendung einfach deaktiviert
+
+Damit bleibt das Grundprinzip „ohne Key nutzbar" für den Kern von WhipRadio erhalten; Traffic ist die einzige der drei Datenkategorien, die strukturell einen Key erfordert.
+
+---
+
+## Gesamtübersicht
+
+| Datenquelle | Anbieter | API-Key? | Abdeckung |
+|---|---|---|---|
+| Location-Autocomplete | Photon (Komoot) | Nein | International |
+| News | RSS + article-extractor | Nein | International (Defaults) + nutzerdefiniert |
+| Verkehrsmeldungen | TomTom Traffic API | Ja (optional, kostenlos) | International |

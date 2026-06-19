@@ -56,6 +56,14 @@ that story is stored on the track for future host intros/outros. Instrumental-on
 studios such as MusicGen constrain the plan to instrumental output, but host playlist
 preferences no longer decide whether an artist writes a vocal song.
 
+**Implemented:** ACE-Step vocal tracks now use artist voice continuity. From the
+second vocal ACE-Step song onward, WhipRadio uploads the best previous vocal track as
+`ref_audio` so the same singer can be anchored immediately. When prior vocal tracks
+exist, WhipRadio also prepares a curated per-artist ACE-Step LoRA dataset and tries to
+load or train the matching adapter before recording the next song. Adapter artifacts
+live under the ACE-Step `/models` volume, while curated source copies live under the
+station data root mounted into the ACE-Step container at `/app/data`.
+
 ## LLM: Gemma 4 E4B Via Ollama
 
 **Firm decision:** the default local text model is **Gemma 4 E4B via Ollama**. Runtime

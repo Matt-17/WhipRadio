@@ -111,6 +111,28 @@ public static class WavFile
         return WrapPcm16(pcm, first.SampleRate, first.Channels);
     }
 
+    /// <summary>Copies a time slice from a 16-bit PCM WAV file without decoding or resampling.</summary>
+    public static byte[] SlicePcm16(byte[] wav, double startSeconds, double durationSeconds)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startSeconds);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(durationSeconds);
+
+        var layout = ParsePcm16(wav);
+        var frameBytes = layout.BytesPerSampleFrame;
+        var totalFrames = layout.Data.Length / frameBytes;
+        var startFrame = Math.Clamp((long)Math.Floor(startSeconds * layout.SampleRate), 0, totalFrames);
+        var requestedFrames = Math.Max(1, (long)Math.Ceiling(durationSeconds * layout.SampleRate));
+        var frames = Math.Min(requestedFrames, totalFrames - startFrame);
+        if (frames <= 0)
+        {
+            throw new InvalidDataException("Requested WAV slice starts after the data chunk.");
+        }
+
+        var byteOffset = checked((int)(startFrame * frameBytes));
+        var byteCount = checked((int)(frames * frameBytes));
+        return WrapPcm16(layout.Data.Span.Slice(byteOffset, byteCount), layout.SampleRate, layout.Channels);
+    }
+
     private static PcmLayout ParsePcm16(byte[] wav)
     {
         if (wav.Length < 12 ||

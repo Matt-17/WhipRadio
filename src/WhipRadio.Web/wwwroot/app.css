@@ -2865,13 +2865,15 @@ table.console-table {
 .meter {
     height: 10px;
     border-radius: 5px;
-    background: #1a1510;
+    background: #34312d;
     border: 1px solid var(--line-soft);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
     overflow: hidden;
 }
 
 .meter .fill {
     height: 100%;
+    display: block;
     background: linear-gradient(90deg, #2e6b4c, var(--green));
     transition: width .8s ease;
 }

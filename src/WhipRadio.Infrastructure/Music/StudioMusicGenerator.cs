@@ -171,6 +171,14 @@ public sealed class StudioMusicGenerator(
         Add(lines, "Key", request.KeyScale);
         Add(lines, "Time signature", request.TimeSignature);
         Add(lines, "Seed", request.Seed?.ToString());
+        Add(lines, "Reference audio", request.ReferenceAudioLabel);
+        Add(lines, "Reference audio path", request.ReferenceAudioPath);
+        Add(lines, "Artist LoRA adapter", request.AceStepLoraAdapterPath);
+        if (request.AceStepLoraReferences.Count > 0)
+        {
+            lines.Add($"Artist LoRA sources: {request.AceStepLoraReferences.Count}");
+        }
+
         return string.Join(Environment.NewLine, lines);
     }
 

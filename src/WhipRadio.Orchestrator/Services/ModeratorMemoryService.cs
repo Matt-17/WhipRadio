@@ -125,6 +125,7 @@ public sealed class ModeratorMemoryService(
                 "Keep only facts, recurring jokes, promises, callbacks, and useful relationship context. " +
                 "Output 1-3 concise sentences, no bullet list.\n\n" + context.RenderSituation(),
                 string.Join("\n", memories),
+                "Distilling host memory",
                 ct));
 
             return string.IsNullOrWhiteSpace(summary)

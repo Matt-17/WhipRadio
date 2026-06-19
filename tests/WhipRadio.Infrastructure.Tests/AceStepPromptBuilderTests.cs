@@ -39,6 +39,8 @@ public class AceStepPromptBuilderTests
         Assert.Contains("male lead vocals", prompt);
         Assert.Contains("clear tenor", prompt);
         Assert.Contains("Language: English.", prompt);
+        Assert.Contains("Vocal continuity:", prompt);
+        Assert.Contains("preserving timbre", prompt);
     }
 
     [TestMethod]
@@ -67,7 +69,7 @@ public class AceStepPromptBuilderTests
 
         Assert.Contains("Amber Meridian", prompt);
         Assert.Contains("fictional artist", prompt);
-        Assert.True(prompt.Length < longBackstory.Length + 300);
+        Assert.True(prompt.Length < longBackstory.Length + 700);
     }
 
     [TestMethod]
@@ -107,5 +109,18 @@ public class AceStepPromptBuilderTests
         Assert.Contains("Tempo: approximately 118 BPM.", prompt);
         Assert.Contains("Key: A minor.", prompt);
         Assert.Contains("Time signature: 4/4.", prompt);
+    }
+
+    [TestMethod]
+    public void VocalReferenceLabelAppearsAsIdentityAnchor()
+    {
+        var prompt = builder.Build(new MusicRequest("synth pop", "pop", true, "words", 180)
+        {
+            LyricsMode = LyricsMode.Provided,
+            ReferenceAudioLabel = "First Signal",
+        });
+
+        Assert.Contains("uploaded reference audio", prompt);
+        Assert.Contains("First Signal", prompt);
     }
 }

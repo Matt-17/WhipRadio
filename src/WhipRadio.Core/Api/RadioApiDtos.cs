@@ -57,7 +57,8 @@ public sealed record ArtistDto(
     string? Origin = null,
     int? FormationYear = null,
     string? PromotionText = null,
-    IReadOnlyList<ArtistMemberDto>? Members = null);
+    IReadOnlyList<ArtistMemberDto>? Members = null,
+    string Language = "en");
 
 public sealed record ArtistMemberDto(
     Guid Id,
@@ -66,6 +67,8 @@ public sealed record ArtistMemberDto(
     string Biography);
 
 public sealed record CreateArtistRequestDto(string? Hint);
+
+public sealed record RedefineArtistRequestDto(string? Hint);
 
 public sealed record MusicProductionStatusDto(
     Guid? ArtistId,
@@ -382,7 +385,7 @@ public sealed record ConsoleLineDto(
 public sealed record GpuStatsDto(
     string Name,
     double UtilizationPercent,
-    double MemoryUsedMb,
+    double? MemoryUsedMb,
     double MemoryTotalMb,
     double TemperatureC);
 

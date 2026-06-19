@@ -457,7 +457,7 @@ public class StudioCoordinator(
         var root = doc.RootElement;
         var status = root.TryGetProperty("status", out var s) ? s.GetString() : null;
         return string.Equals(status, "ok", StringComparison.OrdinalIgnoreCase)
-            ? (true, StudioProviders.LocalTts, "TTS sidecar")
+            ? (true, StudioProviders.LocalTts, ExtractHealthDetail(root, "TTS sidecar"))
             : (false, null, $"TTS sidecar reports status '{status ?? "unknown"}'.");
     }
 
@@ -479,8 +479,9 @@ public class StudioCoordinator(
         {
             var status = data.TryGetProperty("status", out var s) ? s.GetString() : null;
             var version = data.TryGetProperty("version", out var v) ? v.GetString() : null;
+            var fallback = $"ACE-Step{(version is null ? "" : $" {version}")}";
             return string.Equals(status, "ok", StringComparison.OrdinalIgnoreCase)
-                ? (true, MusicBackends.AceStep, $"ACE-Step{(version is null ? "" : $" {version}")}")
+                ? (true, MusicBackends.AceStep, ExtractHealthDetail(root, fallback))
                 : (false, null, $"ACE-Step reports status '{status}'.");
         }
 
@@ -488,10 +489,68 @@ public class StudioCoordinator(
         if (root.TryGetProperty("backends", out var backends)
             && backends.TryGetProperty(MusicBackends.MusicGen, out var mg) && mg.GetBoolean())
         {
-            return (true, MusicBackends.MusicGen, "MusicGen sidecar");
+            return (true, MusicBackends.MusicGen, ExtractHealthDetail(root, "MusicGen sidecar"));
         }
 
         return (false, null, "Endpoint answered but speaks no known studio protocol.");
+    }
+
+    private static string ExtractHealthDetail(JsonElement root, string fallback)
+    {
+        foreach (var element in EnumerateHealthObjects(root))
+        {
+            foreach (var propertyName in new[] { "label", "detail", "description" })
+            {
+                var value = GetStringProperty(element, propertyName);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+        }
+
+        foreach (var element in EnumerateHealthObjects(root))
+        {
+            foreach (var propertyName in new[] { "service", "provider", "engine", "backend", "model" })
+            {
+                var value = GetStringProperty(element, propertyName);
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    return value.Trim();
+                }
+            }
+        }
+
+        return fallback;
+    }
+
+    private static IEnumerable<JsonElement> EnumerateHealthObjects(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            yield return root;
+            if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+            {
+                yield return data;
+            }
+        }
+    }
+
+    private static string? GetStringProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value))
+        {
+            return null;
+        }
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null,
+        };
     }
 
     private sealed record OllamaTagsResponse(IReadOnlyList<OllamaModelTag> Models);

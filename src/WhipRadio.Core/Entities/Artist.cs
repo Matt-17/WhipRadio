@@ -24,6 +24,9 @@ public class Artist
     /// <summary>Where this artist is from in the station's fictional world.</summary>
     public string? Origin { get; set; }
 
+    /// <summary>Canonical normal song language from the artist profile, e.g. "en" or "de".</summary>
+    public string Language { get; set; } = "en";
+
     public int? FormationYear { get; set; }
 
     /// <summary>One-line prompt that caused the artist to be discovered.</summary>

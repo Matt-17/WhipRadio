@@ -143,7 +143,7 @@ public static class RadioApiEndpoints
                 var agg = aggregates.GetValueOrDefault(a.Id);
                 return new ArtistDto(a.Id, a.Name, a.Genre, a.Subgenre, a.StyleDescriptor,
                     agg?.Count ?? 0, agg?.Up ?? 0, agg?.Down ?? 0, a.IsRetired, a.Biography,
-                    a.Type, a.Origin, a.FormationYear, a.PromotionText);
+                    a.Type, a.Origin, a.FormationYear, a.PromotionText, Language: a.Language);
             }).ToList());
         });
 
@@ -180,7 +180,48 @@ public static class RadioApiEndpoints
             return Results.Ok(new ArtistDto(
                 artist.Id, artist.Name, artist.Genre, artist.Subgenre, artist.StyleDescriptor,
                 0, 0, 0, artist.IsRetired, artist.Biography,
-                artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText, members));
+                artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText, members, artist.Language));
+        });
+
+        api.MapPost("/artists/{id:guid}/redefine", async (
+            Guid id,
+            RedefineArtistRequestDto request,
+            ArtistCreationService artistCreator,
+            RadioDbContext db,
+            CancellationToken ct) =>
+        {
+            Artist artist;
+            try
+            {
+                artist = await artistCreator.RedefineArtistAsync(id, request.Hint, ct);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(
+                    title: "Artist redefinition failed",
+                    detail: ex.Message,
+                    statusCode: StatusCodes.Status502BadGateway);
+            }
+
+            var stats = await db.Tracks.AsNoTracking()
+                .Where(t => t.ArtistId == id)
+                .GroupBy(t => t.ArtistId)
+                .Select(g => new { Count = g.Count(), Up = g.Sum(t => t.UpVotes), Down = g.Sum(t => t.DownVotes) })
+                .FirstOrDefaultAsync(ct);
+
+            return Results.Ok(ToArtistDto(
+                artist,
+                stats?.Count ?? 0,
+                stats?.Up ?? 0,
+                stats?.Down ?? 0,
+                artist.Members
+                    .OrderBy(m => m.SortOrder)
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography))
+                    .ToList()));
         });
 
         // Artist detail; writes the biography on first view for artists that
@@ -220,7 +261,8 @@ public static class RadioApiEndpoints
                 artist.Members
                     .OrderBy(m => m.SortOrder)
                     .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography))
-                    .ToList()));
+                    .ToList(),
+                artist.Language));
         });
 
         // "Create new song" — queued for the production loop, generated in the
@@ -1492,6 +1534,30 @@ public static class RadioApiEndpoints
 
         return best?.ToString("ddd HH:mm");
     }
+
+    private static ArtistDto ToArtistDto(
+        Artist artist,
+        int trackCount,
+        int upVotes,
+        int downVotes,
+        IReadOnlyList<ArtistMemberDto>? members = null)
+        => new(
+            artist.Id,
+            artist.Name,
+            artist.Genre,
+            artist.Subgenre,
+            artist.StyleDescriptor,
+            trackCount,
+            upVotes,
+            downVotes,
+            artist.IsRetired,
+            artist.Biography,
+            artist.Type,
+            artist.Origin,
+            artist.FormationYear,
+            artist.PromotionText,
+            members,
+            artist.Language);
 
     private static TrackDto ToDto(Track t, bool deletionPending = false) => new(
         t.Id, t.Title, t.Genre, t.Subgenre, t.Artist?.Name ?? "—", t.ArtistId, t.HasVocals,

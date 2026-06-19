@@ -22,17 +22,26 @@ class MusicGenBackend:
 
     def __init__(self) -> None:
         self._model = None
+        self.model_id = os.environ.get("MUSICGEN_MODEL", "facebook/musicgen-small")
 
     def available(self) -> bool:
         return True
+
+    def status(self) -> dict:
+        return {
+            "backend": self.name,
+            "model": self.model_id,
+            "label": f"MusicGen - {self.model_id.rsplit('/', 1)[-1]}",
+            "resident_loaded": self._model is not None,
+            "available": self.available(),
+        }
 
     def _get_model(self):
         if self._model is None:
             from audiocraft.models import MusicGen
 
-            model_name = os.environ.get("MUSICGEN_MODEL", "facebook/musicgen-small")
-            logger.info("Loading MusicGen model %s (first time downloads weights)", model_name)
-            self._model = MusicGen.get_pretrained(model_name)
+            logger.info("Loading MusicGen model %s (first time downloads weights)", self.model_id)
+            self._model = MusicGen.get_pretrained(self.model_id)
         return self._model
 
     def generate(self, prompt: str, duration_seconds: int, lyrics: str | None = None) -> tuple[np.ndarray, int]:

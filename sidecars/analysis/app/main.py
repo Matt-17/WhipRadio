@@ -27,7 +27,13 @@ class AnalyzeRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "whipradio-analysis", "analyzer_version": ANALYZER_VERSION}
+    return {
+        "status": "ok",
+        "service": "whipradio-analysis",
+        "provider": "analysis",
+        "label": f"WhipRadio Analysis v{ANALYZER_VERSION}",
+        "analyzer_version": ANALYZER_VERSION,
+    }
 
 
 @app.post("/analyze")

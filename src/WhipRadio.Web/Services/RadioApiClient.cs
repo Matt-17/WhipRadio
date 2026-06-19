@@ -76,6 +76,24 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         }
     }
 
+    public async Task<(ArtistDto? Artist, string? Error)> RedefineArtistAsync(Guid id, string? hint, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync(
+                $"/api/artists/{id}/redefine",
+                new RedefineArtistRequestDto(hint),
+                ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ArtistDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Artist redefinition timed out or the writer room is unreachable.");
+        }
+    }
+
     public async Task<bool> ProduceTrackForArtistAsync(Guid id, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"/api/artists/{id}/produce", null, ct);

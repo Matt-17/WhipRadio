@@ -8,11 +8,16 @@ RUN apt-get update \
 WORKDIR /srv
 
 # TORCH_INDEX=cpu (default) or cu128 for NVIDIA GPU inference.
-# torch AND torchaudio installed together from the same index so later
-# packages (qwen-tts requires torchaudio) can't pull a mismatched build
-# linked against a different CUDA runtime.
+# torch AND torchaudio installed together from the same index so later packages
+# (qwen-tts requires torchaudio) can't pull a mismatched build linked against a
+# different CUDA runtime. Keep this pinned to the same CUDA 12.8 stack used by
+# the ACE-Step sidecar unless Qwen3-TTS requires a deliberate upgrade.
 ARG TORCH_INDEX=cpu
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
+ARG TORCH_VERSION=2.8.0
+ARG TORCHAUDIO_VERSION=2.8.0
+RUN pip install --no-cache-dir \
+    torch==${TORCH_VERSION} torchaudio==${TORCHAUDIO_VERSION} \
+    --index-url https://download.pytorch.org/whl/${TORCH_INDEX}
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

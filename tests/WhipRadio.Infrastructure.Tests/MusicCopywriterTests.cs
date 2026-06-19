@@ -128,7 +128,21 @@ Wir fahren heim
             Genre = "rock",
             Subgenre = "krautrock",
             StyleDescriptor = "German motorik rock with analog synth color.",
+            Type = "Band",
+            Origin = "Essen, Germany",
+            Language = "de",
             Biography = "A German band formed after night shifts around Essen Hauptbahnhof.",
+            Members =
+            {
+                new ArtistMember
+                {
+                    SortOrder = 0,
+                    Name = "Mara Licht",
+                    Role = "lead vocals",
+                    Biography = "Mara writes compact commuter lyrics.",
+                    VoiceCreationPrompt = "Female alto, German accent, focused and close-mic.",
+                },
+            },
         };
         var history = new[]
         {
@@ -163,9 +177,72 @@ Wir fahren heim
         Assert.Contains("Wir warten am Gleis", plan.Lyrics);
 
         Assert.Contains("A German band formed", llm.UserPrompt);
+        Assert.Contains("Canonical song language: de", llm.UserPrompt);
+        Assert.Contains("Mara Licht", llm.UserPrompt);
+        Assert.Contains("Female alto", llm.UserPrompt);
         Assert.Contains("Alte Funken", llm.UserPrompt);
         Assert.Contains("likes 7, dislikes 2", llm.UserPrompt);
-        Assert.Contains("A German band should make German songs", llm.UserPrompt);
+        Assert.Contains("Never infer German from Nordic", llm.UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task PlanSongAsync_FallsBackToEnglishWhenGermanIsNotExplicitlySupported()
+    {
+        var llm = new CapturingLlm(""""""
+Title("Der Atem des Eisgebiets")
+Style("A slow-moving soundscape built from heavily processed guitar washes, synthetic cello drones, and sparse melancholic vocals.")
+Language("de")
+Vocals("yes")
+DurationSeconds(285)
+Story("The band explored Svalbard field recordings and human fragility against deep time.")
+Lyrics("""
+Was das Eis birgt unter sich
+Kein Geräusch nur Gewicht
+Die Zeit zählt nicht mehr
+Der Wind singt die Kälte
+""")
+"""""");
+        var writer = new MusicCopywriter(llm);
+        var artist = new Artist
+        {
+            Name = "The Glacial Almanac",
+            Type = "Trio",
+            Genre = "Post-Rock",
+            Subgenre = "Ambient Shoegaze",
+            Origin = "Svalbard, Norwegian Sea",
+            Language = "en",
+            StyleDescriptor = "Glacial guitar washes, deep bass drones, sparse melancholic layered vocals.",
+            DeepBackgroundBiography =
+                "The band formed at a research outpost in Svalbard. Their language identity is English with Nordic imagery and sparse phrasing.",
+            Members =
+            {
+                new ArtistMember
+                {
+                    SortOrder = 0,
+                    Name = "Solveig Ljungqvist",
+                    Role = "Vocals, Electric Guitar",
+                    Biography = "Solveig is the primary vocalist and lyrical center.",
+                    VoiceCreationPrompt = "Whispery, breathy soprano with a distinct Scandinavian accent.",
+                },
+            },
+        };
+
+        var plan = await writer.PlanSongAsync(
+            artist,
+            [],
+            [],
+            "en",
+            minDurationSeconds: 150,
+            maxDurationSeconds: 360,
+            supportsVocals: true,
+            CancellationToken.None);
+
+        Assert.Equal("en", plan.Language);
+        Assert.False(plan.WantVocals);
+        Assert.Null(plan.Lyrics);
+        Assert.Contains("Solveig Ljungqvist", llm.UserPrompt);
+        Assert.Contains("Whispery, breathy soprano", llm.UserPrompt);
+        Assert.Contains("Canonical song language: en", llm.UserPrompt);
     }
 
     [TestMethod]

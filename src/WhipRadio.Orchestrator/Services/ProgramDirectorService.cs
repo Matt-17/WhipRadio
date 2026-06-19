@@ -195,7 +195,9 @@ public partial class ProgramDirectorService(
             var reply = await llm.CompleteAsync(
                 "You are an experienced radio program director. Follow the output format EXACTLY.\n\n"
                 + promptContext.RenderSituation(),
-                prompt, ct);
+                prompt,
+                "Planning station day",
+                ct);
             return ParsePlan(LlmOutputSanitizer.Sanitize(reply));
         }
         catch (Exception ex)
@@ -411,6 +413,7 @@ public partial class ProgramDirectorService(
             persona = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
                 "You write radio host personas. Output only the persona.\n\n" + promptContext.RenderSituation(),
                 prompt,
+                "Creating host persona",
                 ct));
         }
         catch (Exception ex)

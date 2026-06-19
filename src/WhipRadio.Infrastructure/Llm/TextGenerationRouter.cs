@@ -25,15 +25,19 @@ public class TextGenerationRouter(
     public const string OpenAiClientName = "llm-openai";
 
     public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+        => await CompleteAsync(systemPrompt, userPrompt, jobLabel: null, ct);
+
+    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, string? jobLabel, CancellationToken ct)
     {
+        var label = NormalizeJobLabel(jobLabel);
         var settings = await settingsCache.GetAsync(ct);
-        var writerRoom = await AcquireWriterRoomAsync(settings, ct);
+        var writerRoom = await AcquireWriterRoomAsync(settings, label, ct);
         if (writerRoom is not null)
         {
             var success = false;
             try
             {
-                var result = await CompleteWithWriterRoomAsync(writerRoom, settings, systemPrompt, userPrompt, ct);
+                var result = await CompleteWithWriterRoomAsync(writerRoom, settings, systemPrompt, userPrompt, label, ct);
                 success = true;
                 return result;
             }
@@ -52,6 +56,7 @@ public class TextGenerationRouter(
                 provider: StudioProviders.OpenAi,
                 model: settings.OpenAiModel,
                 endpoint: "https://api.openai.com",
+                label,
                 systemPrompt,
                 userPrompt,
                 async token =>
@@ -76,6 +81,7 @@ public class TextGenerationRouter(
             provider: StudioProviders.Ollama,
             model: llmOptions.Value.Model,
             endpoint: httpClientFactory.CreateClient(OllamaClientName).BaseAddress?.ToString(),
+            label,
             systemPrompt,
             userPrompt,
             async token =>
@@ -92,7 +98,7 @@ public class TextGenerationRouter(
             ct);
     }
 
-    private async Task<Studio?> AcquireWriterRoomAsync(StationSettings settings, CancellationToken ct)
+    private async Task<Studio?> AcquireWriterRoomAsync(StationSettings settings, string label, CancellationToken ct)
     {
         var preferredProvider = settings.TextProvider == TextProviders.OpenAi
             ? StudioProviders.OpenAi
@@ -104,7 +110,7 @@ public class TextGenerationRouter(
             if (hasPreferredRooms)
             {
                 var preferredRoom = await studios.TryAcquireAsync(
-                    StudioKind.WriterRoom, preferredProvider, "Writing copy", ct);
+                    StudioKind.WriterRoom, preferredProvider, label, ct);
                 if (preferredRoom is not null)
                 {
                     return preferredRoom;
@@ -125,7 +131,7 @@ public class TextGenerationRouter(
             }
 
             var writerRoom = await studios.TryAcquireAsync(
-                StudioKind.WriterRoom, requiredProvider: null, "Writing copy", ct);
+                StudioKind.WriterRoom, requiredProvider: null, label, ct);
             if (writerRoom is not null)
             {
                 return writerRoom;
@@ -148,6 +154,7 @@ public class TextGenerationRouter(
         StationSettings settings,
         string systemPrompt,
         string userPrompt,
+        string label,
         CancellationToken ct)
     {
         if (string.Equals(writerRoom.Provider, StudioProviders.OpenAi, StringComparison.OrdinalIgnoreCase))
@@ -168,6 +175,7 @@ public class TextGenerationRouter(
                 writerRoom.Provider,
                 settings.OpenAiModel,
                 "https://api.openai.com",
+                label,
                 systemPrompt,
                 userPrompt,
                 async token =>
@@ -201,6 +209,7 @@ public class TextGenerationRouter(
             writerRoom.Provider,
             llmOptions.Value.Model,
             client.BaseAddress?.ToString(),
+            label,
             systemPrompt,
             userPrompt,
             async token =>
@@ -220,6 +229,7 @@ public class TextGenerationRouter(
         string provider,
         string model,
         string? endpoint,
+        string label,
         string systemPrompt,
         string userPrompt,
         Func<CancellationToken, Task<string>> complete,
@@ -230,7 +240,7 @@ public class TextGenerationRouter(
             studioName,
             StudioKind.WriterRoom,
             provider,
-            "Writing copy",
+            label,
             WriterPrompt(systemPrompt, userPrompt),
             WriterDetail(model, endpoint),
             ct);
@@ -250,6 +260,9 @@ public class TextGenerationRouter(
 
     private static string WriterPrompt(string systemPrompt, string userPrompt)
         => $"System prompt:{Environment.NewLine}{systemPrompt}{Environment.NewLine}{Environment.NewLine}User prompt:{Environment.NewLine}{userPrompt}";
+
+    private static string NormalizeJobLabel(string? label)
+        => string.IsNullOrWhiteSpace(label) ? "Writing text" : label.Trim();
 
     private static string WriterDetail(string model, string? endpoint)
         => string.IsNullOrWhiteSpace(endpoint)

@@ -60,9 +60,10 @@ public class WriterRoomStudioTests
     [TestMethod]
     public async Task StudioCoordinator_TestAsync_RecognizesLocalVoiceBoothUsingHealth()
     {
+        const string Label = "Qwen3-TTS 12Hz - 0.6B synth / 1.7B voice design";
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
-            JsonContent.Create(new { status = "ok", engine = "qwen" }));
+            JsonContent.Create(new { status = "ok", engine = "qwen", label = Label }));
         var coordinator = new StudioCoordinator(
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
@@ -74,7 +75,57 @@ public class WriterRoomStudioTests
 
         Assert.True(result.Ok);
         Assert.Equal(StudioProviders.LocalTts, result.Provider);
-        Assert.Contains("TTS sidecar", result.Detail);
+        Assert.Equal(Label, result.Detail);
+        Assert.Equal("/health", handler.LastRequest!.RequestUri!.AbsolutePath);
+    }
+
+    [TestMethod]
+    public async Task StudioCoordinator_TestAsync_RecognizesLocalMusicGenUsingHealthLabel()
+    {
+        const string Label = "MusicGen - musicgen-small";
+        var handler = FakeHttpMessageHandler.RespondingWith(
+            HttpStatusCode.OK,
+            JsonContent.Create(new
+            {
+                status = "ok",
+                service = "whipradio-musicgen",
+                label = Label,
+                backends = new Dictionary<string, bool> { [MusicBackends.MusicGen] = true },
+            }));
+        var coordinator = new StudioCoordinator(
+            new ThrowingDbFactory(),
+            new SingleClientFactory(handler.CreateClient()),
+            new NoOpStudioUpdatePublisher(),
+            NullLogger<StudioCoordinator>.Instance);
+
+        var result = await coordinator.TestAsync(
+            StudioKind.Recording, "local", "http://localhost:8002", null, null, CancellationToken.None);
+
+        Assert.True(result.Ok);
+        Assert.Equal(MusicBackends.MusicGen, result.Provider);
+        Assert.Equal(Label, result.Detail);
+        Assert.Equal("/health", handler.LastRequest!.RequestUri!.AbsolutePath);
+    }
+
+    [TestMethod]
+    public async Task StudioCoordinator_TestAsync_RecognizesAceStepUsingHealthLabel()
+    {
+        const string Label = "ACE-Step 1.5 Turbo";
+        var handler = FakeHttpMessageHandler.RespondingWith(
+            HttpStatusCode.OK,
+            JsonContent.Create(new { data = new { status = "ok", version = "1.5", label = Label }, code = 200 }));
+        var coordinator = new StudioCoordinator(
+            new ThrowingDbFactory(),
+            new SingleClientFactory(handler.CreateClient()),
+            new NoOpStudioUpdatePublisher(),
+            NullLogger<StudioCoordinator>.Instance);
+
+        var result = await coordinator.TestAsync(
+            StudioKind.Recording, "local", "http://localhost:8101", null, null, CancellationToken.None);
+
+        Assert.True(result.Ok);
+        Assert.Equal(MusicBackends.AceStep, result.Provider);
+        Assert.Equal(Label, result.Detail);
         Assert.Equal("/health", handler.LastRequest!.RequestUri!.AbsolutePath);
     }
 
@@ -359,7 +410,7 @@ public class WriterRoomStudioTests
             NullLogger<TextGenerationRouter>.Instance,
             NullLoggerFactory.Instance);
 
-        var result = await router.CompleteAsync("system", "user", CancellationToken.None);
+        var result = await router.CompleteAsync("system", "user", "Writing weather report", CancellationToken.None);
 
         Assert.Equal("Fresh copy.", result);
         Assert.Equal("writer-room.local", handler.LastRequest!.RequestUri!.Host);
@@ -372,6 +423,7 @@ public class WriterRoomStudioTests
         var history = await verify.StudioHistory.SingleAsync();
         Assert.Equal(writerRoomId, history.StudioId);
         Assert.Equal(StudioHistoryStatus.Succeeded, history.Status);
+        Assert.Equal("Writing weather report", history.Operation);
         Assert.Contains("System prompt:", history.Prompt);
         Assert.Contains("user", history.Prompt);
         Assert.Equal("Fresh copy.", history.Result);
@@ -431,7 +483,7 @@ public class WriterRoomStudioTests
             NullLogger<TextGenerationRouter>.Instance,
             NullLoggerFactory.Instance);
 
-        var result = await router.CompleteAsync("system", "user", CancellationToken.None);
+        var result = await router.CompleteAsync("system", "user", "Planning station day", CancellationToken.None);
 
         Assert.Equal("Cloud copy.", result);
         Assert.Equal("/v1/chat/completions", handler.LastRequest!.RequestUri!.AbsolutePath);
@@ -445,6 +497,7 @@ public class WriterRoomStudioTests
         Assert.Null(history.StudioId);
         Assert.Equal("Writer Room (OpenAI settings)", history.StudioName);
         Assert.Equal(StudioProviders.OpenAi, history.Provider);
+        Assert.Equal("Planning station day", history.Operation);
         Assert.Equal("Cloud copy.", history.Result);
     }
 

@@ -40,7 +40,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidNames"] = existingNames.Count == 0 ? "(none yet)" : string.Join(", ", existingNames.Take(20)),
         });
 
-        var reply = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        var reply = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Inventing artist", ct));
         string? name = null, style = null, bio = null;
         foreach (var line in reply.Split('\n', StringSplitOptions.TrimEntries))
         {
@@ -74,7 +74,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["Style"] = artist.StyleDescriptor,
         });
 
-        var bio = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        var bio = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing artist biography", ct));
         return string.IsNullOrWhiteSpace(bio)
             ? $"{artist.Name} keep their past a mystery; the {artist.Subgenre} speaks for itself."
             : bio.Trim();
@@ -95,7 +95,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidNames"] = existingNames.Count == 0 ? "(none yet)" : string.Join(", ", existingNames.Take(40)),
         });
 
-        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Creating artist profile", ct));
         return ParseArtistProfile(reply, prompt, hint, genre, subgenre);
     }
 
@@ -119,6 +119,13 @@ public class MusicCopywriter(ITextGenerationService llm)
                 artist.DeepBackgroundBiography,
                 artist.Biography,
                 "(no biography yet)")!,
+            ["ArtistType"] = FirstNonEmpty(artist.Type, "Artist")!,
+            ["ArtistOrigin"] = FirstNonEmpty(artist.Origin, "unknown")!,
+            ["ArtistFormationYear"] = artist.FormationYear?.ToString() ?? "unknown",
+            ["ArtistLanguage"] = NormalizeSongLanguageCode(FirstNonEmpty(artist.Language, defaultLanguage, "en")),
+            ["ArtistCreationHint"] = FirstNonEmpty(artist.CreationHint, "(not recorded)")!,
+            ["ArtistPromotionText"] = FirstNonEmpty(artist.PromotionText, "(none)")!,
+            ["ArtistMembers"] = FormatArtistMembers(artist.Members),
             ["DefaultLanguage"] = string.IsNullOrWhiteSpace(defaultLanguage) ? "en" : defaultLanguage,
             ["MinDurationSeconds"] = minDurationSeconds.ToString(),
             ["MaxDurationSeconds"] = maxDurationSeconds.ToString(),
@@ -128,8 +135,8 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["SongHistory"] = FormatHistory(history),
         });
 
-        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, ct));
-        var plan = ParseSongPlan(reply, artist, defaultLanguage, minDurationSeconds, maxDurationSeconds, supportsVocals);
+        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Planning artist song", ct));
+        var plan = ParseSongPlan(reply, artist, history, defaultLanguage, minDurationSeconds, maxDurationSeconds, supportsVocals);
         if (existingTitles.Any(t => string.Equals(t, plan.Title, StringComparison.OrdinalIgnoreCase)))
         {
             plan = plan with { Title = $"{plan.Title} No. {Random.Shared.Next(2, 99)}" };
@@ -151,7 +158,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(15)),
         });
 
-        var title = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        var title = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing song title", ct));
         var firstLine = title.Split('\n')[0].Trim();
 
         if (existingTitles.Any(t => string.Equals(t, firstLine, StringComparison.OrdinalIgnoreCase)))
@@ -169,7 +176,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["Genre"] = genre,
             ["Language"] = language,
         });
-        return LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, ct));
+        return LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing lyrics", ct));
     }
 
     private static ArtistProfilePlan ParseArtistProfile(
@@ -205,7 +212,7 @@ public class MusicCopywriter(ITextGenerationService llm)
         var shortBiography = RequireField(profile.ShortBiography, "shortBiography");
         var deepBiography = RequireField(profile.DeepBackgroundBiography, "deepBackgroundBiography");
         var promotionText = RequireField(profile.PromotionText, "promotionText");
-        var language = FirstNonEmpty(profile.Language, "en")!;
+        var language = NormalizeSongLanguageCode(FirstNonEmpty(profile.Language, "en"));
         var formationYear = profile.FormationYear is { } year
             ? Math.Clamp(year, 1950, DateTime.UtcNow.Year)
             : (int?)null;
@@ -233,7 +240,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             shortBiography.Trim(),
             deepBiography.Trim(),
             promotionText.Trim(),
-            language.Trim(),
+            language,
             string.IsNullOrWhiteSpace(hint) ? null : hint.Trim(),
             members,
             generationPrompt);
@@ -242,6 +249,7 @@ public class MusicCopywriter(ITextGenerationService llm)
     private static ArtistSongPlan ParseSongPlan(
         string reply,
         Artist artist,
+        IReadOnlyCollection<ArtistSongHistoryItem> history,
         string defaultLanguage,
         int minDurationSeconds,
         int maxDurationSeconds,
@@ -257,7 +265,11 @@ public class MusicCopywriter(ITextGenerationService llm)
         var lyrics = lyricsMatch.Success ? CleanFunctionValue(lyricsMatch) : null;
         var title = FirstNonEmpty(values.GetValueOrDefault("Title"), $"Untitled {artist.Subgenre} tune")!;
         var style = FirstNonEmpty(values.GetValueOrDefault("Style"), artist.StyleDescriptor, artist.Subgenre, artist.Genre)!;
-        var language = FirstNonEmpty(values.GetValueOrDefault("Language"), defaultLanguage, "en")!;
+        var (language, languageWasCorrected) = ResolveSongLanguage(
+            values.GetValueOrDefault("Language"),
+            defaultLanguage,
+            artist,
+            history);
         var story = FirstNonEmpty(
             values.GetValueOrDefault("Story"),
             $"{artist.Name} shaped this track as the next chapter in their {artist.Subgenre} catalog.")!;
@@ -275,16 +287,120 @@ public class MusicCopywriter(ITextGenerationService llm)
         {
             wantsVocals = false;
         }
+        if (wantsVocals && languageWasCorrected)
+        {
+            wantsVocals = false;
+        }
 
         return new ArtistSongPlan(
             title.Trim().Trim('"'),
             style.Trim(),
-            language.Trim(),
+            language,
             wantsVocals,
             wantsVocals ? lyrics : null,
             duration,
             story.Trim());
     }
+
+    private static (string Language, bool WasCorrected) ResolveSongLanguage(
+        string? requestedLanguage,
+        string defaultLanguage,
+        Artist artist,
+        IReadOnlyCollection<ArtistSongHistoryItem> history)
+    {
+        var fallback = NormalizeSongLanguageCode(FirstNonEmpty(artist.Language, defaultLanguage, "en"));
+        if (string.IsNullOrWhiteSpace(requestedLanguage))
+        {
+            return (fallback, false);
+        }
+
+        var requested = NormalizeSongLanguageCode(requestedLanguage);
+        if (requested == fallback)
+        {
+            return (fallback, IsNonDefaultLanguageRequest(requestedLanguage, fallback));
+        }
+
+        return HasExplicitLanguageEvidence(requested, artist, history)
+            ? (requested, false)
+            : (fallback, true);
+    }
+
+    private static string NormalizeSongLanguageCode(string? language)
+    {
+        var value = (language ?? "en").Trim().ToLowerInvariant();
+        if (value.StartsWith("de", StringComparison.Ordinal)
+            || value.Contains("german", StringComparison.Ordinal)
+            || value.Contains("deutsch", StringComparison.Ordinal))
+        {
+            return "de";
+        }
+
+        if (value.StartsWith("en", StringComparison.Ordinal)
+            || value.Contains("english", StringComparison.Ordinal))
+        {
+            return "en";
+        }
+
+        return StationLanguages.Normalize(value);
+    }
+
+    private static bool IsNonDefaultLanguageRequest(string requestedLanguage, string fallback)
+    {
+        var requested = requestedLanguage.Trim();
+        if (requested.Length == 0)
+        {
+            return false;
+        }
+
+        return NormalizeSongLanguageCode(requested) != fallback
+            || !IsDefaultLanguageName(requested, fallback);
+    }
+
+    private static bool IsDefaultLanguageName(string requestedLanguage, string fallback)
+    {
+        var value = requestedLanguage.Trim().ToLowerInvariant();
+        return fallback switch
+        {
+            "de" => value.StartsWith("de", StringComparison.Ordinal)
+                || value.Contains("german", StringComparison.Ordinal)
+                || value.Contains("deutsch", StringComparison.Ordinal),
+            _ => value.StartsWith("en", StringComparison.Ordinal)
+                || value.Contains("english", StringComparison.Ordinal),
+        };
+    }
+
+    private static bool HasExplicitLanguageEvidence(
+        string language,
+        Artist artist,
+        IReadOnlyCollection<ArtistSongHistoryItem> history)
+    {
+        if (history.Any(item => NormalizeSongLanguageCode(item.Language) == language))
+        {
+            return true;
+        }
+
+        var profile = string.Join(" ", new[]
+        {
+            artist.Name,
+            artist.Origin,
+            artist.CreationHint,
+            artist.Biography,
+            artist.DeepBackgroundBiography,
+            artist.StyleDescriptor,
+        }.Where(value => !string.IsNullOrWhiteSpace(value))).ToLowerInvariant();
+
+        return language switch
+        {
+            "de" => ContainsAny(profile,
+                "german", "deutsch", "germany", "deutschland", "austrian", "austria",
+                "swiss german", "berlin", "hamburg", "munich", "münchen", "cologne",
+                "köln", "essen hauptbahnhof"),
+            _ => false,
+        };
+    }
+
+    private static bool ContainsAny(string value, params string[] needles)
+        => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
 
     private static string CleanStructuredOutput(string text)
     {
@@ -329,6 +445,25 @@ public class MusicCopywriter(ITextGenerationService llm)
             var story = string.IsNullOrWhiteSpace(item.SongStory) ? "" : $" Story: {Trim(item.SongStory!, 180)}";
             return $"- \"{item.Title}\" ({vocal}, {item.Language}, target {duration}s, likes {item.UpVotes}, dislikes {item.DownVotes}). Style: {Trim(item.Style, 160)}.{story}";
         }));
+    }
+
+    private static string FormatArtistMembers(IEnumerable<ArtistMember> members)
+    {
+        var lines = members
+            .OrderBy(member => member.SortOrder)
+            .Select(member =>
+            {
+                var voice = string.IsNullOrWhiteSpace(member.VoiceCreationPrompt)
+                    ? "no voice prompt recorded"
+                    : Trim(member.VoiceCreationPrompt, 220);
+                var bio = string.IsNullOrWhiteSpace(member.Biography)
+                    ? "no member biography recorded"
+                    : Trim(member.Biography, 220);
+                return $"- {member.Name}: {member.Role}. Bio: {bio}. Voice prompt: {voice}.";
+            })
+            .ToList();
+
+        return lines.Count == 0 ? "(no member roster recorded)" : string.Join(Environment.NewLine, lines);
     }
 
     private static bool IsAffirmative(string? value)

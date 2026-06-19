@@ -34,7 +34,7 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
             systemPrompt = $"{systemPrompt}\n\n{context.RenderSituation()}";
         }
 
-        var voiced = await llm.CompleteAsync(systemPrompt, script, ct);
+        var voiced = await llm.CompleteAsync(systemPrompt, script, "Directing voice delivery", ct);
         return LlmOutputSanitizer.Sanitize(voiced);
     }
 }

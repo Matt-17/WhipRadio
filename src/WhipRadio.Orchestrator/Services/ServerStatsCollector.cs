@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Api;
 using WhipRadio.Orchestrator.Configuration;
@@ -206,17 +207,164 @@ public class ServerStatsCollector(
                 return null;
             }
 
+            var memoryTotalMb = double.Parse(parts[3], CultureInfo.InvariantCulture);
+            var memoryUsedMb = NormalizeGpuMemoryUsedMb(
+                double.Parse(parts[2], CultureInfo.InvariantCulture),
+                memoryTotalMb);
+
+            if (memoryUsedMb is null)
+            {
+                memoryUsedMb = await TryGetWindowsDedicatedGpuMemoryUsedMbAsync(memoryTotalMb, ct);
+            }
+
             return new GpuStatsDto(
                 parts[0],
                 double.Parse(parts[1], CultureInfo.InvariantCulture),
-                double.Parse(parts[2], CultureInfo.InvariantCulture),
-                double.Parse(parts[3], CultureInfo.InvariantCulture),
+                memoryUsedMb,
+                memoryTotalMb,
                 double.Parse(parts[4], CultureInfo.InvariantCulture));
         }
         catch
         {
             return null; // no NVIDIA GPU / nvidia-smi not on PATH
         }
+    }
+
+    internal static double? NormalizeGpuMemoryUsedMb(double value, double totalMb)
+    {
+        if (!double.IsFinite(value) || value < 0)
+        {
+            return null;
+        }
+
+        if (!double.IsFinite(totalMb) || totalMb <= 0)
+        {
+            return value;
+        }
+
+        if (value <= totalMb * 1.05)
+        {
+            return Math.Min(value, totalMb);
+        }
+
+        var mibFromBytes = value / 1024.0 / 1024;
+        if (mibFromBytes <= totalMb * 1.05)
+        {
+            return Math.Min(mibFromBytes, totalMb);
+        }
+
+        var mibFromKib = value / 1024.0;
+        if (mibFromKib <= totalMb * 1.05)
+        {
+            return Math.Min(mibFromKib, totalMb);
+        }
+
+        return null;
+    }
+
+    private static async Task<double?> TryGetWindowsDedicatedGpuMemoryUsedMbAsync(double totalMb, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsWindows() || !double.IsFinite(totalMb) || totalMb <= 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = "typeperf",
+                Arguments = "\"\\GPU Adapter Memory(*)\\Dedicated Usage\" -sc 1",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            if (process is null)
+            {
+                return null;
+            }
+
+            var output = await process.StandardOutput.ReadToEndAsync(ct);
+            await process.WaitForExitAsync(ct);
+
+            return ParseWindowsDedicatedGpuMemoryUsedMb(output, totalMb);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    internal static double? ParseWindowsDedicatedGpuMemoryUsedMb(string output, double totalMb)
+    {
+        if (string.IsNullOrWhiteSpace(output) || !double.IsFinite(totalMb) || totalMb <= 0)
+        {
+            return null;
+        }
+
+        var totalBytes = totalMb * 1024.0 * 1024;
+        var maxBytes = totalBytes * 1.05;
+        double? bestBytes = null;
+
+        foreach (var line in output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            var cells = SplitCsvLine(line);
+            foreach (var cell in cells.Skip(1))
+            {
+                if (!double.TryParse(cell, NumberStyles.Float, CultureInfo.InvariantCulture, out var bytes)
+                    || bytes <= 0
+                    || bytes > maxBytes)
+                {
+                    continue;
+                }
+
+                bestBytes = bestBytes is null ? bytes : Math.Max(bestBytes.Value, bytes);
+            }
+        }
+
+        return bestBytes is null
+            ? null
+            : Math.Min(bestBytes.Value, totalBytes) / 1024.0 / 1024;
+    }
+
+    private static List<string> SplitCsvLine(string line)
+    {
+        var cells = new List<string>();
+        var current = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < line.Length; i++)
+        {
+            var c = line[i];
+            if (c == '"')
+            {
+                if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                {
+                    current.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
+
+                continue;
+            }
+
+            if (c == ',' && !inQuotes)
+            {
+                cells.Add(current.ToString().Trim());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(c);
+            }
+        }
+
+        cells.Add(current.ToString().Trim());
+        return cells;
     }
 
     // --- Storage footprint ----------------------------------------------------------

@@ -26,3 +26,10 @@ class EngineBase(ABC):
     def unload(self) -> dict:
         """Release cached model state. Engines without resident state can no-op."""
         return {"engine": self.name, "unloaded": False}
+
+    def status(self) -> dict:
+        """Small runtime description for /health and studio UI labels."""
+        return {
+            "engine": self.name,
+            "sample_rate_hz": self.sample_rate,
+        }

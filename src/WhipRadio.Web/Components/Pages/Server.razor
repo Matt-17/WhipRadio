@@ -1,4 +1,5 @@
 @page "/server"
+@using System.Globalization
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
@@ -35,7 +36,7 @@ else
                 <div class="meter"><div class="fill @MeterClass(gpu.UtilizationPercent)" style="width:@Pct(gpu.UtilizationPercent)"></div></div>
             </div>
             <div class="meter-row">
-                <div class="meter-head"><span>VRAM</span><span>@Gb(gpu.MemoryUsedMb) / @Gb(gpu.MemoryTotalMb) GB</span></div>
+                <div class="meter-head"><span>VRAM</span><span>@VramLabel(gpu)</span></div>
                 <div class="meter"><div class="fill @MeterClass(VramPercent(gpu))" style="width:@Pct(VramPercent(gpu))"></div></div>
             </div>
         }
@@ -86,13 +87,15 @@ else
     private Timer? _timer;
 
     private double MemoryPercent => _stats is { MemoryTotalMb: > 0 }
-        ? _stats.MemoryUsedMb / _stats.MemoryTotalMb * 100 : 0;
+        ? SafePercent(_stats.MemoryUsedMb, _stats.MemoryTotalMb) : 0;
 
     private double DiskPercent => _stats is { DiskTotalGb: > 0 }
-        ? (_stats.DiskTotalGb - _stats.DiskFreeGb) / _stats.DiskTotalGb * 100 : 0;
+        ? SafePercent(_stats.DiskTotalGb - _stats.DiskFreeGb, _stats.DiskTotalGb) : 0;
 
     private static double VramPercent(GpuStatsDto gpu)
-        => gpu.MemoryTotalMb > 0 ? gpu.MemoryUsedMb / gpu.MemoryTotalMb * 100 : 0;
+        => gpu is { MemoryUsedMb: { } used, MemoryTotalMb: > 0 }
+            ? SafePercent(used, gpu.MemoryTotalMb)
+            : 0;
 
     protected override async Task OnInitializedAsync()
     {
@@ -104,7 +107,9 @@ else
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }
 
-    private static string Pct(double value) => $"{Math.Clamp(value, 0, 100):F1}%";
+    private static string Pct(double value)
+        => (double.IsFinite(value) ? Math.Clamp(value, 0, 100) : 0)
+            .ToString("F1", CultureInfo.InvariantCulture) + "%";
 
     private static string MeterClass(double percent) => percent switch
     {
@@ -114,6 +119,28 @@ else
     };
 
     private static string Gb(double mb) => (mb / 1024).ToString("0.#");
+
+    private static double SafePercent(double used, double total)
+    {
+        if (!double.IsFinite(used) || !double.IsFinite(total) || total <= 0)
+        {
+            return 0;
+        }
+
+        return Math.Clamp(used / total * 100, 0, 100);
+    }
+
+    private static string VramLabel(GpuStatsDto gpu)
+    {
+        if (gpu.MemoryTotalMb <= 0 || !double.IsFinite(gpu.MemoryTotalMb))
+        {
+            return "unavailable";
+        }
+
+        return gpu.MemoryUsedMb is { } used && double.IsFinite(used)
+            ? $"{Gb(used)} / {Gb(gpu.MemoryTotalMb)} GB"
+            : $"unavailable / {Gb(gpu.MemoryTotalMb)} GB";
+    }
 
     private static string SizeLabel(double mb)
         => mb >= 1024 ? $"{mb / 1024:0.##} GB" : $"{mb:0.#} MB";

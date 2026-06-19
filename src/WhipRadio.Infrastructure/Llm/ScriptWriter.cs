@@ -23,9 +23,26 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }
 
         var userPrompt = BuildUserPrompt(request);
-        var script = await llm.CompleteAsync(systemPrompt, userPrompt, ct);
+        var script = await llm.CompleteAsync(systemPrompt, userPrompt, ScriptJobLabel(request.Kind), ct);
         return LlmOutputSanitizer.Sanitize(script);
     }
+
+    private static string ScriptJobLabel(AnnouncementKind kind) => kind switch
+    {
+        AnnouncementKind.SongIntro => "Writing song intro",
+        AnnouncementKind.SongOutro => "Writing song outro",
+        AnnouncementKind.Weather => "Writing weather report",
+        AnnouncementKind.Joke => "Writing joke",
+        AnnouncementKind.Banter => "Writing banter",
+        AnnouncementKind.PersonalNote => "Writing personal note",
+        AnnouncementKind.TalkBit => "Writing talk bit",
+        AnnouncementKind.EmergencyMessage => "Writing emergency message",
+        AnnouncementKind.HostChange => "Writing host handover",
+        AnnouncementKind.ListenerGreeting => "Writing listener greeting",
+        AnnouncementKind.RequestDedication => "Writing song dedication",
+        AnnouncementKind.StationId => "Writing station ID",
+        _ => "Writing announcement",
+    };
 
     private static string BuildUserPrompt(AnnouncementRequest request) => request.Kind switch
     {

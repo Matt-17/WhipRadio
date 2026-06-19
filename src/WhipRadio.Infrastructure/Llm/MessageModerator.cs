@@ -44,7 +44,7 @@ public class MessageModerator(ITextGenerationService llm, IPromptContextBuilder 
                         : "Moderate listener greeting"),
                 ct);
 
-            var raw = await llm.CompleteAsync(promptContext.RenderSituation(), prompt, ct);
+            var raw = await llm.CompleteAsync(promptContext.RenderSituation(), prompt, "Moderating listener message", ct);
             var trimmed = raw.Trim();
 
             // Strip markdown code fences if the LLM wraps the JSON

@@ -5,9 +5,9 @@ namespace WhipRadio.Infrastructure.Music;
 
 public sealed class AceStepPromptBuilder
 {
-    private const int ArtistBackstoryLimit = 280;
-    private const int SongStoryLimit = 420;
-    private const int ArtistHistoryLimit = 900;
+    private const int ArtistBackstoryLimit = 2200;
+    private const int SongStoryLimit = 700;
+    private const int ArtistHistoryLimit = 1600;
 
     public string Build(MusicRequest request)
     {
@@ -109,6 +109,17 @@ public sealed class AceStepPromptBuilder
                 builder.Append(string.Join(" with ", vocalParts));
                 builder.AppendLine(".");
             }
+
+            builder.AppendLine();
+            builder.Append("Vocal continuity: keep the lead singer identity consistent with this artist's catalog, preserving timbre, range, accent, age impression, gender, microphone character, and delivery habits; vary melody and arrangement, not the singer identity.");
+            if (!string.IsNullOrWhiteSpace(request.ReferenceAudioLabel))
+            {
+                builder.Append(" Use the uploaded reference audio as the singer identity anchor for ");
+                builder.Append(CleanSentence(request.ReferenceAudioLabel));
+                builder.Append('.');
+            }
+
+            builder.AppendLine();
         }
 
         AppendOptional(builder, "Tempo", request.Bpm is int bpm ? $"approximately {bpm} BPM" : null);

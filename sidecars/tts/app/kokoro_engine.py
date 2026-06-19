@@ -73,6 +73,15 @@ class KokoroEngine(EngineBase):
     def voices(self) -> list[dict]:
         return KNOWN_VOICES
 
+    def status(self) -> dict:
+        return {
+            "engine": self.name,
+            "label": "Kokoro TTS",
+            "sample_rate_hz": self.sample_rate,
+            "voices": len(KNOWN_VOICES),
+            "resident_loaded": bool(self._pipelines),
+        }
+
     def unload(self) -> dict:
         loaded = bool(self._pipelines)
         self._pipelines.clear()
