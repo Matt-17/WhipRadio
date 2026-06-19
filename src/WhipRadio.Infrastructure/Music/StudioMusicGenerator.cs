@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Studios;
 
 namespace WhipRadio.Infrastructure.Music;
@@ -14,6 +15,8 @@ public sealed class StudioMusicGenerator(
     StudioCoordinator coordinator,
     StudioProviderFactory factory,
     StudioDockerControl dockerControl,
+    StudioHistoryRecorder history,
+    OllamaModelMemoryManager modelMemory,
     ILogger<StudioMusicGenerator> logger) : IMusicGenerator
 {
     private static readonly TimeSpan AcquireRetryDelay = TimeSpan.FromSeconds(10);
@@ -44,6 +47,12 @@ public sealed class StudioMusicGenerator(
                 throw new MusicBackendUnavailableException(requiredProvider ?? "recording studio");
             }
 
+            if (!await coordinator.AnyBusyAsync(StudioKind.Recording, requiredProvider, ct)
+                && !await coordinator.AnyAvailableAsync(StudioKind.Recording, requiredProvider, ct))
+            {
+                throw new MusicBackendUnavailableException(requiredProvider ?? "recording studio");
+            }
+
             if (DateTime.UtcNow > deadline)
             {
                 throw new MusicBackendUnavailableException("all recording studios busy");
@@ -54,16 +63,31 @@ public sealed class StudioMusicGenerator(
         }
 
         var success = false;
+        Guid? historyId = null;
         try
         {
-            var effective = AdaptRequestToStudio(request, studio);
+            var effective = AdaptRequestToStudio(request, studio) with
+            {
+                ProgressReporter = async (progress, token) =>
+                    await coordinator.UpdateJobProgressAsync(studio.Id, ProgressText(progress), token),
+            };
+            historyId = await history.BeginAsync(
+                studio,
+                label,
+                MusicPrompt(effective),
+                MusicDetail(effective),
+                ct);
+            await modelMemory.TryPrepareForLocalGpuJobAsync(
+                studio.Url, unloadOllama: true, unloadLocalTts: true, ct);
             var provider = factory.CreateMusicProvider(studio);
             var result = await provider.GenerateAsync(effective, ct);
+            await history.CompleteAsync(historyId, MusicResultDetail(result), null, CancellationToken.None);
             success = true;
             return result;
         }
         catch (TimeoutException ex)
         {
+            await history.FailAsync(historyId, ex, "Timed out; container restart requested.", CancellationToken.None);
             // A generation that never finishes means the studio's worker is
             // wedged (it keeps answering /health while processing nothing) —
             // every later job would time out too, so restart the container.
@@ -74,6 +98,11 @@ public sealed class StudioMusicGenerator(
             logger.LogWarning("{Studio} container restart: {Detail}", studio.Name, ok ? detail : $"skipped/failed — {detail}");
             throw;
         }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            await history.FailAsync(historyId, ex, null, CancellationToken.None);
+            throw;
+        }
         finally
         {
             await coordinator.ReleaseAsync(studio.Id, success, CancellationToken.None);
@@ -81,7 +110,7 @@ public sealed class StudioMusicGenerator(
     }
 
     public Task<bool> IsBackendAvailableAsync(string backend, CancellationToken ct)
-        => coordinator.AnyActiveAsync(StudioKind.Recording, MusicBackends.Normalize(backend), ct);
+        => coordinator.AnyAvailableAsync(StudioKind.Recording, MusicBackends.Normalize(backend), ct);
 
     private MusicRequest AdaptRequestToStudio(MusicRequest request, Studio studio)
     {
@@ -100,5 +129,86 @@ public sealed class StudioMusicGenerator(
         }
 
         return request with { Provider = provider };
+    }
+
+    private static string MusicPrompt(MusicRequest request)
+    {
+        var lines = new List<string>
+        {
+            $"Prompt: {request.Prompt}",
+            $"Genre: {request.Genre}",
+        };
+
+        Add(lines, "Title", request.SongTitle);
+        Add(lines, "Subgenre", request.SubGenre);
+        Add(lines, "Style", request.Style);
+        Add(lines, "Artist", request.ArtistName);
+        Add(lines, "Artist biography", request.ArtistBackstory);
+        Add(lines, "Song story", request.SongStory);
+        Add(lines, "Language", request.Language);
+        Add(lines, "Lyrics mode", request.LyricsMode.ToString());
+        Add(lines, "Artist song history", request.ArtistSongHistory);
+        if (!string.IsNullOrWhiteSpace(request.Lyrics))
+        {
+            lines.Add($"Lyrics:{Environment.NewLine}{request.Lyrics}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string MusicDetail(MusicRequest request)
+    {
+        var lines = new List<string>
+        {
+            $"Provider: {request.Provider}",
+            $"Duration: {request.DurationSeconds}s",
+            $"Vocals: {(request.WantVocals ? "yes" : "no")}",
+            $"Vocal gender: {request.VocalGender}",
+        };
+
+        Add(lines, "Vocal style", request.VocalStyle);
+        Add(lines, "BPM", request.Bpm?.ToString());
+        Add(lines, "Key", request.KeyScale);
+        Add(lines, "Time signature", request.TimeSignature);
+        Add(lines, "Seed", request.Seed?.ToString());
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string MusicResultDetail(MusicResult result)
+    {
+        var lines = new List<string>
+        {
+            $"Backend: {result.BackendUsed}",
+            $"Audio bytes: {result.WavData.Length}",
+        };
+
+        Add(lines, "Model", result.ModelUsed);
+        Add(lines, "Seed", result.SeedUsed);
+        Add(lines, "Task", result.TaskId);
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string ProgressText(MusicGenerationProgress progress)
+    {
+        var task = string.IsNullOrWhiteSpace(progress.TaskId)
+            ? string.Empty
+            : $" (task {ShortTaskId(progress.TaskId)})";
+        if (progress.Percent is { } percent)
+        {
+            return $"{Math.Clamp(percent, 0, 100):0}% · {progress.Message}";
+        }
+
+        return $"{progress.Message}{task}";
+    }
+
+    private static string ShortTaskId(string taskId)
+        => taskId.Length <= 12 ? taskId : taskId[..12];
+
+    private static void Add(List<string> lines, string label, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            lines.Add($"{label}: {value}");
+        }
     }
 }

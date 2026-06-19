@@ -24,6 +24,10 @@ Follow `.editorconfig`. C# uses 4-space indentation, file-scoped namespaces are 
 
 .NET tests use MSTest with `coverlet.collector` available. Name test classes after the subject, for example `WeightedTrackSelectorTests`, and use descriptive test method names that state the expected behavior. Keep Core tests free of infrastructure dependencies. Sidecar tests should use synthetic fixtures rather than committed binary media.
 
+## Entity Framework & Schema Changes
+
+When changing `RadioDbContext` entities or indexes, scaffold real EF Core migrations instead of hand-writing migration/designer/snapshot files. Use `dotnet ef migrations add <Name> --project src/WhipRadio.Infrastructure --startup-project src/WhipRadio.Orchestrator`, then inspect the generated migration for destructive operations. Verify migration discovery and snapshot alignment with `dotnet ef migrations list --project src/WhipRadio.Infrastructure --startup-project src/WhipRadio.Orchestrator --no-build` and `dotnet ef migrations has-pending-model-changes --project src/WhipRadio.Infrastructure --startup-project src/WhipRadio.Orchestrator --no-build`. If the station is running and locking/staling the Orchestrator output, either stop it first or use `--startup-project src/WhipRadio.Infrastructure`, which has the design-time `RadioDbContextFactory`; do not trust stale `--no-build` output from a locked Orchestrator process. Runtime schema application belongs in startup via `DbInitializer.EnsureSeededAsync`; API endpoints and read paths must not run pending migrations. Add `DbInitializer` patch logic only for safe data defaults or recovery of partially migrated local databases.
+
 ## Commit & Pull Request Guidelines
 
 Recent history uses concise conventional-style prefixes such as `fix:`, `feat:`, and `perf:`. Keep commits focused and imperative. Pull requests should include a short description, test commands run, linked issues when applicable, and screenshots or audio/API notes for UI, streaming, or generation behavior changes.

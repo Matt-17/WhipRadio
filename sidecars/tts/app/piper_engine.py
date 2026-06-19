@@ -5,6 +5,7 @@ Voice models download on first use from rhasspy/piper-voices into HF_HOME.
 
 from __future__ import annotations
 
+import gc
 import logging
 
 import numpy as np
@@ -86,3 +87,10 @@ class PiperEngine(EngineBase):
             {"id": vid, "language": lang, "gender": gender, "engine": self.name}
             for vid, (_, lang, gender) in KNOWN_VOICES.items()
         ]
+
+    def unload(self) -> dict:
+        loaded = bool(self._voices)
+        self._voices.clear()
+        gc.collect()
+        logger.info("Unloaded Piper voices: %s", loaded)
+        return {"engine": self.name, "unloaded": loaded}

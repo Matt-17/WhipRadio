@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -20,6 +21,9 @@ public sealed class AceStepGenerationProvider(
     public const int MaxDurationSeconds = 600;
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly Regex ProgressLogPrefix = new(
+        @"^\s*(?:\d{4}-\d{2}-\d{2}[ T])?\d{1,2}:\d{2}(?::\d{2}(?:[,.]\d+)?)?\s*(?:\|\s*)?",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     public string Id => MusicBackends.AceStep;
 
@@ -68,17 +72,19 @@ public sealed class AceStepGenerationProvider(
         logger.LogInformation(
             "ACE-Step task {TaskId} accepted for artist {Artist}; model {Model}; requested duration {Duration}s",
             taskId, request.ArtistName ?? "(unknown)", configured.Model, durationSeconds);
+        await ReportProgressAsync(request, taskId, "queued", ct);
 
         QueryResultItem result;
         try
         {
-            result = await PollUntilCompleteAsync(taskId, configured, ct);
+            result = await PollUntilCompleteAsync(request, taskId, configured, ct);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException($"ACE-Step task {taskId} timed out after {configured.GenerationTimeout}.");
         }
 
+        await ReportProgressAsync(request, taskId, "downloading audio", ct);
         var audio = await DownloadAudioAsync(result.File, ct);
         ValidateWav(audio);
 
@@ -147,6 +153,7 @@ public sealed class AceStepGenerationProvider(
             || string.Equals(request.SubGenre, "radio identity", StringComparison.OrdinalIgnoreCase);
 
     private async Task<QueryResultItem> PollUntilCompleteAsync(
+        MusicRequest request,
         string taskId,
         AceStepOptions configured,
         CancellationToken cancellationToken)
@@ -187,6 +194,12 @@ public sealed class AceStepGenerationProvider(
 
             if (task.Status == 0)
             {
+                var progress = NormalizeProgressText(task.ProgressText);
+                await ReportProgressAsync(
+                    request,
+                    taskId,
+                    string.IsNullOrWhiteSpace(progress) ? "generating" : progress,
+                    cancellationToken);
                 continue;
             }
 
@@ -213,7 +226,20 @@ public sealed class AceStepGenerationProvider(
                 throw new MusicGenerationFailedException(Id, $"Task {taskId} succeeded without an audio file URL.");
             }
 
+            await ReportProgressAsync(request, taskId, "render complete", cancellationToken);
             return parsed;
+        }
+    }
+
+    private static async ValueTask ReportProgressAsync(
+        MusicRequest request,
+        string taskId,
+        string message,
+        CancellationToken ct)
+    {
+        if (request.ProgressReporter is { } reporter)
+        {
+            await reporter(new MusicGenerationProgress(taskId, message), ct);
         }
     }
 
@@ -272,13 +298,18 @@ public sealed class AceStepGenerationProvider(
     }
 
     private static string? NormalizeFailureText(string? value)
+        => NormalizeProgressText(value);
+
+    private static string? NormalizeProgressText(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
             return null;
         }
 
-        return string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        var normalized = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        normalized = ProgressLogPrefix.Replace(normalized, string.Empty, 1).Trim();
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
     }
 
     private static string Truncate(string value, int maxLength)

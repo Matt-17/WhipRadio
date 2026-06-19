@@ -1,47 +1,66 @@
 <nav>
-    <NavLink href="" Match="NavLinkMatch.All">
+    <NavLink href="" Match="NavLinkMatch.All" class="nav-primary">
         <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none"/><path d="M4.4 11.6a5.1 5.1 0 0 1 0-7.2M11.6 4.4a5.1 5.1 0 0 1 0 7.2"/></svg></span> Live
     </NavLink>
-    <NavLink href="library">
-        <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg></span> Library
-    </NavLink>
-    <NavLink href="playlog">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M6 4h7.5M6 8h7.5M6 12h7.5"/><circle cx="3" cy="4" r="0.9" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="0.9" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="0.9" fill="currentColor" stroke="none"/></svg></span> Play Log
-    </NavLink>
-    <NavLink href="schedule">
-        <span class="key"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg></span> Schedule
-    </NavLink>
-    <NavLink href="formats">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M8 2 9.6 6.4 14 8 9.6 9.6 8 14 6.4 9.6 2 8 6.4 6.4 Z" fill="currentColor" stroke="none"/></svg></span> Formats
-    </NavLink>
-    <NavLink href="branding">
-        <span class="key"><svg viewBox="0 0 16 16"><rect x="2.5" y="4" width="11" height="8" rx="1.5"/><path d="M5 7h6M5 9.5h3"/></svg></span> Branding
-    </NavLink>
-    <NavLink href="moderators">
-        <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="2.8"/><path d="M2.8 14a5.2 5.2 0 0 1 10.4 0"/></svg></span> Hosts
-    </NavLink>
-    <NavLink href="studios">
-        <span class="key"><svg viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"/></svg></span> Studios
-    </NavLink>
-    <NavLink href="mixer">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M3.5 2v12M8 2v12M12.5 2v12"/><rect x="1.8" y="5" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/><rect x="6.3" y="9" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/><rect x="10.8" y="3.5" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/></svg></span> Mixer
-    </NavLink>
-    <NavLink href="messages">
-        <span class="key"><svg viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m2.5 4.5 5.5 4.5 5.5-4.5"/></svg></span> Messages
-    </NavLink>
-    <NavLink href="stats">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M3.5 13.5V9.5M8 13.5V3.5M12.5 13.5V7" stroke-width="2"/></svg></span> Stats
-    </NavLink>
-    <NavLink href="admin">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M8 1.8v5.4"/><path d="M11.3 4.2a5 5 0 1 1-6.6 0"/></svg></span> Admin
-    </NavLink>
-    <NavLink href="server">
-        <span class="key"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.8" width="11" height="4.4" rx="1"/><rect x="2.5" y="8.8" width="11" height="4.4" rx="1"/><circle cx="5.2" cy="5" r="0.9" fill="currentColor" stroke="none"/><circle cx="5.2" cy="11" r="0.9" fill="currentColor" stroke="none"/></svg></span> Server
-    </NavLink>
-    <NavLink href="settings">
-        <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4 11 5M5 11l-1.6 1.6"/></svg></span> Settings
-    </NavLink>
-    <NavLink href="console">
-        <span class="key"><svg viewBox="0 0 16 16"><path d="M3 4.5 6.8 8 3 11.5"/><path d="M8.5 12h4.5"/></svg></span> Console
-    </NavLink>
+
+    <div class="nav-group">
+        <div class="nav-group-title">Content</div>
+        <NavLink href="library">
+            <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.8"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg></span> Library
+        </NavLink>
+        <NavLink href="playlog">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M6 4h7.5M6 8h7.5M6 12h7.5"/><circle cx="3" cy="4" r="0.9" fill="currentColor" stroke="none"/><circle cx="3" cy="8" r="0.9" fill="currentColor" stroke="none"/><circle cx="3" cy="12" r="0.9" fill="currentColor" stroke="none"/></svg></span> Play Log
+        </NavLink>
+        <NavLink href="messages">
+            <span class="key"><svg viewBox="0 0 16 16"><rect x="2" y="3.5" width="12" height="9" rx="1.5"/><path d="m2.5 4.5 5.5 4.5 5.5-4.5"/></svg></span> Messages
+        </NavLink>
+    </div>
+
+    <div class="nav-group">
+        <div class="nav-group-title">Station</div>
+        <NavLink href="schedule">
+            <span class="key"><svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5.5 1.5v3M10.5 1.5v3"/></svg></span> Schedule
+        </NavLink>
+        <NavLink href="formats">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M8 2 9.6 6.4 14 8 9.6 9.6 8 14 6.4 9.6 2 8 6.4 6.4 Z" fill="currentColor" stroke="none"/></svg></span> Formats
+        </NavLink>
+        <NavLink href="branding">
+            <span class="key"><svg viewBox="0 0 16 16"><rect x="2.5" y="4" width="11" height="8" rx="1.5"/><path d="M5 7h6M5 9.5h3"/></svg></span> Branding
+        </NavLink>
+        <NavLink href="moderators">
+            <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="5" r="2.8"/><path d="M2.8 14a5.2 5.2 0 0 1 10.4 0"/></svg></span> Hosts
+        </NavLink>
+    </div>
+
+    <div class="nav-group">
+        <div class="nav-group-title">Studios</div>
+        <NavLink href="studios">
+            <span class="key"><svg viewBox="0 0 16 16"><rect x="6" y="1.5" width="4" height="7.5" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5"/></svg></span> Studios
+        </NavLink>
+        <NavLink href="studio-history">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M4 1.8h5.7L13 5.1v9.1H4a1 1 0 0 1-1-1V2.8a1 1 0 0 1 1-1Z"/><path d="M9.5 2v3.4h3.3M5.2 7.6h5.6M5.2 10h5.6M5.2 12.4h3.3"/></svg></span> History
+        </NavLink>
+        <NavLink href="mixer">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M3.5 2v12M8 2v12M12.5 2v12"/><rect x="1.8" y="5" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/><rect x="6.3" y="9" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/><rect x="10.8" y="3.5" width="3.4" height="2.6" rx="1" fill="currentColor" stroke="none"/></svg></span> Mixer
+        </NavLink>
+    </div>
+
+    <div class="nav-group">
+        <div class="nav-group-title">Operations</div>
+        <NavLink href="stats">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M3.5 13.5V9.5M8 13.5V3.5M12.5 13.5V7" stroke-width="2"/></svg></span> Stats
+        </NavLink>
+        <NavLink href="console">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M3 4.5 6.8 8 3 11.5"/><path d="M8.5 12h4.5"/></svg></span> Console
+        </NavLink>
+        <NavLink href="server">
+            <span class="key"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.8" width="11" height="4.4" rx="1"/><rect x="2.5" y="8.8" width="11" height="4.4" rx="1"/><circle cx="5.2" cy="5" r="0.9" fill="currentColor" stroke="none"/><circle cx="5.2" cy="11" r="0.9" fill="currentColor" stroke="none"/></svg></span> Server
+        </NavLink>
+        <NavLink href="admin">
+            <span class="key"><svg viewBox="0 0 16 16"><path d="M8 1.8v5.4"/><path d="M11.3 4.2a5 5 0 1 1-6.6 0"/></svg></span> Admin
+        </NavLink>
+        <NavLink href="settings">
+            <span class="key"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4 11 5M5 11l-1.6 1.6"/></svg></span> Settings
+        </NavLink>
+    </div>
 </nav>

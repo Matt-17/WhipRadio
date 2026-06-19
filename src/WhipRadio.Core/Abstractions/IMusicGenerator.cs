@@ -37,8 +37,21 @@ public sealed record MusicRequest(
 
     public string? ArtistStyleDescription { get; init; }
 
+    public string? SongTitle { get; init; }
+
+    public string? SongStory { get; init; }
+
+    public string? ArtistSongHistory { get; init; }
+
     public bool AllowProviderFallback { get; init; } = true;
+
+    public Func<MusicGenerationProgress, CancellationToken, ValueTask>? ProgressReporter { get; init; }
 }
+
+public sealed record MusicGenerationProgress(
+    string? TaskId,
+    string Message,
+    double? Percent = null);
 
 public enum LyricsMode
 {

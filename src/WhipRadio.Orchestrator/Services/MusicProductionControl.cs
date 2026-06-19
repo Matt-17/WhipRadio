@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-
 namespace WhipRadio.Orchestrator.Services;
 
 /// <summary>What the studio is currently recording (shown live in the library UI).</summary>
@@ -12,17 +10,57 @@ public sealed record GenerationStatus(Guid ArtistId, string ArtistName, string? 
 /// </summary>
 public class MusicProductionControl
 {
-    private readonly ConcurrentQueue<Guid> _manualRequests = new();
+    private readonly object _queueLock = new();
+    private readonly Queue<Guid> _manualRequests = new();
     private readonly object _generationLock = new();
     private CancellationTokenSource? _currentCancel;
     private GenerationStatus? _current;
 
-    public void RequestTrackFor(Guid artistId) => _manualRequests.Enqueue(artistId);
+    public void RequestTrackFor(Guid artistId)
+    {
+        lock (_queueLock)
+        {
+            _manualRequests.Enqueue(artistId);
+        }
+    }
+
+    public Guid? TryPeekManualRequest()
+    {
+        lock (_queueLock)
+        {
+            return _manualRequests.TryPeek(out var artistId) ? artistId : null;
+        }
+    }
 
     public Guid? TryDequeueManualRequest()
-        => _manualRequests.TryDequeue(out var artistId) ? artistId : null;
+    {
+        lock (_queueLock)
+        {
+            return _manualRequests.TryDequeue(out var artistId) ? artistId : null;
+        }
+    }
 
-    public IReadOnlyList<Guid> QueuedArtistIds() => [.. _manualRequests];
+    public void RequeueTrackForFront(Guid artistId)
+    {
+        lock (_queueLock)
+        {
+            var existing = _manualRequests.ToArray();
+            _manualRequests.Clear();
+            _manualRequests.Enqueue(artistId);
+            foreach (var queuedArtistId in existing)
+            {
+                _manualRequests.Enqueue(queuedArtistId);
+            }
+        }
+    }
+
+    public IReadOnlyList<Guid> QueuedArtistIds()
+    {
+        lock (_queueLock)
+        {
+            return [.. _manualRequests];
+        }
+    }
 
     public GenerationStatus? Current => Volatile.Read(ref _current);
 

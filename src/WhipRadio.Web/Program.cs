@@ -39,6 +39,8 @@ builder.Services.AddHttpClient("live-stream", client => client.Timeout = Timeout
 
 builder.Services.AddScoped<RadioLiveClient>();
 builder.Services.AddScoped<ConsoleLiveClient>();
+builder.Services.AddScoped<StudioLiveClient>();
+builder.Services.AddScoped<MixerLiveClient>();
 builder.Services.AddScoped<PlayerState>();
 
 var app = builder.Build();

@@ -24,7 +24,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="Prompts\*.txt" />
+    <EmbeddedResource Include="Prompts\**\*.txt" />
   </ItemGroup>
 
 </Project>

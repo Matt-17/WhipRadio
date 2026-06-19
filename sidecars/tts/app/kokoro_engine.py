@@ -6,6 +6,7 @@ with a logged warning (Plan.md risk table) so the ITtsEngine contract holds.
 
 from __future__ import annotations
 
+import gc
 import logging
 
 import numpy as np
@@ -71,3 +72,18 @@ class KokoroEngine(EngineBase):
 
     def voices(self) -> list[dict]:
         return KNOWN_VOICES
+
+    def unload(self) -> dict:
+        loaded = bool(self._pipelines)
+        self._pipelines.clear()
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 - torch may not be imported/available
+            logger.debug("Kokoro unload skipped torch cache cleanup", exc_info=True)
+
+        logger.info("Unloaded Kokoro pipelines: %s", loaded)
+        return {"engine": self.name, "unloaded": loaded}

@@ -6,6 +6,7 @@ FastAPI service wrapping the **Kokoro** TTS engine (swappable via `EngineBase`).
 
 | Endpoint | Description |
 |---|---|
+| `POST /unload` | releases cached model state/VRAM; safe to call when idle |
 | `GET /health` | `{"status":"ok","engine":"kokoro"}` |
 | `GET /voices` | available voices `[{"id","language","gender"}]` |
 | `POST /synthesize` | body `{"text","voice","language","rate"}` → `audio/wav` (44.1 kHz, 16-bit, mono) + `X-Duration-Seconds` header |

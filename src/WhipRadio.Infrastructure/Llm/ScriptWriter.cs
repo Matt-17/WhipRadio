@@ -104,5 +104,9 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         ["Artist"] = request.Track?.Artist?.Name ?? "one of our studio artists",
         ["Genre"] = string.IsNullOrEmpty(request.Track?.Subgenre) ? request.Track?.Genre ?? "unknown" : request.Track.Subgenre,
         ["Style"] = request.Track?.Style ?? "easygoing",
+        ["Language"] = request.Track?.Language ?? request.Language,
+        ["Story"] = string.IsNullOrWhiteSpace(request.Track?.SongStory)
+            ? "No stored song story."
+            : request.Track!.SongStory!,
     };
 }

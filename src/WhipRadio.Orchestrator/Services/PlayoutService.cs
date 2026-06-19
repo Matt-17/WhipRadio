@@ -19,6 +19,7 @@ public class PlayoutService(
     IPlayoutQueue queue,
     PlayoutStateStore stateStore,
     IPlaybackReporter reporter,
+    TrackDeletionService trackDeletions,
     AudioMixerEngine mixerEngine,
     FfmpegProcessRegistry ffmpegRegistry,
     IDbContextFactory<RadioDbContext> dbFactory,
@@ -112,20 +113,16 @@ public class PlayoutService(
             }
 
             stateStore.MarkStarted(item);
+            trackDeletions.MarkPlaybackStarted(item);
             await reporter.ReportStartedAsync(item, ct);
             try
             {
                 await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
-                stateStore.Complete(item);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
+            finally
             {
                 stateStore.Complete(item);
-                throw;
+                await trackDeletions.MarkPlaybackCompletedAsync(item, ct);
             }
         }
     }

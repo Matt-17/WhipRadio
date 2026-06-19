@@ -34,6 +34,7 @@ builder.Services.AddHttpClient("icecast-admin", client => client.Timeout = TimeS
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
+builder.Services.AddScoped<ArtistCreationService>();
 builder.Services.AddScoped<AnnouncementFactory>();
 builder.Services.AddScoped<TalkBitRuntimeService>();
 builder.Services.AddScoped<SegmentRenderer>();
@@ -42,6 +43,8 @@ builder.Services.AddScoped<MessageModerator>();
 builder.Services.AddScoped<MediaAnalysisRecorder>();
 builder.Services.AddScoped<ModeratorMemoryService>();
 builder.Services.AddSingleton<ProductionGate>();
+builder.Services.AddSingleton<ArtistCreationQueue>();
+builder.Services.AddSingleton<ArtistDeletionService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ScheduleService>();
@@ -54,6 +57,7 @@ builder.Services.AddSingleton<IPlayoutQueue>(sp => new TrackedPlayoutQueue(
     sp.GetRequiredService<PlayoutStateStore>()));
 builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
+builder.Services.AddSingleton<TrackDeletionService>();
 builder.Services.AddSingleton<VoiceCatalogService>();
 builder.Services.AddSingleton<GreetingState>();
 builder.Services.AddSingleton<MusicProductionControl>();
@@ -61,9 +65,12 @@ builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();
 builder.Services.AddSingleton<IPromptContextBuilder, PromptContextBuilder>();
+builder.Services.AddSingleton<IStudioUpdatePublisher, SignalRStudioUpdatePublisher>();
 builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
 builder.Services.AddSingleton<MixerDiagnostics>();
+builder.Services.AddSingleton<MixerOverviewService>();
+builder.Services.AddSingleton<MixerUpdatePublisher>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();

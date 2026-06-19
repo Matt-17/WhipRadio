@@ -20,7 +20,7 @@ public class AceStepPromptBuilderTests
         });
 
         Assert.DoesNotContain("Lead vocals", prompt);
-        Assert.DoesNotContain("Language:", prompt);
+        Assert.Contains("Language: English.", prompt);
         Assert.Contains("complete song structure", prompt);
         Assert.Contains("avoid an abrupt ending", prompt, StringComparison.OrdinalIgnoreCase);
     }
@@ -68,6 +68,29 @@ public class AceStepPromptBuilderTests
         Assert.Contains("Amber Meridian", prompt);
         Assert.Contains("fictional artist", prompt);
         Assert.True(prompt.Length < longBackstory.Length + 300);
+    }
+
+    [TestMethod]
+    public void SongPlanContextIsIncluded()
+    {
+        var prompt = builder.Build(new MusicRequest("krautrock with motorik drums", "rock", true, "words", 180)
+        {
+            LyricsMode = LyricsMode.Provided,
+            ArtistName = "Die Kurvenlichter",
+            ArtistBackstory = "A German band formed after night shifts in Essen.",
+            ArtistStyleDescription = "Motorik drums and bright analog synths.",
+            SongTitle = "Morgens am Gleis",
+            SongStory = "The band wrote it after a delayed train turned into a sunrise rehearsal.",
+            ArtistSongHistory = "- Alte Funken (vocal, de, target 180s, likes 4, dislikes 1).",
+            Language = "de",
+        });
+
+        Assert.Contains("Song title: Morgens am Gleis.", prompt);
+        Assert.Contains("Song origin story:", prompt);
+        Assert.Contains("delayed train", prompt);
+        Assert.Contains("Artist catalog context:", prompt);
+        Assert.Contains("Alte Funken", prompt);
+        Assert.Contains("Language: de.", prompt);
     }
 
     [TestMethod]

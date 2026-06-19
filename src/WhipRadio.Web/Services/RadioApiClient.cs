@@ -5,6 +5,10 @@ using WhipRadio.Core.Api;
 namespace WhipRadio.Web.Services;
 
 /// <summary>Typed client for the Orchestrator's /api endpoints (via service discovery).</summary>
+public sealed record DeleteTrackResult(bool Deleted, bool Deferred, string? Error);
+
+public sealed record DeleteArtistResult(bool Deleted, string? Error);
+
 public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactory, ILogger<RadioApiClient> logger)
 {
     public Uri? BaseAddress => http.BaseAddress;
@@ -57,10 +61,33 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<ArtistDto?> GetArtistAsync(Guid id, CancellationToken ct = default)
         => await SafeGetAsync<ArtistDto>($"/api/artists/{id}", ct);
 
+    public async Task<(ArtistDto? Artist, string? Error)> CreateArtistAsync(string hint, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/artists", new CreateArtistRequestDto(hint), ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ArtistDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Artist creation timed out or the writer room is unreachable.");
+        }
+    }
+
     public async Task<bool> ProduceTrackForArtistAsync(Guid id, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"/api/artists/{id}/produce", null, ct);
         return response.IsSuccessStatusCode;
+    }
+
+    public async Task<DeleteArtistResult> DeleteArtistAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/artists/{id}", ct);
+        return response.StatusCode == HttpStatusCode.NoContent
+            ? new DeleteArtistResult(Deleted: true, Error: null)
+            : new DeleteArtistResult(Deleted: false, Error: await response.Content.ReadAsStringAsync(ct));
     }
 
     public async Task<MusicProductionStatusDto?> GetMusicProductionStatusAsync(CancellationToken ct = default)
@@ -72,11 +99,23 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         return response.IsSuccessStatusCode;
     }
 
-    /// <summary>Returns null on success, otherwise the error message.</summary>
-    public async Task<string?> DeleteTrackAsync(Guid id, CancellationToken ct = default)
+    public async Task<DeleteTrackResult> DeleteTrackAsync(Guid id, CancellationToken ct = default)
     {
         using var response = await http.DeleteAsync($"/api/library/{id}", ct);
-        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+        if (response.StatusCode == HttpStatusCode.NoContent)
+        {
+            return new DeleteTrackResult(Deleted: true, Deferred: false, Error: null);
+        }
+
+        if (response.StatusCode == HttpStatusCode.Accepted)
+        {
+            return new DeleteTrackResult(Deleted: false, Deferred: true, Error: null);
+        }
+
+        return new DeleteTrackResult(
+            Deleted: false,
+            Deferred: false,
+            Error: await response.Content.ReadAsStringAsync(ct));
     }
 
     /// <summary>Same-origin media proxy URL — browser-safe regardless of scheme/host.</summary>
@@ -165,6 +204,49 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     public async Task<List<StudioDto>> GetStudiosAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<StudioDto>>("/api/studios", ct) ?? [];
+
+    public async Task<PagedStudioHistoryDto> GetStudioHistoryAsync(
+        Guid? studioId = null,
+        string? kind = null,
+        string? status = null,
+        string? search = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var query = new List<string> { $"page={page}", $"pageSize={pageSize}" };
+        if (studioId is not null)
+        {
+            query.Add($"studioId={studioId}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(kind))
+        {
+            query.Add($"kind={Uri.EscapeDataString(kind)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(status))
+        {
+            query.Add($"status={Uri.EscapeDataString(status)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            query.Add($"search={Uri.EscapeDataString(search)}");
+        }
+
+        var url = $"/api/studio-history?{string.Join('&', query)}";
+        using var response = await http.GetAsync(url, ct);
+        if (response.IsSuccessStatusCode)
+        {
+            return await response.Content.ReadFromJsonAsync<PagedStudioHistoryDto>(ct)
+                ?? new PagedStudioHistoryDto(0, []);
+        }
+
+        var body = await response.Content.ReadAsStringAsync(ct);
+        throw new InvalidOperationException(
+            $"GET {url} returned {(int)response.StatusCode} {response.ReasonPhrase}: {SingleLine(body)}");
+    }
 
     public async Task<StudioTestResultDto?> TestStudioAsync(TestStudioDto request, CancellationToken ct = default)
     {
@@ -368,5 +450,16 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
             logger.LogDebug(ex, "GET {Url} failed (orchestrator starting or returned unexpected data?)", url);
             return null;
         }
+    }
+
+    private static string SingleLine(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "No response body.";
+        }
+
+        var oneLine = string.Join(' ', value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return oneLine.Length <= 320 ? oneLine : $"{oneLine[..317]}...";
     }
 }

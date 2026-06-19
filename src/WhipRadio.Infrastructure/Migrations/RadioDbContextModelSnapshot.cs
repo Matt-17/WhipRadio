@@ -75,6 +75,18 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CreationHint")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeepBackgroundBiography")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("FormationYear")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("GenerationPrompt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Genre")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -86,11 +98,21 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Origin")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PromotionText")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("StyleDescriptor")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Subgenre")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -101,6 +123,99 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasIndex("Name");
 
                     b.ToTable("Artists");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.ArtistMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ArtistId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Biography")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("VoiceCreationPrompt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtistId", "SortOrder");
+
+                    b.ToTable("ArtistMembers");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Format", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DownVotes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Genre")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ModeratorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subgenre")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("TalkDensity")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("TalkDepth")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("Talkativeness")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("UpVotes")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ModeratorId");
+
+                    b.ToTable("Formats");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.Jingle", b =>
@@ -168,64 +283,6 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasIndex("IsActive");
 
                     b.ToTable("Jingles");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.Format", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("DownVotes")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Genre")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int?>("ModeratorId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Subgenre")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("Talkativeness")
-                        .HasColumnType("REAL");
-
-                    b.Property<double>("TalkDensity")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("TalkDepth")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("UpVotes")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ModeratorId");
-
-                    b.ToTable("Formats");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.ListenerMessage", b =>
@@ -429,11 +486,11 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<double>("Talkativeness")
-                        .HasColumnType("REAL");
-
                     b.Property<int>("TalkBreakFrequencyTracks")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double>("Talkativeness")
+                        .HasColumnType("REAL");
 
                     b.Property<string>("TtsEngine")
                         .IsRequired()
@@ -508,225 +565,6 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasIndex("PlayedAt");
 
                     b.ToTable("PlayLog");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBit", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("CooldownDays")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ExactReplayCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("FreshRetellCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("LastUsedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ModeratorId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("PlayCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Premise")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("RetiredAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RetirementReason")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Tags")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LastUsedAtUtc");
-
-                    b.HasIndex("ModeratorId", "Status");
-
-                    b.ToTable("TalkBits");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBitRendition", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("CreatedFromRetelling")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<double>("DurationSeconds")
-                        .HasColumnType("REAL");
-
-                    b.Property<string>("FilePath")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("LastPlayedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("PlayCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid>("TalkBitId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TalkBitId");
-
-                    b.ToTable("TalkBitRenditions");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBreak", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("AnnouncementId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<double>("DurationSeconds")
-                        .HasColumnType("REAL");
-
-                    b.Property<DateTime?>("ExpiresAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("ModeratorId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("PlayedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Priority")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("RenderedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("TargetWindowEndUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("TargetWindowStartUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AnnouncementId")
-                        .IsUnique();
-
-                    b.HasIndex("Status", "ExpiresAtUtc");
-
-                    b.ToTable("TalkBreaks");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.TalkPart", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<Guid?>("AnnouncementId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("DesiredDurationSeconds")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("ExpiresAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("JingleId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Priority")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Purpose")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("RelatedTrackId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("TalkBitId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("TalkBreakId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("TargetWindowEndUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("TargetWindowStartUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("WordBudget")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Status", "ExpiresAtUtc");
-
-                    b.HasIndex("TalkBreakId", "SortOrder")
-                        .IsUnique();
-
-                    b.ToTable("TalkParts");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.ProgramSlot", b =>
@@ -949,6 +787,284 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.ToTable("Studios");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.StudioHistoryEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("CompletedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Operation")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Prompt")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Result")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("StudioId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StudioKind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StudioName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "StartedAtUtc");
+
+                    b.HasIndex("StudioId", "StartedAtUtc");
+
+                    b.HasIndex("StudioKind", "StartedAtUtc");
+
+                    b.ToTable("StudioHistory");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CooldownDays")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ExactReplayCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("FreshRetellCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("LastUsedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ModeratorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PlayCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Premise")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RetiredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RetirementReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LastUsedAtUtc");
+
+                    b.HasIndex("ModeratorId", "Status");
+
+                    b.ToTable("TalkBits");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBitRendition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("CreatedFromRetelling")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastPlayedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PlayCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("TalkBitId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TalkBitId");
+
+                    b.ToTable("TalkBitRenditions");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.TalkBreak", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("AnnouncementId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("DurationSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTime?>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ModeratorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("PlayedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("RenderedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("TargetWindowEndUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("TargetWindowStartUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnnouncementId")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "ExpiresAtUtc");
+
+                    b.ToTable("TalkBreaks");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.TalkPart", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("AnnouncementId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("DesiredDurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ExpiresAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("JingleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Priority")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Purpose")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("RelatedTrackId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TalkBitId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TalkBreakId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("TargetWindowEndUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("TargetWindowStartUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("WordBudget")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status", "ExpiresAtUtc");
+
+                    b.HasIndex("TalkBreakId", "SortOrder")
+                        .IsUnique();
+
+                    b.ToTable("TalkParts");
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.Track", b =>
                 {
                     b.Property<Guid>("Id")
@@ -989,11 +1105,18 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<bool>("IsRetired")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Lyrics")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("PlayCount")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SongStory")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Style")
                         .IsRequired()
@@ -1002,6 +1125,9 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<string>("Subgenre")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("TargetDurationSeconds")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -1105,6 +1231,17 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Navigation("Moderator");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.ArtistMember", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.Artist", "Artist")
+                        .WithMany("Members")
+                        .HasForeignKey("ArtistId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Artist");
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.Format", b =>
                 {
                     b.HasOne("WhipRadio.Core.Entities.Moderator", "Moderator")
@@ -1123,24 +1260,14 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Navigation("Format");
                 });
 
-            modelBuilder.Entity("WhipRadio.Core.Entities.Track", b =>
+            modelBuilder.Entity("WhipRadio.Core.Entities.StudioHistoryEntry", b =>
                 {
-                    b.HasOne("WhipRadio.Core.Entities.Artist", "Artist")
+                    b.HasOne("WhipRadio.Core.Entities.Studio", "Studio")
                         .WithMany()
-                        .HasForeignKey("ArtistId");
+                        .HasForeignKey("StudioId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
-                    b.Navigation("Artist");
-                });
-
-            modelBuilder.Entity("WhipRadio.Core.Entities.Vote", b =>
-                {
-                    b.HasOne("WhipRadio.Core.Entities.Track", "Track")
-                        .WithMany()
-                        .HasForeignKey("TrackId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Track");
+                    b.Navigation("Studio");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.TalkBitRendition", b =>
@@ -1163,6 +1290,31 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("TalkBreak");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Track", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.Artist", "Artist")
+                        .WithMany()
+                        .HasForeignKey("ArtistId");
+
+                    b.Navigation("Artist");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Vote", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.Track", "Track")
+                        .WithMany()
+                        .HasForeignKey("TrackId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Track");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Artist", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.TalkBit", b =>

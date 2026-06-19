@@ -9,9 +9,11 @@ Dedicated ACE-Step 1.5 container for complete local song generation.
 - Exposes port `8002`
 - Stores model weights and runtime caches under `/models`
 
-The Docker build installs ACE-Step with the upstream `uv.lock`. Model weights
-are not downloaded during image build; they are downloaded on first generation
-into the mounted `/models` volume.
+The Docker build installs ACE-Step with the upstream `uv.lock`, then pins the
+PyTorch runtime to the CUDA 12.8 wheel stack (`torch==2.8.0`,
+`torchvision==0.23.0`, `torchaudio==2.8.0`). Model weights are not downloaded
+during image build; they are downloaded on first generation into the mounted
+`/models` volume.
 
 ## Build
 

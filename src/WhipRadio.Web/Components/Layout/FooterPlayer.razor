@@ -21,14 +21,13 @@
         @if (Player.CurrentVoice is { } voice)
         {
             <div class="player-title">
-                🎙 @voice.Title
+                <span class="player-title-text">🎙 @voice.Title</span>
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
             </div>
             <div class="player-meta">
                 Voice preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
-            <div class="player-progress seekable">
-                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+            <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
                        min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                        step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
@@ -39,14 +38,13 @@
         {
             var jingle = jinglePreview.Jingle;
             <div class="player-title">
-                @jingle.Label
+                <span class="player-title-text">@jingle.Label</span>
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
             </div>
             <div class="player-meta">
                 Jingle preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
-            <div class="player-progress seekable">
-                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+            <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
                        min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                        step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
@@ -56,14 +54,13 @@
         else if (Player.CurrentTrack is { } track)
         {
             <div class="player-title">
-                @track.ArtistName<span class="dim"> — </span>@track.Title
+                <span class="player-title-text">@track.ArtistName<span class="dim"> — </span>@track.Title</span>
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
             </div>
             <div class="player-meta">
                 Preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
-            <div class="player-progress seekable">
-                <div class="fill" style="width:@($"{SongProgress:F1}%")"></div>
+            <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
                        min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
                        step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
@@ -73,21 +70,27 @@
         else if (Live.NowPlaying is { } np)
         {
             <div class="player-title">
-                @if (np.ArtistName is not null)
-                {
-                    @np.ArtistName<span class="dim"> — </span>
-                }
-                @np.Title
+                <span class="player-title-text">
+                    @if (np.ArtistName is not null)
+                    {
+                        @np.ArtistName<span class="dim"> — </span>
+                    }
+                    @np.Title
+                </span>
+                <span class="live-btn-spacer" aria-hidden="true"></span>
             </div>
             <div class="player-meta">
                 @(np.FormatName ?? "WhipRadio")@(np.ModeratorName is not null ? $" with {np.ModeratorName}" : "")
                 · @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))
             </div>
-            <div class="player-progress"><div class="fill" style="width:@($"{Progress:F1}%")"></div></div>
+            <div class="player-progress"><div class="fill" style="@ProgressFillStyle(Progress)"></div></div>
         }
         else
         {
-            <div class="player-title dim">— tuning —</div>
+            <div class="player-title dim">
+                <span class="player-title-text">— tuning —</span>
+                <span class="live-btn-spacer" aria-hidden="true"></span>
+            </div>
             <div class="player-meta">waiting for the studio</div>
             <div class="player-progress"><div class="fill" style="width:0%"></div></div>
         }
@@ -160,6 +163,13 @@
 
     private string VolumeStyle => $"--volume-fill: {_volume}%";
 
+    private string SeekProgressStyle => $"--seek-fill: {FormatCssPercent(SongProgress)}";
+
+    private static string ProgressFillStyle(double percent) => $"width:{FormatCssPercent(percent)}";
+
+    private static string FormatCssPercent(double percent) =>
+        $"{Math.Clamp(percent, 0, 100).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}%";
+
     protected override void OnInitialized()
     {
         // Same-origin proxy: works on http and https pages alike (no mixed content).
@@ -190,6 +200,13 @@
             if (saved == "on")
             {
                 _transcriptEnabled = true;
+                shouldRefresh = true;
+            }
+
+            var restoredLive = await Js.InvokeAsync<bool>("whipRadio.restoreLive", _streamUrl);
+            if (Player.IsLive && restoredLive != _livePlaying)
+            {
+                _livePlaying = restoredLive;
                 shouldRefresh = true;
             }
 
@@ -263,20 +280,19 @@
 
     private async Task BackToLiveAsync()
     {
-        // Song playing → carry the listening straight into the live stream.
-        // Song stopped → arrive in stop mode; the listener wasn't listening.
-        var keepListening = _songPlaying;
-
-        await Js.InvokeVoidAsync("whipRadio.pause");
+        var shouldKeepPlaying = _songPlaying;
         _songPlaying = false;
+        _livePlaying = shouldKeepPlaying;
         _songPos = 0;
         _songDur = 0;
         Player.BackToLive();
+        StateHasChanged();
 
-        if (keepListening)
-        {
-            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
-        }
+        await Js.InvokeVoidAsync("whipRadio.nextFrame");
+
+        var livePlaying = await Js.InvokeAsync<bool>("whipRadio.backToLive", _streamUrl);
+        _livePlaying = livePlaying;
+        await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
 
         StateHasChanged();
     }
@@ -287,26 +303,42 @@
         {
             if (_songPlaying)
             {
-                await Js.InvokeVoidAsync("whipRadio.pause");
                 _songPlaying = false;
+                StateHasChanged();
+                await Js.InvokeVoidAsync("whipRadio.nextFrame");
+                await Js.InvokeVoidAsync("whipRadio.pause");
             }
             else
             {
-                _songPlaying = await Js.InvokeAsync<bool>("whipRadio.resumeTrack");
+                _songPlaying = true;
+                StateHasChanged();
+                await Js.InvokeVoidAsync("whipRadio.nextFrame");
+                var songPlaying = await Js.InvokeAsync<bool>("whipRadio.resumeTrack");
+                _songPlaying = songPlaying;
             }
 
+            StateHasChanged();
             return;
         }
 
         if (_livePlaying)
         {
-            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.pause");
+            _livePlaying = false;
+            StateHasChanged();
+            await Js.InvokeVoidAsync("whipRadio.nextFrame");
+            await Js.InvokeVoidAsync("whipRadio.pause");
         }
         else
         {
-            _livePlaying = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+            _livePlaying = true;
+            StateHasChanged();
+            await Js.InvokeVoidAsync("whipRadio.nextFrame");
+            var livePlaying = await Js.InvokeAsync<bool>("whipRadio.play", _streamUrl);
+            _livePlaying = livePlaying;
             await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
         }
+
+        StateHasChanged();
     }
 
     private async Task OnSeekAsync(ChangeEventArgs e)

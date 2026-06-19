@@ -1,3 +1,0 @@
-The song that just ended was "{Title}" by {Artist} ({Genre}). Write a very short back-announce -
-e.g. "Das war ..." style in German or "That was ..." in English - as if the listeners are only
-now told what they heard. One or two sentences, leading smoothly onward.

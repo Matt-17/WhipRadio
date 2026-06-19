@@ -33,6 +33,29 @@ For a single 4070 machine, the old VRAM budget remains useful as operator guidan
 | Music studio | medium | Can be slow, queued, or moved to another machine. |
 | Image studio | lowest | Phase 6b; never real-time. |
 
+## Music Generation Quality Defaults
+
+**Firm decision:** the single-GPU default favors better ACE-Step output over maximum
+throughput. Local ACE-Step uses `acestep-v15-turbo` with LM thinking enabled and 12
+inference steps. Station settings default generated songs to 150-480 seconds; music
+jobs are queued, so slower generation is acceptable when it improves quality.
+
+The ACE-Step sidecar image pins the PyTorch stack to the stable CUDA 12.8 wheels
+(`torch==2.8.0`, `torchvision==0.23.0`, `torchaudio==2.8.0`) after upstream
+dependency sync. This avoids accidental CPU-only installs and avoids drifting to
+newer torch builds whose ACE-Step behavior has not been validated on the 4070
+target.
+
+Every artist-produced song uses one artist-owned planning step before recording,
+regardless of whether it was triggered manually, by listener request, or by automatic
+library stocking. The artist chooses title, detailed style, language, vocal vs.
+instrumental form, lyrics when vocal, and target duration from their biography,
+signature style, and previous songs with listener likes/dislikes. The artist also
+writes a short in-universe song story explaining why and how the song was created;
+that story is stored on the track for future host intros/outros. Instrumental-only
+studios such as MusicGen constrain the plan to instrumental output, but host playlist
+preferences no longer decide whether an artist writes a vocal song.
+
 ## LLM: Gemma 4 E4B Via Ollama
 
 **Firm decision:** the default local text model is **Gemma 4 E4B via Ollama**. Runtime
@@ -108,6 +131,12 @@ queue under the configured data root. On process restart, WhipRadio restores the
 timeline before the show runner refills anything; the active item resumes from its
 elapsed wall-clock offset, and queued scheduled items such as weather stay in order.
 
+**Implemented:** listener-facing now-playing updates are intentionally delayed by
+`Stream__DisplayLatencySeconds` so titles, timers, queue changes, play log entries,
+and Icecast metadata line up with what the browser stream is actually playing. The
+development calibration is 5 seconds; operators should tune this value when a
+deployment's Icecast/browser buffering differs.
+
 **Implemented in Phase 3b:** station branding now includes slogan, vision, and mission
 as prompt context. Generated jingles are short instrumental station identity sources
 created through the existing ACE-Step recording backend and stored under the shared
@@ -134,6 +163,10 @@ TTS voice, and optional future FX chain.
 `VoiceProfile`, and `VoiceFx`. Speaking and singing voices should be consistent by
 construction: both TTS selection and music vocal prompting derive from the same
 profile. Exact cross-engine voice cloning remains a stretch goal, not a requirement.
+
+**Partly implemented:** artist creation now stores member biographies and voice-creation
+prompts as Phase 3c/5 seed data. These are descriptive prompts only; the structured
+`VoiceProfile` with resolved voice ids and FX remains planned.
 
 ## Standing Constraints
 

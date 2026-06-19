@@ -76,6 +76,7 @@ public class ConsoleLiveClient(
                 .Build();
 
             _connection.On<ConsoleLineDto>("ConsoleLineAdded", AddLine);
+            _connection.On("StudiosChanged", async () => await RefreshStudiosAsync());
             _connection.Reconnected += async _ => await RefreshSnapshotAsync();
 
             _connection.Closed += async _ =>
@@ -166,6 +167,27 @@ public class ConsoleLiveClient(
                 .OrderByDescending(entry => entry.TimestampUtc)
                 .Take(MaxLines)
                 .ToList();
+        }
+
+        Changed?.Invoke();
+    }
+
+    private async Task RefreshStudiosAsync()
+    {
+        List<StudioDto> studios = [];
+        try
+        {
+            studios = await api.GetStudiosAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Studio refresh failed after SignalR update");
+            return;
+        }
+
+        lock (_stateLock)
+        {
+            _studios = studios;
         }
 
         Changed?.Invoke();

@@ -8,7 +8,7 @@ public sealed class AceStepOptions
 
     public bool Thinking { get; set; } = true;
 
-    public int InferenceSteps { get; set; } = 8;
+    public int InferenceSteps { get; set; } = 12;
 
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(2);
 

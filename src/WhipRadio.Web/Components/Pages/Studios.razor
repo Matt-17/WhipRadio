@@ -3,84 +3,102 @@
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
+@inject StudioLiveClient StudioLive
 
 <PageTitle>WhipRadio — Studios</PageTitle>
 
 <h1 class="stage-title">Studios</h1>
-<div class="stage-sub">recording studios &amp; voice booths · artists queue for the first free one</div>
+<div class="stage-sub">writer rooms, recording studios &amp; voice booths · jobs queue for the first free room</div>
 
 @if (_formKind is not null && _editId is null)
 {
     <div class="panel reveal">
-        <div class="panel-label">Connect @(_formKind == "Recording" ? "Studio" : "Booth")</div>
+        <div class="panel-label">Add @KindSingular(_formKind)</div>
         @StudioForm
     </div>
 }
 else
 {
     <div class="btn-row reveal" style="margin-bottom:20px">
+        <button class="btn" @onclick="@(() => OpenCreate("WriterRoom"))">+ add writer room</button>
         <button class="btn" @onclick="@(() => OpenCreate("Recording"))">+ connect studio</button>
         <button class="btn" @onclick="@(() => OpenCreate("VoiceBooth"))">+ connect booth</button>
     </div>
 }
 
-@foreach (var kind in new[] { "Recording", "VoiceBooth" })
+@foreach (var kind in StudioKinds)
 {
     var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
-    <div class="panel reveal">
-        <div class="panel-label">@(kind == "Recording" ? "Recording Studios — music AI" : "Voice Booths — announcements")</div>
+    <div class="panel reveal studio-section">
+        <div class="studio-section-head">
+            <div>
+                <div class="studio-section-title">@KindTitle(kind)</div>
+                <div class="studio-section-sub">@KindDescription(kind)</div>
+            </div>
+            <button class="btn small" @onclick="@(() => OpenCreate(kind))">@AddButtonText(kind)</button>
+        </div>
 
         @if (kindStudios.Count == 0)
         {
-            <div class="empty-state">none connected yet</div>
+            <div class="empty-state">no @(KindTitle(kind).ToLowerInvariant()) connected yet</div>
         }
         else
         {
-            <table class="console-table">
-                <tbody>
-                    @foreach (var studio in kindStudios)
-                    {
-                        <tr>
-                            <td style="width:160px">
-                                <strong>@studio.Name</strong>
-                                <div class="dim" style="font-size:11px">@studio.Provider</div>
-                            </td>
-                            <td class="dim" style="width:220px">@(string.IsNullOrEmpty(studio.Url) ? "online API" : studio.Url)</td>
-                            <td>
-                                @if (studio.CurrentJob is { } job)
-                                {
-                                    <span class="tag red"><span class="blink rec-dot">●</span> REC</span>
-                                    <span> @job</span>
-                                    <span class="dim"> · @JobElapsed(studio)</span>
-                                }
-                                else if (studio.IsActive)
-                                {
-                                    <span class="tag green">idle</span>
-                                }
-                                else
-                                {
-                                    <span class="tag">off</span>
-                                }
-                            </td>
-                            <td class="dim" style="width:170px; font-size:11.5px">
-                                <TimeAgo Date="studio.LastUsedAt" Placeholder="never used" />
-                            </td>
-                            <td style="width:220px; white-space:nowrap; text-align:right">
-                                @if (!string.IsNullOrEmpty(studio.Url))
-                                {
-                                    <button class="btn small" title="restart the container"
-                                            disabled="@_restartBusy"
-                                            @onclick="() => AskRestart(studio)">restart</button>
-                                }
-                                <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
-                                <div class="switch @(studio.IsActive ? "on" : null)" title="active"
-                                     style="display:inline-block; vertical-align:middle"
-                                     @onclick="() => ToggleAsync(studio.Id)"></div>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+            <div class="studio-table-wrap">
+                <table class="console-table studio-table">
+                    <tbody>
+                        @foreach (var studio in kindStudios)
+                        {
+                            <tr>
+                                <td class="studio-name-cell">
+                                    <div class="studio-name-line">
+                                        <strong>@studio.Name</strong><span class="dim"> &bull; @(string.IsNullOrEmpty(studio.Url) ? "online API" : studio.Url)</span>
+                                    </div>
+                                    <div class="dim" style="font-size:11px">@ProviderLabel(studio)</div>
+                                </td>
+                                <td class="studio-state-cell">
+                                    @if (studio.CurrentJob is { } job)
+                                    {
+                                        <div class="studio-job-line">
+                                            <span class="tag red"><span class="blink rec-dot">●</span> @BusyLabel(studio.Kind)</span>
+                                            <span class="studio-job-title" title="@job">@job</span>
+                                        </div>
+                                        <div class="dim studio-job-time">
+                                            <StudioJobStatus StartedAtUtc="@studio.JobStartedAtUtc"
+                                                             Progress="@studio.CurrentJobProgress" />
+                                        </div>
+                                    }
+                                    else if (studio.IsActive)
+                                    {
+                                        <span class="tag @RuntimeTag(studio)">@RuntimeLabel(studio)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="tag">off</span>
+                                    }
+                                </td>
+                                <td style="width:58px; text-align:center">
+                                    <a class="btn small icon-only" href="@HistoryHref(studio.Id)" title="show studio history">
+                                        <Icon Name="history" />
+                                    </a>
+                                </td>
+                                <td style="width:220px; white-space:nowrap; text-align:right">
+                                    @if (!string.IsNullOrEmpty(studio.Url))
+                                    {
+                                        <button class="btn small" title="restart the container"
+                                                disabled="@_restartBusy"
+                                                @onclick="() => AskRestart(studio)">restart</button>
+                                    }
+                                    <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
+                                    <div class="switch @(studio.IsActive ? "on" : null)" title="active"
+                                         style="display:inline-block; vertical-align:middle"
+                                         @onclick="() => ToggleAsync(studio.Id)"></div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
 
         @if (_formKind == kind && _editId is not null)
@@ -103,7 +121,7 @@ else
                OnCancel="@(() => _restartTarget = null)">
     @if (_restartTarget?.CurrentJob is { } job)
     {
-        <p><strong>@_restartTarget?.Name</strong> is recording right now (@job) — restarting kills that job.</p>
+        <p><strong>@_restartTarget?.Name</strong> is busy right now (@job) — restarting kills that job.</p>
     }
     else
     {
@@ -130,7 +148,7 @@ else
                 {
                     <div class="field">
                         <label>URL</label>
-                        <input @bind="_formUrl" placeholder="http://localhost:8101" />
+                        <input @bind="_formUrl" placeholder="@DefaultUrl(_formKind!)" />
                     </div>
                 }
                 else
@@ -138,12 +156,15 @@ else
                     <div class="field">
                         <label>Provider</label>
                         <select @bind="_formProvider">
-                            <option value="elevenlabs">ElevenLabs</option>
+                            @foreach (var provider in ApiProviders(_formKind!))
+                            {
+                                <option value="@provider.Value">@provider.Label</option>
+                            }
                         </select>
                     </div>
                     <div class="field">
                         <label>API key</label>
-                        <input type="password" @bind="_formApiKey" placeholder="xi-…" />
+                        <input type="password" @bind="_formApiKey" placeholder="@ApiKeyPlaceholder(_formProvider)" />
                     </div>
                 }
             </div>
@@ -173,7 +194,6 @@ else
     };
 
     private List<StudioDto> _studios = [];
-    private Timer? _timer;
 
     private string? _formKind;
     private Guid? _editId;
@@ -184,33 +204,173 @@ else
     private string _formApiKey = "";
     private StudioTestResultDto? _testResult;
     private string? _saveError;
+    private CancellationTokenSource? _refreshLoopCancel;
 
     private StudioDto? _restartTarget;
     private bool _restartBusy;
     private bool _restartOk;
     private string? _restartNotice;
 
-    protected override async Task OnInitializedAsync()
+    private static readonly string[] StudioKinds = ["WriterRoom", "Recording", "VoiceBooth"];
+
+    private static readonly (string Value, string Label)[] WriterRoomApiProviders = [("openai", "OpenAI")];
+
+    private static readonly (string Value, string Label)[] StudioApiProviders = [("elevenlabs", "ElevenLabs")];
+
+    protected override void OnInitialized()
     {
-        await LoadAsync();
-        _timer = new Timer(async _ =>
-        {
-            await LoadAsync();
-            await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(2.5), TimeSpan.FromSeconds(2.5));
+        StudioLive.Changed += OnStudiosChanged;
     }
 
-    private async Task LoadAsync() => _studios = await Api.GetStudiosAsync();
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await StudioLive.EnsureStartedAsync();
+            StartRefreshLoop();
+            SyncStudios();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        await StudioLive.RefreshSnapshotAsync();
+        SyncStudios();
+    }
+
+    private void StartRefreshLoop()
+    {
+        if (_refreshLoopCancel is not null)
+        {
+            return;
+        }
+
+        _refreshLoopCancel = new CancellationTokenSource();
+        _ = RefreshLoopAsync(_refreshLoopCancel.Token);
+    }
+
+    private async Task RefreshLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await InvokeAsync(LoadAsync);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Page disposed.
+        }
+    }
+
+    private void OnStudiosChanged()
+    {
+        SyncStudios();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void SyncStudios()
+        => _studios = StudioLive.Studios.ToList();
 
     private string DefaultName(string kind)
-        => kind == "VoiceBooth"
-            ? $"Booth #{_studios.Count(s => s.Kind == "VoiceBooth") + 1}"
-            : $"Studio #{_studios.Count(s => s.Kind == "Recording") + 1}";
+        => kind switch
+        {
+            "WriterRoom" => $"Writer Room #{_studios.Count(s => s.Kind == "WriterRoom") + 1}",
+            "VoiceBooth" => $"Booth #{_studios.Count(s => s.Kind == "VoiceBooth") + 1}",
+            _ => $"Studio #{_studios.Count(s => s.Kind == "Recording") + 1}",
+        };
+
+    private static string DefaultUrl(string kind)
+        => kind switch
+        {
+            "WriterRoom" => "http://localhost:11434",
+            "VoiceBooth" => "http://localhost:8201",
+            _ => "http://localhost:8101",
+        };
+
+    private static string KindTitle(string kind)
+        => kind switch
+        {
+            "WriterRoom" => "Writer Rooms",
+            "VoiceBooth" => "Voice Booths",
+            _ => "Recording Studios",
+        };
+
+    private static string KindSingular(string kind)
+        => kind switch
+        {
+            "WriterRoom" => "Writer Room",
+            "VoiceBooth" => "Voice Booth",
+            _ => "Recording Studio",
+        };
+
+    private static string KindDescription(string kind)
+        => kind switch
+        {
+            "WriterRoom" => "scripts, titles and director reasoning",
+            "VoiceBooth" => "announcements, hosts and designed voices",
+            _ => "music AI generation endpoints",
+        };
+
+    private static string AddButtonText(string kind)
+        => kind == "WriterRoom" ? "+ add room" : "+ add";
+
+    private static string BusyLabel(string kind)
+        => kind == "WriterRoom" ? "WORK" : "REC";
+
+    private static string RuntimeLabel(StudioDto studio)
+        => studio.RuntimeStatus switch
+        {
+            "ready" => "idle",
+            "offline" => "offline",
+            "unknown" => "checking",
+            _ => studio.RuntimeStatus,
+        };
+
+    private static string? RuntimeTag(StudioDto studio)
+        => studio.RuntimeStatus switch
+        {
+            "ready" => "green",
+            "offline" => "red",
+            _ => null,
+        };
+
+    private static string ProviderLabel(StudioDto studio)
+        => studio.Kind switch
+        {
+            "Recording" when IsProvider(studio, "ace-step") => "ACE-Step 1.5",
+            "VoiceBooth" when IsProvider(studio, "local-tts") => "Qwen3-TTS 12Hz - 0.6B synth / 1.7B voice design",
+            _ => studio.Provider,
+        };
+
+    private static bool IsProvider(StudioDto studio, string provider)
+        => studio.Provider.StartsWith(provider, StringComparison.OrdinalIgnoreCase);
+
+    private static IReadOnlyList<(string Value, string Label)> ApiProviders(string kind)
+        => kind == "WriterRoom" ? WriterRoomApiProviders : StudioApiProviders;
+
+    private static string DefaultApiProvider(string kind)
+        => ApiProviders(kind)[0].Value;
+
+    private static string ApiKeyPlaceholder(string provider)
+        => provider == "openai" ? "sk-..." : "xi-...";
+
+    private static string HistoryHref(Guid studioId)
+        => $"studio-history?studioId={studioId}";
 
     private static string JobElapsed(StudioDto studio)
-        => studio.JobStartedAtUtc is { } started
-            ? $"{(DateTime.UtcNow - started).TotalMinutes:F0} min {(DateTime.UtcNow - started).Seconds} s"
-            : "";
+        => studio.JobStartedAtUtc is { } started ? FormatElapsed(DateTime.UtcNow - started) : "";
+
+    private static string JobStatusDetail(StudioDto studio)
+    {
+        var elapsed = JobElapsed(studio);
+        return string.IsNullOrWhiteSpace(studio.CurrentJobProgress)
+            ? elapsed
+            : $"{elapsed} · {studio.CurrentJobProgress}";
+    }
 
     private void OpenCreate(string kind)
     {
@@ -219,6 +379,7 @@ else
         _formSource = "local";
         _formName = "";
         _formUrl = "";
+        _formProvider = DefaultApiProvider(kind);
         _formApiKey = "";
         _testResult = null;
         _saveError = null;
@@ -231,7 +392,7 @@ else
         _formSource = string.IsNullOrEmpty(studio.Url) ? "api" : "local";
         _formName = studio.Name;
         _formUrl = studio.Url;
-        _formProvider = _formSource == "api" ? studio.Provider : "elevenlabs";
+        _formProvider = _formSource == "api" ? studio.Provider : DefaultApiProvider(studio.Kind);
         _formApiKey = "";
         _testResult = null;
         _saveError = null;
@@ -240,6 +401,11 @@ else
     private void SetSource(string source)
     {
         _formSource = source;
+        if (_formKind is not null && _formSource == "api")
+        {
+            _formProvider = DefaultApiProvider(_formKind);
+        }
+
         _testResult = null; // changed config invalidates the previous test
     }
 
@@ -325,5 +491,10 @@ else
         await LoadAsync();
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose()
+    {
+        _refreshLoopCancel?.Cancel();
+        _refreshLoopCancel?.Dispose();
+        StudioLive.Changed -= OnStudiosChanged;
+    }
 }

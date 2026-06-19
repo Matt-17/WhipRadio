@@ -34,7 +34,13 @@ public sealed record TrackDto(
     int DownVotes,
     bool IsRetired,
     string Backend,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string Language = "en",
+    string? SongStory = null,
+    string? Lyrics = null,
+    int? TargetDurationSeconds = null,
+    string? Style = null,
+    bool DeletionPending = false);
 
 public sealed record ArtistDto(
     Guid Id,
@@ -46,7 +52,20 @@ public sealed record ArtistDto(
     int UpVotes,
     int DownVotes,
     bool IsRetired,
-    string? Biography = null);
+    string? Biography = null,
+    string? Type = null,
+    string? Origin = null,
+    int? FormationYear = null,
+    string? PromotionText = null,
+    IReadOnlyList<ArtistMemberDto>? Members = null);
+
+public sealed record ArtistMemberDto(
+    Guid Id,
+    string Name,
+    string Role,
+    string Biography);
+
+public sealed record CreateArtistRequestDto(string? Hint);
 
 public sealed record MusicProductionStatusDto(
     Guid? ArtistId,
@@ -216,7 +235,10 @@ public sealed record StudioDto(
     int JobsCompleted,
     int JobsFailed,
     string? CurrentJob = null,
-    DateTime? JobStartedAtUtc = null);
+    DateTime? JobStartedAtUtc = null,
+    string? CurrentJobProgress = null,
+    string RuntimeStatus = "unknown",
+    string? RuntimeDetail = null);
 
 /// <summary>Source "local" needs Url; source "api" needs Provider + ApiKey.</summary>
 public sealed record SaveStudioDto(
@@ -228,6 +250,28 @@ public sealed record TestStudioDto(
 public sealed record StudioTestResultDto(bool Ok, string? Provider, string? Detail);
 
 public sealed record StudioRestartResultDto(bool Ok, string Detail);
+
+public sealed record StudioHistoryEntryDto(
+    Guid Id,
+    Guid? StudioId,
+    string StudioName,
+    string StudioKind,
+    string Provider,
+    string Operation,
+    string Status,
+    DateTime StartedAtUtc,
+    DateTime? CompletedAtUtc,
+    double? DurationSeconds,
+    string PromptPreview,
+    string? ResultPreview,
+    string Prompt,
+    string? Result,
+    string? Detail,
+    string? Error);
+
+public sealed record PagedStudioHistoryDto(
+    int Total,
+    List<StudioHistoryEntryDto> Entries);
 
 public sealed record MixerSettingsDto(
     bool MixerEnabled,

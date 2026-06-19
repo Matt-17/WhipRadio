@@ -9,6 +9,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<Artist> Artists => Set<Artist>();
 
+    public DbSet<ArtistMember> ArtistMembers => Set<ArtistMember>();
+
     public DbSet<Track> Tracks => Set<Track>();
 
     public DbSet<Announcement> Announcements => Set<Announcement>();
@@ -39,6 +41,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<Studio> Studios => Set<Studio>();
 
+    public DbSet<StudioHistoryEntry> StudioHistory => Set<StudioHistoryEntry>();
+
     public DbSet<MediaAnalysis> MediaAnalyses => Set<MediaAnalysis>();
 
     public DbSet<TransitionLogEntry> TransitionLog => Set<TransitionLogEntry>();
@@ -58,6 +62,15 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         {
             artist.HasIndex(a => a.Name);
             artist.HasIndex(a => a.Genre);
+            artist.HasMany(a => a.Members)
+                .WithOne(m => m.Artist)
+                .HasForeignKey(m => m.ArtistId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArtistMember>(member =>
+        {
+            member.HasIndex(m => new { m.ArtistId, m.SortOrder });
         });
 
         modelBuilder.Entity<Announcement>(announcement =>
@@ -166,6 +179,18 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         {
             studio.Property(s => s.Kind).HasConversion<string>();
             studio.HasIndex(s => new { s.Kind, s.IsActive });
+        });
+
+        modelBuilder.Entity<StudioHistoryEntry>(history =>
+        {
+            history.Property(h => h.StudioKind).HasConversion<string>();
+            history.HasOne(h => h.Studio)
+                .WithMany()
+                .HasForeignKey(h => h.StudioId)
+                .OnDelete(DeleteBehavior.SetNull);
+            history.HasIndex(h => new { h.StudioId, h.StartedAtUtc });
+            history.HasIndex(h => new { h.StudioKind, h.StartedAtUtc });
+            history.HasIndex(h => new { h.Status, h.StartedAtUtc });
         });
 
         modelBuilder.Entity<MediaAnalysis>(analysis =>

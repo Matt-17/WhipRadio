@@ -1,0 +1,525 @@
+@page "/studio-history"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+@inject StudioLiveClient StudioLive
+
+<PageTitle>WhipRadio - Studio History</PageTitle>
+
+<div class="history-dashboard">
+    <h1 class="stage-title">Studio History</h1>
+    <div class="stage-sub">prompts, provider replies and studio job details - newest first</div>
+
+    <div class="history-layout reveal">
+        <aside class="panel history-filter-panel">
+            <div class="panel-label">Filter</div>
+
+            <div class="console-filter-block">
+                <label>Studio</label>
+                <select @bind="_studioFilter" @bind:after="OnFilterChanged">
+                    <option value="@All">All studios</option>
+                    @foreach (var studio in StudioLive.Studios.OrderBy(s => s.Kind).ThenBy(s => s.Name))
+                    {
+                        <option value="@studio.Id">@studio.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div class="console-filter-block">
+                <label>Kind</label>
+                <select @bind="_kindFilter" @bind:after="OnFilterChanged">
+                    <option value="@All">All kinds</option>
+                    <option value="WriterRoom">Writer rooms</option>
+                    <option value="Recording">Recording studios</option>
+                    <option value="VoiceBooth">Voice booths</option>
+                </select>
+            </div>
+
+            <div class="console-filter-block">
+                <label>Status</label>
+                <select @bind="_statusFilter" @bind:after="OnFilterChanged">
+                    <option value="@All">All statuses</option>
+                    <option value="Running">Running</option>
+                    <option value="Succeeded">Succeeded</option>
+                    <option value="Failed">Failed</option>
+                </select>
+            </div>
+
+            <div class="console-filter-block">
+                <label>Search</label>
+                <input @bind="_search" @bind:event="oninput" @bind:after="OnSearchChanged" placeholder="prompt, result, provider" />
+            </div>
+
+            <div class="console-filter-block">
+                <label>Rows per page</label>
+                <select @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                </select>
+            </div>
+
+            <div class="history-filter-actions">
+                <button class="btn small" @onclick="ClearFilters">Clear</button>
+            </div>
+        </aside>
+
+        <section class="panel history-list-panel">
+            <div class="history-panel-head">
+                <div>
+                    <div class="panel-label">Selection</div>
+                    <div class="history-count">@SelectionCountLabel</div>
+                </div>
+                <button class="btn small" disabled="@_loading" @onclick="RefreshAsync">Refresh</button>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <div class="history-warning">@_loadError</div>
+            }
+
+            @if (_loading && _entries.Count == 0)
+            {
+                <div class="empty-state"><span class="blink">|</span> reading studio history...</div>
+            }
+            else if (_entries.Count == 0)
+            {
+                <div class="empty-state">no history matches the current filter</div>
+            }
+            else
+            {
+                <div class="history-table-wrap">
+                    <table class="console-table history-table">
+                        <tbody>
+                            @foreach (var entry in _entries)
+                            {
+                                <tr class="@SelectedClass(entry)" @onclick="() => Select(entry)">
+                                    <td style="width:94px" class="dim">@LocalStamp(entry.StartedAtUtc)</td>
+                                    <td style="width:92px"><span class="tag @StatusClass(entry.Status)">@StatusLabel(entry.Status)</span></td>
+                                    <td style="width:150px">
+                                        <strong>@entry.StudioName</strong>
+                                        <div class="dim history-row-sub">@entry.Provider</div>
+                                    </td>
+                                    <td>
+                                        <div>@entry.Operation</div>
+                                        <div class="dim history-row-preview">@entry.PromptPreview</div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="history-pager">
+                    <div class="history-page-status">@PageStatusLabel</div>
+                    <div class="history-page-actions">
+                        <button class="btn small" disabled="@(_loading || _page <= 1)" @onclick="PreviousPage">Prev</button>
+                        <span>@_page / @TotalPages</span>
+                        <button class="btn small" disabled="@(_loading || _page >= TotalPages)" @onclick="NextPage">Next</button>
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="panel history-detail-panel">
+            @if (_selected is null)
+            {
+                <div class="empty-state">select a history row</div>
+            }
+            else
+            {
+                <div class="history-detail-head">
+                    <div>
+                        <div class="history-detail-title">@_selected.Operation</div>
+                        <div class="history-detail-sub">
+                            <span>@_selected.StudioName - @_selected.Provider</span>
+                            <span class="tag @StatusClass(_selected.Status)">@_selected.Status</span>
+                        </div>
+                    </div>
+                    <div class="history-detail-summary">
+                        <div class="history-detail-facts">
+                            <div><span>Started</span><b>@LocalDateTime(_selected.StartedAtUtc)</b></div>
+                            <div><span>Duration</span><b>@Duration(_selected.DurationSeconds)</b></div>
+                            <div><span>Kind</span><b>@KindLabel(_selected.StudioKind)</b></div>
+                        </div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_selected.Detail))
+                {
+                    <div class="history-detail-note">
+                        <span>Details</span>
+                        <b>@_selected.Detail</b>
+                    </div>
+                }
+
+                <div class="history-io-grid">
+                    <div class="history-block">
+                        <div class="panel-label">Prompt / input</div>
+                        <pre>@_selected.Prompt</pre>
+                    </div>
+
+                    <div class="history-block">
+                        <div class="panel-label">Result / output</div>
+                        @if (!string.IsNullOrWhiteSpace(_selected.Result))
+                        {
+                            <pre>@_selected.Result</pre>
+                        }
+                        else if (_selected.Status == "Running")
+                        {
+                            <div class="history-block-empty"><span class="blink">|</span> still running</div>
+                        }
+                        else
+                        {
+                            <div class="history-block-empty">no result recorded</div>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_selected.Error))
+                {
+                    <div class="history-block error">
+                        <div class="panel-label">Error</div>
+                        <pre>@_selected.Error</pre>
+                    </div>
+                }
+            }
+        </section>
+    </div>
+</div>
+
+@code {
+    private const string All = "All";
+
+    [SupplyParameterFromQuery(Name = "studioId")]
+    public Guid? QueryStudioId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "kind")]
+    public string? QueryKind { get; set; }
+
+    private List<StudioHistoryEntryDto> _entries = [];
+    private StudioHistoryEntryDto? _selected;
+    private string _studioFilter = All;
+    private string _kindFilter = All;
+    private string _statusFilter = All;
+    private string _search = "";
+    private int _page = 1;
+    private int _pageSize = 20;
+    private int _totalRows;
+    private bool _loading;
+    private bool _refreshRequested;
+    private bool _queryApplied;
+    private string? _loadError;
+    private CancellationTokenSource? _refreshDebounce;
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(_totalRows / (double)_pageSize));
+
+    private string SelectionCountLabel
+        => _loading && _entries.Count == 0
+            ? "loading"
+            : $"{_totalRows} rows";
+
+    private string PageStatusLabel
+        => _totalRows == 0
+            ? "no rows"
+            : $"{((_page - 1) * _pageSize) + 1}-{Math.Min(_page * _pageSize, _totalRows)} of {_totalRows}";
+
+    protected override void OnParametersSet()
+    {
+        if (_queryApplied)
+        {
+            return;
+        }
+
+        if (QueryStudioId is { } studioId)
+        {
+            _studioFilter = studioId.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(QueryKind))
+        {
+            _kindFilter = QueryKind;
+        }
+
+        _queryApplied = true;
+    }
+
+    protected override void OnInitialized()
+    {
+        StudioLive.Changed += OnStudiosChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await StudioLive.EnsureStartedAsync();
+            await RefreshAsync();
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading)
+        {
+            _refreshRequested = true;
+            return;
+        }
+
+        _refreshRequested = false;
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            do
+            {
+                _refreshRequested = false;
+                var selectedId = _selected?.Id;
+                var studioId = Guid.TryParse(_studioFilter, out var parsedStudioId) ? parsedStudioId : (Guid?)null;
+                var kind = _kindFilter == All ? null : _kindFilter;
+                var status = _statusFilter == All ? null : _statusFilter;
+                try
+                {
+                    var page = await Api.GetStudioHistoryAsync(studioId, kind, status, _search, _page, _pageSize);
+                    _loadError = null;
+                    ApplyPage(page);
+                }
+                catch (Exception ex)
+                {
+                    _loadError = HistoryLoadError(ex);
+                    ApplyPage(new PagedStudioHistoryDto(0, []));
+                }
+
+                if (_page > TotalPages && _page > 1)
+                {
+                    _page = TotalPages;
+                    _refreshRequested = true;
+                    continue;
+                }
+
+                _selected = selectedId is { } id
+                    ? _entries.FirstOrDefault(entry => entry.Id == id) ?? _entries.FirstOrDefault()
+                    : _entries.FirstOrDefault();
+            }
+            while (_refreshRequested);
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearFilters()
+    {
+        _studioFilter = All;
+        _kindFilter = All;
+        _statusFilter = All;
+        _search = "";
+        _page = 1;
+        _pageSize = 20;
+        await RefreshAsync();
+    }
+
+    private void OnFilterChanged()
+    {
+        _page = 1;
+        QueueRefresh(delayMs: 80);
+    }
+
+    private void OnSearchChanged()
+    {
+        _page = 1;
+        QueueRefresh(delayMs: 220);
+    }
+
+    private void OnPageSizeChanged()
+    {
+        _page = 1;
+        QueueRefresh(delayMs: 80);
+    }
+
+    private async Task PreviousPage()
+    {
+        if (_page <= 1)
+        {
+            return;
+        }
+
+        _page--;
+        await RefreshAsync();
+    }
+
+    private async Task NextPage()
+    {
+        if (_page >= TotalPages)
+        {
+            return;
+        }
+
+        _page++;
+        await RefreshAsync();
+    }
+
+    private void QueueRefresh(int delayMs)
+    {
+        _refreshDebounce?.Cancel();
+        _refreshDebounce?.Dispose();
+        _refreshDebounce = new CancellationTokenSource();
+        var token = _refreshDebounce.Token;
+        _ = InvokeAsync(async () =>
+        {
+            try
+            {
+                await Task.Delay(delayMs, token);
+                await RefreshAsync();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        });
+    }
+
+    private void Select(StudioHistoryEntryDto entry)
+        => _selected = entry;
+
+    private void OnStudiosChanged()
+        => _ = InvokeAsync(() => QueueRefresh(delayMs: 80));
+
+    private void ApplyPage(PagedStudioHistoryDto page)
+    {
+        var entries = page.Entries.ToList();
+        var liveRows = LiveStudioHistoryRows()
+            .Where(live => !entries.Any(entry =>
+                entry.StudioId == live.StudioId
+                && entry.Status == "Running"))
+            .ToList();
+
+        _totalRows = page.Total + liveRows.Count;
+        _entries = _page == 1
+            ? liveRows
+                .Concat(entries)
+                .OrderByDescending(entry => entry.StartedAtUtc)
+                .Take(_pageSize)
+                .ToList()
+            : entries;
+    }
+
+    private static string HistoryLoadError(Exception error)
+    {
+        var message = error.GetBaseException().Message;
+        if (message.Contains("no such table: StudioHistory", StringComparison.OrdinalIgnoreCase))
+        {
+            return "History storage is not migrated yet. Restart the Orchestrator so the StudioHistory table is created.";
+        }
+
+        return message.Length <= 260 ? message : $"{message[..257]}...";
+    }
+
+    private IEnumerable<StudioHistoryEntryDto> LiveStudioHistoryRows()
+    {
+        foreach (var studio in StudioLive.Studios)
+        {
+            if (string.IsNullOrWhiteSpace(studio.CurrentJob)
+                || studio.JobStartedAtUtc is not { } startedAtUtc
+                || !MatchesFilters(studio))
+            {
+                continue;
+            }
+
+            var prompt = $"Running studio job: {studio.CurrentJob}";
+            yield return new StudioHistoryEntryDto(
+                studio.Id,
+                studio.Id,
+                studio.Name,
+                studio.Kind,
+                studio.Provider,
+                studio.CurrentJob,
+                "Running",
+                startedAtUtc,
+                null,
+                Math.Max(0, (DateTime.UtcNow - startedAtUtc).TotalSeconds),
+                prompt,
+                null,
+                prompt,
+                null,
+                "Live studio job from the Studios overview. Result and full prompt will appear when the studio writes a history row.",
+                null);
+        }
+    }
+
+    private bool MatchesFilters(StudioDto studio)
+    {
+        if (Guid.TryParse(_studioFilter, out var filteredStudioId) && studio.Id != filteredStudioId)
+        {
+            return false;
+        }
+
+        if (_kindFilter != All && !string.Equals(studio.Kind, _kindFilter, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (_statusFilter != All && !string.Equals(_statusFilter, "Running", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(_search))
+        {
+            return true;
+        }
+
+        var search = _search.Trim();
+        return studio.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || studio.Provider.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || studio.Kind.Contains(search, StringComparison.OrdinalIgnoreCase)
+            || (studio.CurrentJob?.Contains(search, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private string SelectedClass(StudioHistoryEntryDto entry)
+        => _selected?.Id == entry.Id ? "selected" : "";
+
+    private static string StatusClass(string status)
+        => status switch
+        {
+            "Running" => "amber",
+            "Succeeded" => "green",
+            "Failed" => "red",
+            _ => "",
+        };
+
+    private static string StatusLabel(string status)
+        => status switch
+        {
+            "Succeeded" => "ok",
+            "Failed" => "fail",
+            _ => status.ToLowerInvariant(),
+        };
+
+    private static string KindLabel(string kind)
+        => kind switch
+        {
+            "WriterRoom" => "Writer Room",
+            "VoiceBooth" => "Voice Booth",
+            _ => "Recording",
+        };
+
+    private static string LocalStamp(DateTime utc)
+        => utc.ToLocalTime().ToString("dd.MM. HH:mm");
+
+    private static string LocalDateTime(DateTime utc)
+        => utc.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss");
+
+    private static string Duration(double? seconds)
+        => seconds is null ? "-" : TimeSpan.FromSeconds(seconds.Value).ToString(@"m\:ss");
+
+    public void Dispose()
+    {
+        _refreshDebounce?.Cancel();
+        _refreshDebounce?.Dispose();
+        StudioLive.Changed -= OnStudiosChanged;
+    }
+}

@@ -53,7 +53,8 @@ public sealed class BufferLoggerProvider(InMemoryLogBuffer buffer) : ILoggerProv
     {
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= LogLevel.Information;
+        public bool IsEnabled(LogLevel logLevel)
+            => logLevel >= LogLevel.Information && !IsNoisyHttpClientCategory(category);
 
         public void Log<TState>(
             LogLevel logLevel, EventId eventId, TState state, Exception? exception,
@@ -110,6 +111,9 @@ public sealed class BufferLoggerProvider(InMemoryLogBuffer buffer) : ILoggerProv
                     or nameof(WhipRadio.Infrastructure.Llm.OllamaTextGenerationService)
                     or nameof(WhipRadio.Infrastructure.Llm.OpenAiTextGenerationService)
                 || fullCategory.Contains(".Llm.", StringComparison.Ordinal);
+
+        private static bool IsNoisyHttpClientCategory(string fullCategory)
+            => fullCategory.StartsWith("System.Net.Http.HttpClient.", StringComparison.Ordinal);
 
         private static string? StructuredValue<TState>(TState state, params string[] keys)
         {

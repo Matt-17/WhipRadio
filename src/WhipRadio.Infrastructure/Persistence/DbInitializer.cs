@@ -17,10 +17,13 @@ public static class DbInitializer
 
     private const string AccidentalPhase3bSlogan = "Every song made for this moment.";
     private const string PreviousLlamaSlogan = "Llamas whipped that radio's mix.";
+    private const int PreviousDefaultMinTrackDurationSeconds = 180;
+    private const int PreviousDefaultMaxTrackDurationSeconds = 300;
 
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
     {
         await db.Database.MigrateAsync(ct);
+        await MarkAbandonedStudioHistoryAsync(db, ct);
 
         if (!await db.Moderators.AnyAsync(ct))
         {
@@ -60,6 +63,16 @@ public static class DbInitializer
                 new Studio
                 {
                     Id = Guid.NewGuid(),
+                    Name = "Writer Room #1",
+                    Kind = StudioKind.WriterRoom,
+                    Url = "http://localhost:11434",
+                    Provider = TextProviders.Ollama,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                },
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
                     Name = "Studio #1",
                     Kind = StudioKind.Recording,
                     Url = "http://localhost:8101",
@@ -79,6 +92,34 @@ public static class DbInitializer
                 });
             await db.SaveChangesAsync(ct);
         }
+        else if (!await db.Studios.AnyAsync(s => s.Kind == StudioKind.WriterRoom, ct))
+        {
+            db.Studios.Add(new Studio
+            {
+                Id = Guid.NewGuid(),
+                Name = "Writer Room #1",
+                Kind = StudioKind.WriterRoom,
+                Url = "http://localhost:11434",
+                Provider = TextProviders.Ollama,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    private static async Task MarkAbandonedStudioHistoryAsync(RadioDbContext db, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        const string abandonedMessage =
+            "Marked failed on startup because the Orchestrator stopped before this studio job completed.";
+
+        await db.StudioHistory
+            .Where(h => h.Status == StudioHistoryStatus.Running)
+            .ExecuteUpdateAsync(h => h
+                .SetProperty(x => x.Status, StudioHistoryStatus.Failed)
+                .SetProperty(x => x.CompletedAtUtc, now)
+                .SetProperty(x => x.Error, abandonedMessage), ct);
     }
 
     /// <summary>
@@ -110,6 +151,14 @@ public static class DbInitializer
             || string.Equals(settings.StationSlogan, PreviousLlamaSlogan, StringComparison.Ordinal))
         {
             settings.StationSlogan = defaults.StationSlogan;
+            patched = true;
+        }
+
+        if (settings.MinTrackDurationSeconds == PreviousDefaultMinTrackDurationSeconds
+            && settings.MaxTrackDurationSeconds == PreviousDefaultMaxTrackDurationSeconds)
+        {
+            settings.MinTrackDurationSeconds = defaults.MinTrackDurationSeconds;
+            settings.MaxTrackDurationSeconds = defaults.MaxTrackDurationSeconds;
             patched = true;
         }
 

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
@@ -21,6 +22,9 @@ public class OllamaTextGenerationService(
     public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
     {
         var configured = options.Value;
+        var promptChars = systemPrompt.Length + userPrompt.Length;
+        var contextSize = OllamaContextSizer.ChooseContextSize(configured.ContextSize, promptChars);
+        var keepAlive = ParseKeepAlive(configured.KeepAlive);
         var request = new ChatRequest(
             Model: configured.Model,
             Messages:
@@ -29,12 +33,13 @@ public class OllamaTextGenerationService(
                 new ChatMessage("user", userPrompt),
             ],
             Stream: false,
-            Options: new ChatOptions(configured.Temperature, configured.ContextSize));
+            KeepAlive: keepAlive,
+            Options: new ChatOptions(configured.Temperature, contextSize));
 
         var sw = Stopwatch.StartNew();
         _logger.LogInformation(
-            "Writer Room Ollama request started: model {Model}, context {ContextSize}, temperature {Temperature:F2}, prompt {PromptChars} chars",
-            configured.Model, configured.ContextSize, configured.Temperature, systemPrompt.Length + userPrompt.Length);
+            "Writer Room Ollama request started: model {Model}, context {ContextSize}/{ConfiguredContextSize}, keep-alive {KeepAlive}, temperature {Temperature:F2}, prompt {PromptChars} chars",
+            configured.Model, contextSize, configured.ContextSize, configured.KeepAlive ?? "(default)", configured.Temperature, promptChars);
 
         try
         {
@@ -140,10 +145,26 @@ public class OllamaTextGenerationService(
         return chat.Message?.Content.Trim() ?? string.Empty;
     }
 
+    private static object? ParseKeepAlive(string? keepAlive)
+    {
+        if (string.IsNullOrWhiteSpace(keepAlive))
+        {
+            return null;
+        }
+
+        var trimmed = keepAlive.Trim();
+        return int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numeric)
+            ? numeric
+            : trimmed;
+    }
+
     internal sealed record ChatRequest(
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
         [property: JsonPropertyName("stream")] bool Stream,
+        [property: JsonPropertyName("keep_alive")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        object? KeepAlive,
         [property: JsonPropertyName("options")] ChatOptions Options);
 
     internal sealed record ChatMessage(

@@ -20,8 +20,10 @@ public sealed class AudioMixerEngine(
     IPlayoutQueue queue,
     IPlaybackReporter reporter,
     PlayoutStateStore stateStore,
+    TrackDeletionService trackDeletions,
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
+    MixerUpdatePublisher mixerUpdates,
     FfmpegProcessRegistry ffmpegRegistry,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
@@ -69,6 +71,7 @@ public sealed class AudioMixerEngine(
         MixerSettings settings = await LoadSettingsAsync(ct);
 
         diagnostics.SessionStarted();
+        mixerUpdates.Publish();
         logger.LogInformation(
             "Mixer session started: target {Lufs} LUFS, crossfade {Fade}s, duck {Duck} dB, talk gap {GMin}-{GMax} ms",
             settings.TargetLufs, settings.DefaultCrossfadeSeconds, settings.DuckLevelDb,
@@ -92,9 +95,7 @@ public sealed class AudioMixerEngine(
                         stopScheduling = true; // finish what's playing, then hand back
                     }
 
-                    diagnostics.Update(
-                        Format.SamplesToSeconds(masterPos),
-                        actives.Select(a => $"{a.Item.Title} [{DescribePhase(a, masterPos)}]"));
+                    PublishLive(masterPos, actives);
                 }
 
                 if (actives.Count == 0)
@@ -115,6 +116,7 @@ public sealed class AudioMixerEngine(
 
                     settings = await LoadSettingsAsync(ct);
                     await StartItemChainAsync(item, masterPos, actives, settings, ct);
+                    PublishLive(masterPos, actives);
                     transitionPlanned = false;
                 }
 
@@ -132,6 +134,7 @@ public sealed class AudioMixerEngine(
                         {
                             settings = await LoadSettingsAsync(ct);
                             await ApplyTransitionAsync(current, incoming, actives, settings, core, pendingLogs, ct);
+                            PublishLive(masterPos, actives);
                             transitionPlanned = true;
                         }
                     }
@@ -163,8 +166,9 @@ public sealed class AudioMixerEngine(
                                 a.Item.Title, earlySeconds);
                         }
 
-                        stateStore.Complete(a.Item);
                         a.Reader.Dispose();
+                        stateStore.Complete(a.Item);
+                        await trackDeletions.MarkPlaybackCompletedAsync(a.Item, ct);
                         actives.RemoveAt(i);
                         if (actives.Count > 0 && i == actives.Count)
                         {
@@ -182,11 +186,22 @@ public sealed class AudioMixerEngine(
         finally
         {
             diagnostics.SessionEnded();
+            mixerUpdates.Publish();
             foreach (var active in actives)
             {
                 active.Reader.Dispose();
+                stateStore.Complete(active.Item);
+                await trackDeletions.MarkPlaybackCompletedAsync(active.Item, CancellationToken.None);
             }
         }
+    }
+
+    private void PublishLive(long masterPos, List<ActiveSource> actives)
+    {
+        diagnostics.Update(
+            Format.SamplesToSeconds(masterPos),
+            actives.Select(a => $"{a.Item.Title} [{DescribePhase(a, masterPos)}]"));
+        mixerUpdates.Publish();
     }
 
     private static string DescribePhase(ActiveSource source, long masterPos)
@@ -244,6 +259,7 @@ public sealed class AudioMixerEngine(
                 "Mixer decision: \"{Out}\" → \"{In}\" | in: {InAnalysis} | {Trace}",
                 item.Title, peeked.Title, DescribeAnalysis(songInfo), plan.ReasonTrace);
             diagnostics.DecisionMade($"{item.Title} → {peeked.Title}: {plan.ReasonTrace}");
+            mixerUpdates.Publish();
 
             if (plan.Strategy == MixStrategy.IntroTalkOver)
             {
@@ -257,7 +273,7 @@ public sealed class AudioMixerEngine(
         }
 
         var info = await BuildItemInfoAsync(item, ct);
-        actives.Add(CreateSource(item, info, masterPos, settings, EnvelopeKind.Full, reportAt: masterPos));
+        AddActiveSource(actives, CreateSource(item, info, masterPos, settings, EnvelopeKind.Full, reportAt: masterPos));
         logger.LogInformation(
             "Mixer: \"{Title}\" starts ({Duration:F0}s, {Analysis}, makeup {Makeup:F1} dB)",
             item.Title, info.DurationSeconds, DescribeAnalysis(info),
@@ -285,7 +301,7 @@ public sealed class AudioMixerEngine(
             duckEndSample: Math.Max(talkEnd, duckReleaseEnd),
             settings.DuckLevelDb, settings.DuckRampMs);
         var songReader = CreateReader(song, songInfo, startAtSeconds: songStartOffsetSeconds);
-        actives.Add(new ActiveSource
+        AddActiveSource(actives, new ActiveSource
         {
             Slot = new SourceSlot
             {
@@ -302,7 +318,7 @@ public sealed class AudioMixerEngine(
 
         var talkEnvelope = EnvelopeFactory.FullLevel(Format, talkStart, talkEnd);
         var talkReader = CreateReader(talk, talkInfo, startAtSeconds: talkPlaybackStartSeconds);
-        actives.Add(new ActiveSource
+        AddActiveSource(actives, new ActiveSource
         {
             Slot = new SourceSlot
             {
@@ -337,6 +353,7 @@ public sealed class AudioMixerEngine(
             outgoing.Item.Title, incoming.Title,
             DescribeAnalysis(outgoingInfo), DescribeAnalysis(incomingInfo), plan.ReasonTrace);
         diagnostics.DecisionMade($"{outgoing.Item.Title} → {incoming.Title}: {plan.ReasonTrace}");
+        mixerUpdates.Publish();
         var rate = Format.SampleRate;
         var outgoingEnd = outgoing.EndAtMaster;
         var leadIn = PlaybackStartSeconds(incoming, incomingInfo);
@@ -430,7 +447,7 @@ public sealed class AudioMixerEngine(
         }
 
         var reader = CreateReader(incoming, incomingInfo, startAtSeconds: leadIn);
-        actives.Add(new ActiveSource
+        AddActiveSource(actives, new ActiveSource
         {
             Slot = new SourceSlot
             {
@@ -453,6 +470,12 @@ public sealed class AudioMixerEngine(
     private enum EnvelopeKind
     {
         Full,
+    }
+
+    private void AddActiveSource(List<ActiveSource> actives, ActiveSource source)
+    {
+        actives.Add(source);
+        trackDeletions.MarkPlaybackStarted(source.Item);
     }
 
     private ActiveSource CreateSource(
@@ -619,6 +642,7 @@ public sealed class AudioMixerEngine(
                     ClipCount = core.ClipCount - entry.ClipBaseline,
                 });
                 await db.SaveChangesAsync(ct);
+                mixerUpdates.Publish();
             }
             catch (Exception ex)
             {

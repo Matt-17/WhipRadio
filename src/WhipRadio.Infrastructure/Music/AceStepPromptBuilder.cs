@@ -6,6 +6,8 @@ namespace WhipRadio.Infrastructure.Music;
 public sealed class AceStepPromptBuilder
 {
     private const int ArtistBackstoryLimit = 280;
+    private const int SongStoryLimit = 420;
+    private const int ArtistHistoryLimit = 900;
 
     public string Build(MusicRequest request)
     {
@@ -24,6 +26,8 @@ public sealed class AceStepPromptBuilder
         builder.Append(' ');
         builder.Append(songType);
         builder.AppendLine(".");
+
+        AppendOptional(builder, "Song title", request.SongTitle);
 
         if (!string.IsNullOrWhiteSpace(request.ArtistName) || !string.IsNullOrWhiteSpace(request.ArtistBackstory))
         {
@@ -48,11 +52,34 @@ public sealed class AceStepPromptBuilder
             builder.AppendLine(".");
         }
 
+        if (!string.IsNullOrWhiteSpace(request.SongStory))
+        {
+            builder.AppendLine();
+            builder.Append("Song origin story: ");
+            builder.Append(TrimToSentence(request.SongStory!, SongStoryLimit));
+            builder.AppendLine(".");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.ArtistSongHistory))
+        {
+            builder.AppendLine();
+            builder.AppendLine("Artist catalog context:");
+            builder.AppendLine(TrimBlock(request.ArtistSongHistory!, ArtistHistoryLimit));
+        }
+
         if (!string.IsNullOrWhiteSpace(request.Style) || !string.IsNullOrWhiteSpace(request.ArtistStyleDescription))
         {
             builder.AppendLine();
             builder.Append("Style: ");
             builder.Append(CleanSentence(FirstNonEmpty(request.ArtistStyleDescription, request.Style)!));
+            builder.AppendLine(".");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Language))
+        {
+            builder.AppendLine();
+            builder.Append("Language: ");
+            builder.Append(CleanSentence(request.Language));
             builder.AppendLine(".");
         }
 
@@ -80,14 +107,6 @@ public sealed class AceStepPromptBuilder
                 builder.AppendLine();
                 builder.Append("Lead vocals: ");
                 builder.Append(string.Join(" with ", vocalParts));
-                builder.AppendLine(".");
-            }
-
-            if (!string.IsNullOrWhiteSpace(request.Language))
-            {
-                builder.AppendLine();
-                builder.Append("Language: ");
-                builder.Append(CleanSentence(request.Language));
                 builder.AppendLine(".");
             }
         }
@@ -143,5 +162,16 @@ public sealed class AceStepPromptBuilder
         }
 
         return cleaned[..maxLength].TrimEnd(' ', ',', ';', ':') + "...";
+    }
+
+    private static string TrimBlock(string value, int maxLength)
+    {
+        var cleaned = value.Trim();
+        if (cleaned.Length <= maxLength)
+        {
+            return cleaned;
+        }
+
+        return cleaned[..maxLength].TrimEnd() + "...";
     }
 }

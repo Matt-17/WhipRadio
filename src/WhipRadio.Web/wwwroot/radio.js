@@ -5,6 +5,8 @@ window.whipRadio = {
   _retryTimer: null,
   _volume: 0.8,
   _volumeKey: "whipradio.volume",
+  _playStateKey: "whipradio.playState",
+  _serverReconnectReloadKey: "whipradio.serverReconnectReload",
 
   _normalizeVolume(value) {
     const volume = Number(value);
@@ -31,6 +33,72 @@ window.whipRadio = {
       // Browser storage can be unavailable; playback should still work.
     }
     return this._volume;
+  },
+
+  _isPlaying() {
+    return !!(this._audio && !this._audio.paused && !this._audio.ended);
+  },
+
+  _readPlayState() {
+    try {
+      const saved = localStorage.getItem(this._playStateKey);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  _storePlayState(mode, playing) {
+    try {
+      localStorage.setItem(this._playStateKey, JSON.stringify({
+        mode,
+        playing: !!playing,
+        updatedAt: Date.now(),
+      }));
+    } catch {
+      // Playback should not depend on local storage being available.
+    }
+  },
+
+  _consumeServerReconnectReload() {
+    try {
+      const saved = sessionStorage.getItem(this._serverReconnectReloadKey);
+      sessionStorage.removeItem(this._serverReconnectReloadKey);
+      if (!saved) {
+        return false;
+      }
+
+      const markedAt = Number(saved);
+      return isFinite(markedAt) && Date.now() - markedAt < 120000;
+    } catch {
+      return false;
+    }
+  },
+
+  markServerReconnectReload() {
+    try {
+      sessionStorage.setItem(this._serverReconnectReloadKey, String(Date.now()));
+    } catch {
+      // If session storage is unavailable, the reconnect flow can still reload.
+    }
+  },
+
+  _scheduleLiveRetry(delayMs = 3000) {
+    if (!this._wantLive || this._retryTimer) {
+      return;
+    }
+
+    this._retryTimer = setTimeout(async () => {
+      this._retryTimer = null;
+      if (!this._wantLive) {
+        return;
+      }
+
+      const ok = await this.play(this._liveUrl || "/media/live");
+      if (!ok) {
+        this._scheduleLiveRetry();
+      }
+    }, delayMs);
   },
 
   _ensure(url) {
@@ -79,6 +147,7 @@ window.whipRadio = {
     const audio = this._ensure(fresh);
     this._wantLive = true;
     this._liveUrl = url;
+    this._storePlayState("live", true);
     try {
       audio.src = fresh;
       audio.load();
@@ -86,11 +155,13 @@ window.whipRadio = {
       return true;
     } catch (e) {
       console.warn("whipRadio: play failed", e);
+      this._scheduleLiveRetry();
       return false;
     }
   },
 
   pause() {
+    const mode = this._wantLive ? "live" : "track";
     this._wantLive = false;
     if (this._retryTimer) {
       clearTimeout(this._retryTimer);
@@ -99,7 +170,20 @@ window.whipRadio = {
     if (this._audio) {
       this._audio.pause();
     }
+    this._storePlayState(mode, false);
     return false;
+  },
+
+  async backToLive(url) {
+    if (!this._isPlaying()) {
+      return this.pause();
+    }
+
+    return await this.play(url);
+  },
+
+  nextFrame() {
+    return new Promise(resolve => requestAnimationFrame(() => resolve()));
   },
 
   // Library track preview in the footer player: same element as the live
@@ -116,19 +200,56 @@ window.whipRadio = {
         audio.src = url;
       }
       await audio.play();
+      this._storePlayState("track", true);
       return true;
     } catch (e) {
       console.warn("whipRadio: track play failed", e);
+      this._storePlayState("track", false);
       return false;
     }
   },
 
-  resumeTrack() {
+  async resumeTrack() {
     if (this._audio) {
-      this._audio.play().catch(() => {});
-      return true;
+      this._wantLive = false;
+      try {
+        await this._audio.play();
+        this._storePlayState("track", true);
+        return true;
+      } catch (e) {
+        console.warn("whipRadio: track resume failed", e);
+        this._storePlayState("track", false);
+        return false;
+      }
     }
     return false;
+  },
+
+  restoreLive(url) {
+    const restorePersisted = !this._wantLive && this._consumeServerReconnectReload();
+    if (restorePersisted) {
+      const saved = this._readPlayState();
+      if (saved?.mode === "live" && saved?.playing === true) {
+        this._wantLive = true;
+      }
+    }
+
+    if (!this._wantLive) {
+      return false;
+    }
+
+    this._liveUrl = url;
+    this._storePlayState("live", true);
+
+    if (!this._isPlaying()) {
+      this.play(url).then(ok => {
+        if (!ok) {
+          this._scheduleLiveRetry();
+        }
+      });
+    }
+
+    return true;
   },
 
   seek(seconds) {

@@ -63,6 +63,59 @@ function Ensure-Container($Name, $Image, $HostPort, $TargetPort, $Volume, [bool]
     Write-Host "  $Name -> http://localhost:$HostPort (created)"
 }
 
+function Format-DockerImageId($Id) {
+    if (-not $Id) { return "(none)" }
+
+    $normalized = $Id -replace "^sha256:", ""
+    if ($normalized.Length -gt 12) {
+        return "sha256:$($normalized.Substring(0, 12))"
+    }
+
+    return $Id
+}
+
+function Get-DockerImageInfo($Image) {
+    $raw = docker image inspect --format "{{.Id}}`t{{.Created}}`t{{range .RepoDigests}}{{.}} {{end}}" $Image 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+
+    $parts = $raw -split "`t", 3
+    $id = $parts[0].Trim()
+    $created = if ($parts.Count -gt 1) { $parts[1].Trim() } else { "" }
+    $digests = if ($parts.Count -gt 2) { $parts[2].Trim() } else { "" }
+    $shortId = Format-DockerImageId $id
+
+    return [pscustomobject]@{
+        Id = $id
+        ShortId = $shortId
+        Created = $created
+        Digests = $digests
+    }
+}
+
+function Write-DockerImageInfo($Label, $Info) {
+    if ($null -eq $Info) {
+        Write-Host "  ${Label}: not present locally"
+        return
+    }
+
+    Write-Host "  ${Label}: $($Info.ShortId)"
+    if ($Info.Digests) { Write-Host "    digest: $($Info.Digests)" }
+    if ($Info.Created) { Write-Host "    created: $($Info.Created)" }
+}
+
+function Remove-DockerImageIfUnused($ImageId, $Label) {
+    if (-not $ImageId) { return }
+
+    $shortId = Format-DockerImageId $ImageId
+    Write-Host "  removing $Label $shortId if unused..."
+    docker image rm $ImageId *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  removed $Label $shortId"
+    } else {
+        Write-Host "  $Label $shortId is still referenced; leaving it in Docker cache" -ForegroundColor Yellow
+    }
+}
+
 function Refresh-OllamaContainer($Name, $Image) {
     $existing = docker ps -a --filter "name=^$Name$" --format "{{.Names}}"
     if (-not $existing) { return }
@@ -71,6 +124,18 @@ function Refresh-OllamaContainer($Name, $Image) {
     $latestImage = docker image inspect --format "{{.Id}}" $Image 2>$null
     if ($containerImage -and $latestImage -and $containerImage.Trim() -ne $latestImage.Trim()) {
         Write-Host "  $Name uses an older image; recreating container and keeping ollama-models"
+        docker rm -f $Name | Out-Null
+    }
+}
+
+function Refresh-ContainerImage($Name, $Image, $StateDescription) {
+    $existing = docker ps -a --filter "name=^$Name$" --format "{{.Names}}"
+    if (-not $existing) { return }
+
+    $containerImage = docker inspect --format "{{.Image}}" $Name 2>$null
+    $latestImage = docker image inspect --format "{{.Id}}" $Image 2>$null
+    if ($containerImage -and $latestImage -and $containerImage.Trim() -ne $latestImage.Trim()) {
+        Write-Host "  $Name uses an older image; recreating container and keeping $StateDescription"
         docker rm -f $Name | Out-Null
     }
 }
@@ -106,10 +171,28 @@ Write-Host "Starting studios (GPU: $gpu)..." -ForegroundColor Cyan
 if (-not $SkipWriterRoom) {
     Write-Host ""
     Write-Host "Writer Room:" -ForegroundColor Cyan
-    Write-Host "  pulling ollama/ollama:latest..."
-    docker pull ollama/ollama:latest | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    $ollamaImage = "ollama/ollama:latest"
+    $existingImage = Get-DockerImageInfo $ollamaImage
+    Write-DockerImageInfo "existing image" $existingImage
+
+    Write-Host "  checking $ollamaImage..."
+    docker pull $ollamaImage | Out-Null
+    $pullSucceeded = $LASTEXITCODE -eq 0
+    $currentImage = Get-DockerImageInfo $ollamaImage
+    if ($pullSucceeded) {
+        Write-DockerImageInfo "current image" $currentImage
+        if ($existingImage -and $currentImage) {
+            if ($existingImage.Id -eq $currentImage.Id) {
+                Write-Host "  image unchanged after registry check"
+            } else {
+                Write-Host "  image updated: $($existingImage.ShortId) -> $($currentImage.ShortId)" -ForegroundColor Green
+            }
+        } elseif ($currentImage) {
+            Write-Host "  image downloaded: $($currentImage.ShortId)" -ForegroundColor Green
+        }
+    } else {
         Write-Host "  image pull failed; trying the local image cache" -ForegroundColor Yellow
+        Write-DockerImageInfo "cached image" $currentImage
     }
 
     $legacyOllama = docker ps --format "{{.Names}}" |
@@ -119,8 +202,12 @@ if (-not $SkipWriterRoom) {
         Write-Host "  stop/remove it after WhipRadio is stopped if you want to free GPU/RAM."
     }
 
-    Refresh-OllamaContainer "whip-writer-room-ollama" "ollama/ollama:latest"
-    Ensure-Container "whip-writer-room-ollama" "ollama/ollama:latest" $OllamaPort 11434 "ollama-models:/root/.ollama" $gpu
+    Refresh-OllamaContainer "whip-writer-room-ollama" $ollamaImage
+    if ($pullSucceeded -and $existingImage -and $currentImage -and $existingImage.Id -ne $currentImage.Id) {
+        Remove-DockerImageIfUnused $existingImage.Id "previous image"
+    }
+
+    Ensure-Container "whip-writer-room-ollama" $ollamaImage $OllamaPort 11434 "ollama-models:/root/.ollama" $gpu
     if (Wait-Http "http://localhost:$OllamaPort/api/version" 90) {
         Ensure-OllamaModel "http://localhost:$OllamaPort" $OllamaModel
     } else {
@@ -131,20 +218,24 @@ if (-not $SkipWriterRoom) {
 Write-Host ""
 Write-Host "Recording studios:" -ForegroundColor Cyan
 for ($i = 1; $i -le $Count; $i++) {
+    Refresh-ContainerImage "whip-studio-acestep-$i" "whipradio-acestep:local" "acestep-models"
     Ensure-Container "whip-studio-acestep-$i" "whipradio-acestep:local" (8100 + $i) 8002 "acestep-models:/models" $gpu
 }
 if ($IncludeMusicGen) {
+    Refresh-ContainerImage "whip-studio-musicgen-1" "whipradio-musicgen:local" "hf-cache"
     Ensure-Container "whip-studio-musicgen-1" "whipradio-musicgen:local" 8111 8002 "hf-cache:/models" $gpu
 }
 
 Write-Host ""
 Write-Host "Voice booths:" -ForegroundColor Cyan
+Refresh-ContainerImage "whip-booth-tts-1" "whipradio-tts:local" "hf-cache"
 Ensure-Container "whip-booth-tts-1" "whipradio-tts:local" 8201 8001 "hf-cache:/models" $gpu
 
 Write-Host ""
 Write-Host "Analysis:" -ForegroundColor Cyan
 $dataDir = Join-Path $root "data"
 if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory -Force $dataDir | Out-Null }
+Refresh-ContainerImage "whip-analysis" "whipradio-analysis:local" "the mounted data folder"
 Ensure-Container "whip-analysis" "whipradio-analysis:local" 8301 8301 "$dataDir`:/data:ro" $false
 
 Write-Host ""

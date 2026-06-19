@@ -22,7 +22,19 @@ public static class PromptTemplates
     private static string Load(string templateName)
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var resourceName = $"WhipRadio.Infrastructure.Prompts.{templateName}.txt";
+        var suffix = $".{templateName}.txt";
+        var matches = assembly.GetManifestResourceNames()
+            .Where(name => name.Contains(".Prompts.", StringComparison.Ordinal)
+                && name.EndsWith(suffix, StringComparison.Ordinal))
+            .ToList();
+        var resourceName = matches.Count switch
+        {
+            1 => matches[0],
+            0 => throw new InvalidOperationException($"Prompt template not found: {templateName}"),
+            _ => throw new InvalidOperationException(
+                $"Prompt template name is ambiguous: {templateName} ({string.Join(", ", matches)})"),
+        };
+
         using var stream = assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException($"Prompt template not found: {resourceName}");
         using var reader = new StreamReader(stream);

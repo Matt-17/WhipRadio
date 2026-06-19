@@ -20,6 +20,11 @@ using the 3a mixer.
 
 Today's artist is a thin name. Make it a populated entity:
 
+**Partly pulled forward into Phase 3c:** artist creation from one-line hints now stores
+public biography, promotion text, hidden deep background, and `ArtistMember` rows with
+member biography and voice-creation prompts. Phase 5 still owns richer voice profiles,
+chat participation, and true multi-agent conversations.
+
 `Artist` gains: `Type` (SoloAct | Band | Duo…), `FormationYear?`, `Origin?`,
 `Backstory`, `Interests[]`, plus a child collection:
 

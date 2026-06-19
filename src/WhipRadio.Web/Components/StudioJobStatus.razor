@@ -1,0 +1,65 @@
+@using System.Globalization
+@implements IDisposable
+
+<span title="@Title">@DisplayText</span>
+
+@code {
+    [Parameter] public DateTime? StartedAtUtc { get; set; }
+    [Parameter] public string? Progress { get; set; }
+
+    private Timer? _timer;
+    private bool _disposed;
+    private DateTime _nowUtc = DateTime.UtcNow;
+
+    protected override void OnInitialized()
+    {
+        _timer = new Timer(_ =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _nowUtc = DateTime.UtcNow;
+            _ = InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(1));
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _timer?.Dispose();
+    }
+
+    private string DisplayText
+    {
+        get
+        {
+            var elapsed = StartedAtUtc is { } startedAtUtc
+                ? FormatElapsed(_nowUtc - startedAtUtc)
+                : string.Empty;
+            var progress = Progress?.Trim();
+            if (string.IsNullOrWhiteSpace(progress))
+            {
+                return elapsed;
+            }
+
+            return string.IsNullOrWhiteSpace(elapsed)
+                ? progress
+                : $"{elapsed} - {progress}";
+        }
+    }
+
+    private string Title
+    {
+        get
+        {
+            var started = StartedAtUtc is { } startedAtUtc
+                ? $"Started {startedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}"
+                : "Studio job";
+            return string.IsNullOrWhiteSpace(Progress)
+                ? started
+                : $"{started} - {Progress.Trim()}";
+        }
+    }
+}

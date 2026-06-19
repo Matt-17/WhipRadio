@@ -14,7 +14,8 @@ public class TtsEngineRouter(
     IHttpClientFactory httpClientFactory,
     StudioCoordinator coordinator,
     StudioProviderFactory factory,
-    StationSettingsCache settingsCache) : ITtsEngine
+    StationSettingsCache settingsCache,
+    StudioHistoryRecorder history) : ITtsEngine
 {
     public const string ElevenLabsClientName = "tts-elevenlabs";
 
@@ -37,9 +38,18 @@ public class TtsEngineRouter(
             var settings = await settingsCache.GetAsync(ct);
             if (settings.ElevenLabsEnabled && !string.IsNullOrWhiteSpace(settings.ElevenLabsApiKey))
             {
-                var elevenLabs = new ElevenLabsTtsEngine(
-                    httpClientFactory.CreateClient(ElevenLabsClientName), settings.ElevenLabsApiKey);
-                return await elevenLabs.SynthesizeAsync(markedUpText, options, ct);
+                return await SynthesizeExternalAsync(
+                    "Voice Booth (ElevenLabs settings)",
+                    StudioProviders.ElevenLabs,
+                    markedUpText,
+                    options,
+                    async token =>
+                    {
+                        var elevenLabs = new ElevenLabsTtsEngine(
+                            httpClientFactory.CreateClient(ElevenLabsClientName), settings.ElevenLabsApiKey);
+                        return await elevenLabs.SynthesizeAsync(markedUpText, options, token);
+                    },
+                    ct);
             }
 
             options = options with { Engine = TtsEngines.Kokoro, VoiceId = "af_heart" };
@@ -78,6 +88,12 @@ public class TtsEngineRouter(
                 throw new InvalidOperationException($"No active voice booth for provider '{requiredProvider}'.");
             }
 
+            if (!await coordinator.AnyBusyAsync(StudioKind.VoiceBooth, requiredProvider, ct)
+                && !await coordinator.AnyAvailableAsync(StudioKind.VoiceBooth, requiredProvider, ct))
+            {
+                throw new InvalidOperationException($"No reachable voice booth for provider '{requiredProvider}'.");
+            }
+
             if (DateTime.UtcNow > deadline)
             {
                 throw new InvalidOperationException("All voice booths busy for too long.");
@@ -87,15 +103,83 @@ public class TtsEngineRouter(
         }
 
         var success = false;
+        Guid? historyId = null;
         try
         {
+            historyId = await history.BeginAsync(
+                booth,
+                $"Voicing ({options.Engine}/{options.VoiceId})",
+                VoicePrompt(markedUpText),
+                VoiceDetail(options),
+                ct);
             var result = await factory.CreateTtsEngine(booth).SynthesizeAsync(markedUpText, options, ct);
+            await history.CompleteAsync(historyId, VoiceResultDetail(result), null, CancellationToken.None);
             success = true;
             return result;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            await history.FailAsync(historyId, ex, null, CancellationToken.None);
+            throw;
         }
         finally
         {
             await coordinator.ReleaseAsync(booth.Id, success, CancellationToken.None);
         }
     }
+
+    private async Task<TtsResult> SynthesizeExternalAsync(
+        string studioName,
+        string provider,
+        string markedUpText,
+        TtsVoiceOptions options,
+        Func<CancellationToken, Task<TtsResult>> synthesize,
+        CancellationToken ct)
+    {
+        var historyId = await history.BeginAsync(
+            studioId: null,
+            studioName,
+            StudioKind.VoiceBooth,
+            provider,
+            $"Voicing ({options.Engine}/{options.VoiceId})",
+            VoicePrompt(markedUpText),
+            VoiceDetail(options),
+            ct);
+
+        try
+        {
+            var result = await synthesize(ct);
+            await history.CompleteAsync(historyId, VoiceResultDetail(result), null, CancellationToken.None);
+            return result;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            await history.FailAsync(historyId, ex, null, CancellationToken.None);
+            throw;
+        }
+    }
+
+    private static string VoicePrompt(string markedUpText)
+        => markedUpText;
+
+    private static string VoiceDetail(TtsVoiceOptions options)
+    {
+        var lines = new List<string>
+        {
+            $"Engine: {options.Engine}",
+            $"Voice: {options.VoiceId}",
+            $"Language: {options.Language}",
+            $"Rate: {options.Rate:0.###}",
+        };
+
+        if (!string.IsNullOrWhiteSpace(options.Instruction))
+        {
+            lines.Add($"Instruction: {options.Instruction}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string VoiceResultDetail(TtsResult result)
+        => $"Duration: {result.DurationSeconds:0.###}s{Environment.NewLine}Audio bytes: {result.WavData.Length}";
 }

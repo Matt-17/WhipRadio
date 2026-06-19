@@ -16,7 +16,7 @@ function handleReconnectStateChanged(event) {
     } else if (event.detail.state === "failed") {
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);
     } else if (event.detail.state === "rejected") {
-        location.reload();
+        reloadAfterReconnectFailure();
     }
 }
 
@@ -34,7 +34,7 @@ async function retry() {
             // We'll reload the page so the user can continue using the app as quickly as possible.
             const resumeSuccessful = await Blazor.resumeCircuit();
             if (!resumeSuccessful) {
-                location.reload();
+                reloadAfterReconnectFailure();
             } else {
                 reconnectModal.close();
             }
@@ -49,11 +49,16 @@ async function resume() {
     try {
         const successful = await Blazor.resumeCircuit();
         if (!successful) {
-            location.reload();
+            reloadAfterReconnectFailure();
         }
     } catch {
         reconnectModal.classList.replace("components-reconnect-paused", "components-reconnect-resume-failed");
     }
+}
+
+function reloadAfterReconnectFailure() {
+    window.whipRadio?.markServerReconnectReload?.();
+    location.reload();
 }
 
 async function retryWhenDocumentBecomesVisible() {

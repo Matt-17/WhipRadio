@@ -20,11 +20,20 @@ public class Track
     /// <summary>Free-form prompt descriptor used at generation time.</summary>
     public string Style { get; set; } = string.Empty;
 
+    /// <summary>Language the artist chose for this song, e.g. "en" or "de".</summary>
+    public string Language { get; set; } = "en";
+
     /// <summary>musicgen ⇒ false, ace-step ⇒ true.</summary>
     public bool HasVocals { get; set; }
 
     /// <summary>Only for vocal tracks.</summary>
     public string? Lyrics { get; set; }
+
+    /// <summary>Artist-written origin story: why and how this song was created.</summary>
+    public string? SongStory { get; set; }
+
+    /// <summary>Artist-planned target length before the backend renders the WAV.</summary>
+    public int? TargetDurationSeconds { get; set; }
 
     /// <summary>Probed via ffprobe after generation.</summary>
     public double DurationSeconds { get; set; }

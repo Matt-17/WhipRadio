@@ -7,7 +7,7 @@ RUN apt-get update \
 
 WORKDIR /srv
 
-# TORCH_INDEX=cpu (default) or cu121 for NVIDIA GPU inference.
+# TORCH_INDEX=cpu (default) or cu128 for NVIDIA GPU inference.
 # torch AND torchaudio installed together from the same index so later
 # packages (qwen-tts requires torchaudio) can't pull a mismatched build
 # linked against a different CUDA runtime.

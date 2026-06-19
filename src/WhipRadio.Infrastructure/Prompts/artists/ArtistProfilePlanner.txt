@@ -1,0 +1,47 @@
+Create a deep fictional music artist or band for WhipRadio.
+The one-line creation hint is:
+{Hint}
+
+Suggested genre: {Genre}
+Suggested subgenre: {Subgenre}
+
+Existing artist names to avoid:
+{AvoidNames}
+
+Requirements:
+- Invent a believable artist/band that can sustain many songs, interviews, and future podcasts.
+- Choose genre and subgenre from the hint when possible; otherwise choose a strong radio-ready lane.
+- A place-specific hint should affect origin, language, instruments, rhythm, imagery, and member biographies.
+- ShortBiography and PromotionText are public showcase copy.
+- DeepBackgroundBiography is hidden generation context: include formation story, member dynamics, creative conflicts, recurring themes, musical influences without naming real copyrighted artists, language identity, stage habits, and how their sound evolved.
+- Create enough members for the artist type. Solo acts still need one member. Bands normally need 3-6 members.
+- Member biographies must be specific and useful for future dialogue.
+- Voice creation prompts describe speaking/singing timbre, accent, age impression, energy, and microphone character.
+- Do not imitate real living artists. Do not use existing artist names.
+- Return valid JSON only. Do not use Markdown fences, comments, trailing commas, or function-call syntax.
+- JSON strings must use normal double quotes. Do not put quote characters inside string values.
+- The language field must be the normal song language as a BCP-47 tag when possible. Do not use a country, region, or cultural reference as a language code.
+- The members array length must match the hint when a member count is given. Otherwise bands normally need 3-6 members, duos need 2, and solo acts need 1.
+
+Answer with exactly one JSON object in this schema:
+{
+  "name": "<artist or band name>",
+  "type": "<SoloAct, Duo, Band, Collective, Producer, or similar>",
+  "genre": "<broad genre>",
+  "subgenre": "<specific subgenre>",
+  "origin": "<city/region/country or fictional local origin>",
+  "formationYear": 2018,
+  "style": "<one detailed sentence covering instrumentation, tempo feel, arrangement, mood, production texture, and vocal identity>",
+  "language": "<BCP-47 tag or language name for normal songs>",
+  "shortBiography": "<2-3 public sentences>",
+  "deepBackgroundBiography": "<8-14 detailed sentences, hidden from user, for song and talk generation>",
+  "promotionText": "<1-2 vivid public sentences for the library showcase>",
+  "members": [
+    {
+      "name": "<member name>",
+      "role": "<role/instrument>",
+      "biography": "<member biography, 2-4 sentences>",
+      "voiceCreationPrompt": "<speaking/singing timbre, accent, age impression, energy, and microphone character>"
+    }
+  ]
+}

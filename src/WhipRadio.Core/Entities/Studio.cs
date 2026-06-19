@@ -2,6 +2,9 @@ namespace WhipRadio.Core.Entities;
 
 public enum StudioKind
 {
+    /// <summary>Text generation endpoint for scripts, titles and director reasoning.</summary>
+    WriterRoom,
+
     /// <summary>Music AI endpoint (ACE-Step, MusicGen, online APIs…).</summary>
     Recording,
 
@@ -10,9 +13,9 @@ public enum StudioKind
 }
 
 /// <summary>
-/// A connected production endpoint: a recording studio (music AI) or a voice
-/// booth (TTS). Studios live OUTSIDE the app's lifecycle — local containers or
-/// online APIs — and artists/hosts queue for the first free one.
+/// A connected production endpoint: a writer room (LLM), recording studio
+/// (music AI), or voice booth (TTS). Studios live OUTSIDE the app's lifecycle —
+/// local containers or online APIs — and artists/hosts queue for the first free one.
 /// </summary>
 public class Studio
 {
@@ -26,8 +29,8 @@ public class Studio
     public string Url { get; set; } = string.Empty;
 
     /// <summary>Protocol the endpoint speaks: detected by the test probe for
-    /// local containers ("ace-step-1.5", "musicgen", "local-tts") or chosen
-    /// explicitly for API studios ("elevenlabs").</summary>
+    /// local containers ("ollama", "ace-step-1.5", "musicgen", "local-tts")
+    /// or chosen explicitly for API studios ("openai", "elevenlabs").</summary>
     public string Provider { get; set; } = string.Empty;
 
     /// <summary>API key for online providers; null for local containers.</summary>

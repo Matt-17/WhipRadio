@@ -22,3 +22,7 @@ class EngineBase(ABC):
     def resolve_voice(self, voice: str, language: str) -> str:
         """Map a requested voice/language to one this engine supports."""
         return voice
+
+    def unload(self) -> dict:
+        """Release cached model state. Engines without resident state can no-op."""
+        return {"engine": self.name, "unloaded": False}

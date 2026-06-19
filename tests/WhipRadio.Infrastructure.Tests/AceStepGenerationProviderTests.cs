@@ -115,6 +115,85 @@ public class AceStepGenerationProviderTests
     }
 
     [TestMethod]
+    public async Task RunningStatusReportsProgressText()
+    {
+        var wav = WavTestData.Pcm(128);
+        var queryCalls = 0;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath == "/release_task")
+            {
+                return JsonResponse("""{"data":{"task_id":"task-1","status":"queued"},"code":200,"error":null}""");
+            }
+
+            if (req.RequestUri.AbsolutePath == "/query_result")
+            {
+                queryCalls++;
+                return queryCalls == 1
+                    ? JsonResponse("""{"data":[{"task_id":"task-1","status":0,"result":null,"progress_text":" diffusion   step 3/12 "}],"code":200,"error":null}""")
+                    : JsonResponse(QuerySuccess("task-1", "/v1/audio?path=x"));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(wav) };
+        });
+        var provider = CreateProvider(handler);
+        var progress = new List<MusicGenerationProgress>();
+
+        await provider.GenerateAsync(Request() with
+        {
+            ProgressReporter = (update, _) =>
+            {
+                progress.Add(update);
+                return ValueTask.CompletedTask;
+            },
+        }, CancellationToken.None);
+
+        Assert.Contains(progress, p => p.TaskId == "task-1" && p.Message == "queued");
+        Assert.Contains(progress, p => p.TaskId == "task-1" && p.Message == "diffusion step 3/12");
+        Assert.Contains(progress, p => p.TaskId == "task-1" && p.Message == "render complete");
+        Assert.Contains(progress, p => p.TaskId == "task-1" && p.Message == "downloading audio");
+    }
+
+    [TestMethod]
+    public async Task RunningStatusStripsProviderLogTimestampFromProgressText()
+    {
+        var wav = WavTestData.Pcm(128);
+        var queryCalls = 0;
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath == "/release_task")
+            {
+                return JsonResponse("""{"data":{"task_id":"task-1","status":"queued"},"code":200,"error":null}""");
+            }
+
+            if (req.RequestUri.AbsolutePath == "/query_result")
+            {
+                queryCalls++;
+                return queryCalls == 1
+                    ? JsonResponse("""{"data":[{"task_id":"task-1","status":0,"result":null,"progress_text":"19:21:05 | WARNING | [tiled_decode] Reduced overlap from 64 to 32"}],"code":200,"error":null}""")
+                    : JsonResponse(QuerySuccess("task-1", "/v1/audio?path=x"));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(wav) };
+        });
+        var provider = CreateProvider(handler);
+        var progress = new List<MusicGenerationProgress>();
+
+        await provider.GenerateAsync(Request() with
+        {
+            ProgressReporter = (update, _) =>
+            {
+                progress.Add(update);
+                return ValueTask.CompletedTask;
+            },
+        }, CancellationToken.None);
+
+        Assert.Contains(progress, p => p.TaskId == "task-1"
+            && p.Message == "WARNING | [tiled_decode] Reduced overlap from 64 to 32");
+        Assert.DoesNotContain(progress, p => p.Message.StartsWith("19:21", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task SuccessStatusDownloadsResult()
     {
         var wav = WavTestData.Pcm(128);

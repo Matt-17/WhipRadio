@@ -4,6 +4,7 @@ Contract (Plan.md §7.1):
   GET  /health      -> {"status": "ok", "engine": "kokoro"}
   GET  /voices      -> [{"id", "language", "gender"}, ...]
   POST /synthesize  -> audio/wav (44.1 kHz, 16-bit, mono), X-Duration-Seconds header
+  POST /unload      -> releases cached model state/VRAM
 """
 
 from __future__ import annotations
@@ -93,6 +94,21 @@ def voices() -> list[dict]:
             voice.setdefault("engine", engine.name)
             result.append(voice)
     return result
+
+
+@app.post("/unload")
+def unload() -> dict:
+    results: list[dict] = []
+    ok = True
+    for engine in ENGINES.values():
+        try:
+            results.append(engine.unload())
+        except Exception as exc:  # noqa: BLE001 - unload must stay best-effort
+            ok = False
+            logger.exception("Unload failed for engine %s", engine.name)
+            results.append({"engine": engine.name, "unloaded": False, "error": str(exc)})
+
+    return {"status": "ok" if ok else "partial", "engines": results}
 
 
 @app.post("/synthesize")

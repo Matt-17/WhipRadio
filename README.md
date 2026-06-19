@@ -79,13 +79,15 @@ Key settings:
 | `Music__ProducerBackoffSeconds` | 30 | music production retry/backoff |
 | `AceStep__Model` | `acestep-v15-turbo` | ACE-Step DiT model |
 | `AceStep__Thinking` | `true` | use ACE-Step LM planning |
-| `AceStep__InferenceSteps` | `8` | ACE-Step diffusion steps |
+| `AceStep__InferenceSteps` | `12` | ACE-Step diffusion steps |
 | `AceStep__GenerationTimeout` | `00:30:00` | ACE-Step generation timeout |
 | `Stream__Bitrate` | `192k` | MP3 bitrate |
+| `Stream__DisplayLatencySeconds` | `5` | delay now-playing/title updates to match listener stream latency |
 | `Icecast__SourcePassword` | `hackme-dev` | dev-only default |
 | `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, SQLite |
 
 Station-level settings live in the database and are editable in the web app.
+New stations default generated tracks to 150-480 seconds.
 `DefaultMusicProvider` accepts `musicgen`, `ace-step`, or `ace-step-1.5`; values
 are normalized to `musicgen` or `ace-step-1.5`.
 

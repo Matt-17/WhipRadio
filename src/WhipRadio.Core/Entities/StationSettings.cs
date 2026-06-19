@@ -39,10 +39,10 @@ public class StationSettings
     /// <summary>The producer stops once this many non-retired tracks exist.</summary>
     public int MaxLibrarySize { get; set; } = 60;
 
-    /// <summary>Generated track length range (songs are usually 3–7 minutes).</summary>
-    public int MinTrackDurationSeconds { get; set; } = 180;
+    /// <summary>Generated track length range.</summary>
+    public int MinTrackDurationSeconds { get; set; } = 150;
 
-    public int MaxTrackDurationSeconds { get; set; } = 300;
+    public int MaxTrackDurationSeconds { get; set; } = 480;
 
     // --- Speech ------------------------------------------------------------------
 

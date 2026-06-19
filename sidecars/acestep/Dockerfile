@@ -37,6 +37,8 @@ RUN git clone https://github.com/ace-step/ACE-Step-1.5.git . \
     && git checkout "${ACESTEP_REF}"
 
 RUN uv sync --frozen --no-dev --python python${PYTHON_VERSION}
+RUN uv pip install --python .venv/bin/python --index-url https://download.pytorch.org/whl/cu128 \
+        torch==2.8.0 torchvision==0.23.0 torchaudio==2.8.0
 
 RUN mkdir -p /models/checkpoints /models/huggingface /models/cache /models/torch \
     /models/triton /models/torchinductor /models/tmp

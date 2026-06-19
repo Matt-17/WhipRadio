@@ -3,15 +3,16 @@
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
+@inject MixerLiveClient MixerLive
 
-<PageTitle>WhipRadio — Mixer</PageTitle>
+<PageTitle>WhipRadio - Mixer</PageTitle>
 
 <h1 class="stage-title">Mixer</h1>
-<div class="stage-sub">intelligent transitions · crossfades, beat-aligned blends &amp; talk-overs</div>
+<div class="stage-sub">intelligent transitions - crossfades, beat-aligned blends and talk-overs</div>
 
 @if (_mixer is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> loading mixer state…</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading mixer state...</div></div>
 }
 else
 {
@@ -25,29 +26,29 @@ else
             <div class="switch big @(_mx_enabled ? "on" : null)" @onclick="ToggleMixerAsync"></div>
         </div>
 
-        <div style="margin:14px 0 6px">
+        <div class="mixer-state-line">
             @if (_mixer.Live.SessionActive)
             {
                 <span class="tag green">session active</span>
             }
             else if (_mx_enabled)
             {
-                <span class="tag amber">enabled — engaging at the next item boundary…</span>
+                <span class="tag amber">enabled - engaging at the next item boundary...</span>
             }
             else
             {
-                <span class="tag">off — legacy sequential playout</span>
+                <span class="tag">off - legacy sequential playout</span>
             }
         </div>
 
         <div class="stat-grid" style="margin-top:14px; margin-bottom:0">
             <div class="panel stat-card">
-                <div class="stat-value">@TimeSpan.FromSeconds(_mixer.Live.MasterSeconds).ToString(@"hh\:mm\:ss")</div>
+                <div class="stat-value">@MasterClock</div>
                 <div class="stat-label">master clock</div>
             </div>
             <div class="panel stat-card">
                 <div class="stat-value">@_mixer.Live.TransitionsThisSession</div>
-                <div class="stat-label">transitions this session</div>
+                <div class="stat-label">session transitions</div>
             </div>
             <div class="panel stat-card">
                 <div class="stat-value">@_mixer.Status.AnalyzedTracks<span class="dim" style="font-size:18px">/@_mixer.Status.TotalTracks</span></div>
@@ -60,22 +61,47 @@ else
             <div class="panel stat-card">
                 <div class="stat-value" style="@(_mixer.Status.TotalClips > 0 ? "color:var(--red)" : null)">@_mixer.Status.TotalClips</div>
                 <div class="stat-label">clips total</div>
+                <div class="stat-note">Samples clamped after summed audio exceeded the digital ceiling.</div>
             </div>
         </div>
 
-        @if (_mixer.Live.SessionActive && (_mixer.Live.ActiveItems.Count > 0 || _mixer.Live.LastDecision is not null))
-        {
-            <div class="dim" style="margin-top:14px; font-family:var(--font-mono); font-size:12px">
-                @foreach (var item in _mixer.Live.ActiveItems)
+        <div class="mixer-live-board">
+            <div class="mixer-active-list">
+                <div class="panel-label">Active Audio</div>
+                @if (_mixer.Live.SessionActive && _mixer.Live.ActiveItems.Count > 0)
                 {
-                    <div>▸ @item</div>
+                    @foreach (var item in _mixer.Live.ActiveItems)
+                    {
+                        <div class="mixer-active-item">
+                            <span></span>
+                            <b>@item</b>
+                        </div>
+                    }
                 }
-                @if (_mixer.Live.LastDecision is { } decision)
+                else
                 {
-                    <div style="margin-top:4px">last decision: @decision</div>
+                    <div class="empty-state compact">no active mixer sources</div>
                 }
             </div>
-        }
+
+            <div class="mixer-decision">
+                <div class="mixer-decision-head">
+                    <div>
+                        <div class="panel-label">Last Decision</div>
+                        <div class="mixer-decision-time">@LastDecisionTime</div>
+                    </div>
+                    <span class="tag amber">planner</span>
+                </div>
+                @if (_mixer.Live.LastDecision is { } decision)
+                {
+                    <div class="mixer-decision-text">@decision</div>
+                }
+                else
+                {
+                    <div class="empty-state compact">no planner decision yet</div>
+                }
+            </div>
+        </div>
     </div>
 
     <div class="panel reveal">
@@ -104,29 +130,20 @@ else
         </div>
         <div class="btn-row">
             <button class="btn primary" @onclick="SaveMixerAsync">Apply</button>
-            <button class="btn" @onclick="BackfillAsync">@(_backfillKicked ? "✓ backfill scheduled" : "Re-run analysis backfill")</button>
+            <button class="btn" @onclick="BackfillAsync">@(_backfillKicked ? "backfill scheduled" : "Re-run analysis backfill")</button>
             @if (_mixerError is not null)
             {
                 <span class="dim">@_mixerError</span>
             }
             @if (_mixerSaved)
             {
-                <span class="flash">✓ applied</span>
+                <span class="flash">applied</span>
             }
         </div>
     </div>
 
     <div class="panel reveal">
         <div class="panel-label">Recent Transitions</div>
-        @if (_mixer.Status.TransitionsByStrategy.Count > 0)
-        {
-            <div style="margin-bottom:12px">
-                @foreach (var (strategy, count) in _mixer.Status.TransitionsByStrategy.OrderByDescending(kv => kv.Value))
-                {
-                    <span class="tag amber" style="margin-right:6px">@strategy ×@count</span>
-                }
-            </div>
-        }
         @if (_mixer.Status.RecentTransitions.Count == 0)
         {
             <div class="empty-state">no transitions yet</div>
@@ -149,18 +166,18 @@ else
                         <tr title="@t.ReasonTrace">
                             <td class="dim">@t.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</td>
                             <td><span class="tag">@t.Strategy</span></td>
-                            <td class="dim">@t.OutgoingTitle → @t.IncomingTitle</td>
+                            <td class="dim">@t.OutgoingTitle -> @t.IncomingTitle</td>
                             <td class="num dim">
                                 @(t.GapMs > 0 ? $"gap {t.GapMs} ms" : $"{t.OverlapSeconds:F1} s overlap")
                             </td>
                             <td class="num @(t.ClipCount > 0 ? null : "dim")">
                                 @if (t.ClipCount > 0)
                                 {
-                                    <span style="color:var(--red)">⚠ @t.ClipCount</span>
+                                    <span style="color:var(--red)">@t.ClipCount</span>
                                 }
                                 else
                                 {
-                                    <span>—</span>
+                                    <span>-</span>
                                 }
                             </td>
                         </tr>
@@ -185,43 +202,103 @@ else
     private int _mx_gapSongMin;
     private int _mx_gapSongMax;
     private string _mx_weights = "";
+    private DateTime _mixerSnapshotAtUtc = DateTime.UtcNow;
+    private CancellationTokenSource? _clockCts;
 
-    private Timer? _refreshTimer;
+    private string MasterClock
+        => TimeSpan.FromSeconds(DisplayMasterSeconds).ToString(@"hh\:mm\:ss");
+
+    private double DisplayMasterSeconds
+    {
+        get
+        {
+            if (_mixer is null)
+            {
+                return 0;
+            }
+
+            if (!_mixer.Live.SessionActive)
+            {
+                return _mixer.Live.MasterSeconds;
+            }
+
+            return _mixer.Live.MasterSeconds + Math.Max(0, (DateTime.UtcNow - _mixerSnapshotAtUtc).TotalSeconds);
+        }
+    }
+
+    private string LastDecisionTime
+        => _mixer?.Live.LastDecisionAtUtc is { } at
+            ? at.ToLocalTime().ToString("HH:mm:ss")
+            : "waiting";
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadAsync();
-        // Live mixer state only — the editable fields are not reloaded so a
-        // refresh never wipes in-progress edits.
-        _refreshTimer = new Timer(async _ =>
-        {
-            var fresh = await Api.GetMixerAsync();
-            if (fresh is not null && _mixer is not null)
-            {
-                _mixer = _mixer with { Live = fresh.Live, Status = fresh.Status };
-                await InvokeAsync(StateHasChanged);
-            }
-        }, null, TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
+        MixerLive.Changed += OnMixerChanged;
+        await MixerLive.EnsureStartedAsync();
+        ApplySnapshot(MixerLive.Snapshot, syncSettings: true);
+
+        _clockCts = new CancellationTokenSource();
+        _ = RunClockAsync(_clockCts.Token);
     }
 
-    public void Dispose() => _refreshTimer?.Dispose();
-
-    private async Task LoadAsync()
+    public void Dispose()
     {
-        _mixer = await Api.GetMixerAsync();
-        if (_mixer is not null)
+        MixerLive.Changed -= OnMixerChanged;
+        _clockCts?.Cancel();
+        _clockCts?.Dispose();
+    }
+
+    private async Task RunClockAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
         {
-            var m = _mixer.Settings;
-            _mx_enabled = m.MixerEnabled;
-            _mx_targetLufs = m.TargetLufs;
-            _mx_duckDb = m.DuckLevelDb;
-            _mx_crossfade = m.DefaultCrossfadeSeconds;
-            _mx_gapTalkMin = m.HardCutGapAfterTalkMsMin;
-            _mx_gapTalkMax = m.HardCutGapAfterTalkMsMax;
-            _mx_gapSongMin = m.HardCutGapSongMsMin;
-            _mx_gapSongMax = m.HardCutGapSongMsMax;
-            _mx_weights = m.StrategyWeightsJson;
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await InvokeAsync(StateHasChanged);
+            }
         }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    private void OnMixerChanged()
+        => _ = InvokeAsync(() =>
+        {
+            ApplySnapshot(MixerLive.Snapshot, syncSettings: _mixer is null);
+            StateHasChanged();
+        });
+
+    private void ApplySnapshot(MixerOverviewDto? snapshot, bool syncSettings)
+    {
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        _mixerSnapshotAtUtc = DateTime.UtcNow;
+        if (_mixer is null || syncSettings)
+        {
+            _mixer = snapshot;
+            SyncSettings(snapshot.Settings);
+            return;
+        }
+
+        _mixer = _mixer with { Live = snapshot.Live, Status = snapshot.Status };
+    }
+
+    private void SyncSettings(MixerSettingsDto settings)
+    {
+        _mx_enabled = settings.MixerEnabled;
+        _mx_targetLufs = settings.TargetLufs;
+        _mx_duckDb = settings.DuckLevelDb;
+        _mx_crossfade = settings.DefaultCrossfadeSeconds;
+        _mx_gapTalkMin = settings.HardCutGapAfterTalkMsMin;
+        _mx_gapTalkMax = settings.HardCutGapAfterTalkMsMax;
+        _mx_gapSongMin = settings.HardCutGapSongMsMin;
+        _mx_gapSongMax = settings.HardCutGapSongMsMax;
+        _mx_weights = settings.StrategyWeightsJson;
     }
 
     private MixerSettingsDto BuildMixerDto(bool enabled) => _mixer!.Settings with
@@ -244,9 +321,19 @@ else
             return;
         }
 
+        var previous = _mx_enabled;
         _mx_enabled = !_mx_enabled;
-        _mixerError = await Api.SaveMixerSettingsAsync(BuildMixerDto(_mx_enabled));
-        await LoadAsync();
+        var settings = BuildMixerDto(_mx_enabled);
+        _mixerError = await Api.SaveMixerSettingsAsync(settings);
+        if (_mixerError is null)
+        {
+            _mixer = _mixer with { Settings = settings };
+            _mixerSaved = true;
+        }
+        else
+        {
+            _mx_enabled = previous;
+        }
     }
 
     private async Task SaveMixerAsync()
@@ -256,9 +343,13 @@ else
             return;
         }
 
-        _mixerError = await Api.SaveMixerSettingsAsync(BuildMixerDto(_mx_enabled));
+        var settings = BuildMixerDto(_mx_enabled);
+        _mixerError = await Api.SaveMixerSettingsAsync(settings);
         _mixerSaved = _mixerError is null;
-        await LoadAsync();
+        if (_mixerError is null)
+        {
+            _mixer = _mixer with { Settings = settings };
+        }
     }
 
     private async Task BackfillAsync()

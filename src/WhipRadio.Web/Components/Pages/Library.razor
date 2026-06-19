@@ -12,7 +12,12 @@
 
 <div class="library-split">
     <div class="panel reveal library-artists">
-        <div class="panel-label">Artists</div>
+        <div class="artist-panel-top">
+            <div class="panel-label">Artists</div>
+            <button class="btn small" title="create an artist from a one-line hint" @onclick="OpenCreateArtist">
+                <Icon Name="inbox" /> Create Artist
+            </button>
+        </div>
         <input class="library-search" type="text" placeholder="search artist or song…"
                value="@_search" @oninput="OnSearchChangedAsync" />
         <div class="artist-list">
@@ -20,6 +25,18 @@
                 <span class="artist-name">All tracks</span>
                 <span class="artist-meta dim">@(_artists.Sum(a => a.TrackCount)) songs</span>
             </button>
+            @foreach (var pending in _artistCreationQueue)
+            {
+                <div class="artist-item artist-item-pending @(pending.Status == PendingArtistCreationStatus.Failed ? "failed" : null)" aria-live="polite">
+                    <span class="artist-name-line">
+                        <span class="artist-name">@PendingArtistTitle(pending)</span>
+                        <span class="tag @PendingArtistTag(pending)">@PendingArtistStatusText(pending)</span>
+                    </span>
+                    <span class="artist-meta-row">
+                        <span class="artist-meta dim">@(pending.Error ?? pending.Hint)</span>
+                    </span>
+                </div>
+            }
             @foreach (var artist in _artists.Where(ArtistMatchesSearch))
             {
                 <button class="artist-item @(_selectedArtistId == artist.Id ? "active" : null)"
@@ -68,6 +85,10 @@
                                 · <span class="vote-up-text">▲ @artist.UpVotes</span> <span class="vote-down-text">▼ @artist.DownVotes</span>
                             </div>
                             <div class="artist-style">@artist.StyleDescriptor</div>
+                            @if (!string.IsNullOrWhiteSpace(artist.PromotionText))
+                            {
+                                <div class="artist-promo">@artist.PromotionText</div>
+                            }
                             <div class="artist-bio">
                                 @if (_artistDetail is null)
                                 {
@@ -78,6 +99,21 @@
                                     @(_artistDetail.Biography ?? "No backstory on record.")
                                 }
                             </div>
+                            @if (_artistDetail?.Members is { Count: > 0 } members)
+                            {
+                                <div class="artist-member-roster">
+                                    @foreach (var member in members)
+                                    {
+                                        <div class="artist-member">
+                                            <div class="artist-member-head">
+                                                <span>@member.Name</span>
+                                                <span class="tag">@member.Role</span>
+                                            </div>
+                                            <div class="dim">@member.Biography</div>
+                                        </div>
+                                    }
+                                </div>
+                            }
                         </div>
                         <div class="artist-actions">
                             @if (!artist.IsRetired)
@@ -88,6 +124,16 @@
                             @if (queuedCount > 0)
                             {
                                 <div class="queue-box">Queue · @queuedCount song@(queuedCount == 1 ? "" : "s")</div>
+                            }
+                            @if (CanDeleteArtist(artist))
+                            {
+                                <button class="btn small vote-down" disabled="@_deletingArtist"
+                                        title="delete this artist profile"
+                                        @onclick="() => _deleteArtistTarget = artist"><Icon Name="trash" /> Delete Artist</button>
+                            }
+                            @if (_artistDeleteError is not null)
+                            {
+                                <div class="vote-down-text artist-action-error">@_artistDeleteError</div>
                             }
                         </div>
                     </div>
@@ -112,7 +158,6 @@
                 {
                     <div class="vote-down-text" style="margin-bottom:10px">@_deleteError</div>
                 }
-
                 if (filtered.Count == 0 && !showRecRow)
                 {
                     <div class="empty-state">
@@ -155,7 +200,7 @@
                                     }
                                     <span>recording</span>
                                     <span class="library-meta-dot">·</span>
-                                    <span>@GeneratingElapsed()</span>
+                                    <span><StudioJobStatus StartedAtUtc="@_status?.StartedAtUtc" /></span>
                                 </div>
                                 <div class="library-delete-cell">
                                     <button class="btn small vote-down" title="cancel recording"
@@ -182,6 +227,10 @@
                                     {
                                         <span class="tag red">retired</span>
                                     }
+                                    @if (track.DeletionPending)
+                                    {
+                                        <span class="tag red">delete queued</span>
+                                    }
                                     @if (track.HasVocals)
                                     {
                                         <span class="tag amber">vocal</span>
@@ -205,7 +254,9 @@
                                 </div>
                                 <div class="library-created-cell dim" title="@createdLocal.ToString("dd.MM.yyyy HH:mm")">@createdLocal.ToString("dd.MM.")</div>
                                 <div class="library-delete-cell">
-                                    <button class="btn small vote-down" title="delete this song"
+                                    <button class="btn small vote-down"
+                                            disabled="@track.DeletionPending"
+                                            title="@(track.DeletionPending ? "delete queued after playback" : "delete this song")"
                                             @onclick="() => _deleteTarget = track"><Icon Name="trash" /></button>
                                 </div>
                             </div>
@@ -226,6 +277,29 @@
     </div>
 </div>
 
+<Modal Visible="@_createArtistOpen" Title="Create Artist" Class="modal-wide" OnClose="CloseCreateArtist">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field full">
+                <label>Creation hint</label>
+                <textarea rows="3" @bind="_artistHint" @bind:event="oninput"
+                          placeholder="Describe the artist seed: genre, mood, origin, language, member count, or story angle."></textarea>
+            </div>
+        </div>
+        @if (_createArtistError is not null)
+        {
+            <div class="vote-down-text" style="margin-top:12px">@_createArtistError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="CloseCreateArtist">Cancel</button>
+        <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(_artistHint)"
+                @onclick="CreateArtistAsync">
+            Queue Artist
+        </button>
+    </Footer>
+</Modal>
+
 <ConfirmDialog Visible="@(_deleteTarget is not null)"
                Title="Delete song"
                ConfirmText="Delete"
@@ -237,6 +311,20 @@
     {
         <text>Delete <strong>"@doomed.Title"</strong> by @doomed.ArtistName?
         The recording, its votes and the audio file are gone for good.</text>
+    }
+</ConfirmDialog>
+
+<ConfirmDialog Visible="@(_deleteArtistTarget is not null)"
+               Title="Delete artist"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteArtistConfirmedAsync"
+               OnCancel="() => _deleteArtistTarget = null">
+    @if (_deleteArtistTarget is { } artistToDelete)
+    {
+        <text>Delete <strong>"@artistToDelete.Name"</strong>? This is only allowed while the artist has no songs.
+        The artist biography and member roster will be removed.</text>
     }
 </ConfirmDialog>
 
@@ -253,8 +341,16 @@
     private int _page = 1;
     private Guid? _selectedArtistId;
     private TrackDto? _deleteTarget;
+    private ArtistDto? _deleteArtistTarget;
     private string? _deleteError;
+    private string? _artistDeleteError;
     private bool _cancelingGeneration;
+    private bool _createArtistOpen;
+    private bool _artistCreationPumpRunning;
+    private bool _deletingArtist;
+    private string _artistHint = "";
+    private string? _createArtistError;
+    private readonly List<PendingArtistCreation> _artistCreationQueue = [];
     private Timer? _statusTimer;
 
     protected override async Task OnInitializedAsync()
@@ -273,24 +369,14 @@
 
     private int QueuedCount(Guid artistId) => _status?.QueuedArtistIds.Count(id => id == artistId) ?? 0;
 
-    private string GeneratingElapsed()
-    {
-        if (_status?.StartedAtUtc is not { } started)
-        {
-            return "";
-        }
-
-        var elapsed = DateTime.UtcNow - started;
-        return $"{(int)elapsed.TotalMinutes:00} min {elapsed.Seconds:00} s";
-    }
-
     private async Task PollStatusAsync()
     {
         var previous = _status?.ArtistId;
+        var hadPendingDelete = _tracks?.Any(t => t.DeletionPending) == true;
         _status = await Api.GetMusicProductionStatusAsync();
 
         // A generation just finished → fresh track exists; refresh the shelves.
-        if (previous is not null && _status?.ArtistId is null)
+        if ((previous is not null && _status?.ArtistId is null) || hadPendingDelete)
         {
             _artists = await Api.GetArtistsAsync();
             await LoadTracksAsync();
@@ -298,6 +384,7 @@
             {
                 _allTracks = await Api.GetLibraryAsync(sort: null, genre: null, artistId: null);
             }
+
         }
 
         await InvokeAsync(StateHasChanged);
@@ -367,6 +454,7 @@
         _page = 1;
         _deleteTarget = null;
         _deleteError = null;
+        _artistDeleteError = null;
         await LoadTracksAsync();
 
         if (artistId is { } id)
@@ -394,6 +482,92 @@
         }
     }
 
+    private bool CanDeleteArtist(ArtistDto artist)
+        => artist.TrackCount == 0
+            && !IsGenerating(artist.Id)
+            && !IsQueued(artist.Id);
+
+    private void OpenCreateArtist()
+    {
+        _artistHint = "";
+        _createArtistError = null;
+        _createArtistOpen = true;
+    }
+
+    private void CloseCreateArtist()
+    {
+        _createArtistOpen = false;
+        _createArtistError = null;
+    }
+
+    private Task CreateArtistAsync()
+    {
+        var hint = _artistHint.Trim();
+        if (string.IsNullOrWhiteSpace(hint))
+        {
+            return Task.CompletedTask;
+        }
+
+        _createArtistError = null;
+        _artistCreationQueue.Add(new PendingArtistCreation(hint));
+        _createArtistOpen = false;
+        _artistHint = "";
+        _search = "";
+        _ = ProcessArtistCreationQueueAsync();
+        return Task.CompletedTask;
+    }
+
+    private async Task ProcessArtistCreationQueueAsync()
+    {
+        if (_artistCreationPumpRunning)
+        {
+            return;
+        }
+
+        _artistCreationPumpRunning = true;
+        try
+        {
+            while (_artistCreationQueue.FirstOrDefault(p => p.Status == PendingArtistCreationStatus.Queued) is { } pending)
+            {
+                pending.Status = PendingArtistCreationStatus.Creating;
+                pending.Error = null;
+                await InvokeAsync(StateHasChanged);
+
+                try
+                {
+                    var (artist, error) = await Api.CreateArtistAsync(pending.Hint);
+                    if (artist is null)
+                    {
+                        pending.Status = PendingArtistCreationStatus.Failed;
+                        pending.Error = CleanApiError(error);
+                        await InvokeAsync(StateHasChanged);
+                        continue;
+                    }
+
+                    _artistCreationQueue.Remove(pending);
+                    _artistDeleteError = null;
+                    _artists = await Api.GetArtistsAsync();
+                    await SelectArtistAsync(artist.Id);
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (Exception ex)
+                {
+                    pending.Status = PendingArtistCreationStatus.Failed;
+                    pending.Error = ex.Message;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        finally
+        {
+            _artistCreationPumpRunning = false;
+            if (_artistCreationQueue.Any(p => p.Status == PendingArtistCreationStatus.Queued))
+            {
+                _ = ProcessArtistCreationQueueAsync();
+            }
+        }
+    }
+
     private async Task CancelGenerationAsync()
     {
         _cancelingGeneration = true;
@@ -418,13 +592,117 @@
         }
 
         _deleteTarget = null;
-        _deleteError = (await Api.DeleteTrackAsync(track.Id))?.Trim('"');
-        if (_deleteError is null)
+        DeleteTrackResult result = await Api.DeleteTrackAsync(track.Id);
+        _deleteError = result.Error?.Trim('"');
+        if (result.Deferred)
+        {
+            await LoadTracksAsync();
+        }
+        else if (_deleteError is null)
         {
             _artists = await Api.GetArtistsAsync();
             await LoadTracksAsync();
         }
     }
 
+    private async Task DeleteArtistConfirmedAsync()
+    {
+        if (_deleteArtistTarget is not { } artist)
+        {
+            return;
+        }
+
+        _deleteArtistTarget = null;
+        _deletingArtist = true;
+        _artistDeleteError = null;
+        try
+        {
+            DeleteArtistResult result = await Api.DeleteArtistAsync(artist.Id);
+            if (!result.Deleted)
+            {
+                _artistDeleteError = CleanApiError(result.Error);
+                return;
+            }
+
+            _selectedArtistId = null;
+            _artistDetail = null;
+            _artists = await Api.GetArtistsAsync();
+            await LoadTracksAsync();
+        }
+        finally
+        {
+            _deletingArtist = false;
+        }
+    }
+
     public void Dispose() => _statusTimer?.Dispose();
+
+    private static string PendingArtistTitle(PendingArtistCreation pending)
+        => pending.Status switch
+        {
+            PendingArtistCreationStatus.Creating => "Creating artist...",
+            PendingArtistCreationStatus.Failed => "Artist creation failed",
+            _ => "Artist queued",
+        };
+
+    private static string PendingArtistStatusText(PendingArtistCreation pending)
+        => pending.Status switch
+        {
+            PendingArtistCreationStatus.Creating => "creating",
+            PendingArtistCreationStatus.Failed => "failed",
+            _ => "queued",
+        };
+
+    private static string PendingArtistTag(PendingArtistCreation pending)
+        => pending.Status == PendingArtistCreationStatus.Failed ? "red" : "amber";
+
+    private static string CleanApiError(string? error)
+    {
+        if (string.IsNullOrWhiteSpace(error))
+        {
+            return "Artist creation failed.";
+        }
+
+        var trimmed = error.Trim().Trim('"');
+        if (trimmed.StartsWith("{", StringComparison.Ordinal))
+        {
+            try
+            {
+                using var document = System.Text.Json.JsonDocument.Parse(trimmed);
+                if (document.RootElement.TryGetProperty("detail", out var detail)
+                    && detail.GetString() is { Length: > 0 } detailText)
+                {
+                    return detailText;
+                }
+
+                if (document.RootElement.TryGetProperty("title", out var title)
+                    && title.GetString() is { Length: > 0 } titleText)
+                {
+                    return titleText;
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // Keep the original server text below.
+            }
+        }
+
+        return trimmed;
+    }
+
+    private sealed class PendingArtistCreation(string hint)
+    {
+        public string Hint { get; } = hint;
+
+        public PendingArtistCreationStatus Status { get; set; } = PendingArtistCreationStatus.Queued;
+
+        public string? Error { get; set; }
+    }
+
+    private enum PendingArtistCreationStatus
+    {
+        Queued,
+        Creating,
+        Failed,
+    }
 }

@@ -53,6 +53,9 @@ public sealed class TalkBreakCleanupService(
             .Where(talkBreak => talkBreak.Status != TalkBreakStatus.Played
                 && talkBreak.ExpiresAtUtc != null
                 && talkBreak.ExpiresAtUtc <= now)
+            .OrderBy(talkBreak => talkBreak.ExpiresAtUtc)
+            .ThenBy(talkBreak => talkBreak.CreatedAtUtc)
+            .ThenBy(talkBreak => talkBreak.Id)
             .Take(50)
             .ToListAsync(ct);
 

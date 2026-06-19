@@ -69,7 +69,10 @@ public static class HttpClientsServiceCollectionExtensions
             .RemoveAllResilienceHandlers();
 
         services.AddSingleton<AceStepPromptBuilder>();
+        services.AddSingleton<OllamaModelMemoryManager>();
+        services.AddSingleton<IStudioUpdatePublisher, NoOpStudioUpdatePublisher>();
         services.AddSingleton<StudioCoordinator>();
+        services.AddSingleton<StudioHistoryRecorder>();
         services.AddSingleton<StudioProviderFactory>();
         services.AddSingleton<StudioDockerControl>();
         services.AddScoped<ITtsEngine, TtsEngineRouter>();

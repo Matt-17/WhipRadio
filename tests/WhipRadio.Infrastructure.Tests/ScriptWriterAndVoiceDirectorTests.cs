@@ -28,7 +28,14 @@ public class ScriptWriterAndVoiceDirectorTests
     {
         var llm = new CapturingLlm();
         var writer = new ScriptWriter(llm);
-        var track = new Track { Title = "Neon Llama", Genre = "indie rock", Style = "driving drums" };
+        var track = new Track
+        {
+            Title = "Neon Llama",
+            Genre = "indie rock",
+            Style = "driving drums",
+            Language = "en",
+            SongStory = "The artist wrote it after a rooftop rehearsal during a power cut.",
+        };
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.SongIntro, "WhipRadio", "en", track), CancellationToken.None);
@@ -38,6 +45,8 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("Neon Llama", llm.UserPrompt);
         Assert.Contains("indie rock", llm.UserPrompt);
         Assert.Contains("driving drums", llm.UserPrompt);
+        Assert.Contains("rooftop rehearsal", llm.UserPrompt);
+        Assert.Contains("Song language: en", llm.UserPrompt);
         Assert.DoesNotContain("{Title}", llm.UserPrompt);
     }
 

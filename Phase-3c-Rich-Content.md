@@ -15,6 +15,11 @@ Three capabilities: (1) news & traffic announcements through the existing
 produces multi-speaker talks and podcasts (same machine, different length/structure);
 (3) **top-of-the-hour timing** so news lands at :00.
 
+**Pulled forward from Phase 5:** rich artist creation is part of the content foundation
+now. Artists are created from one-line hints through the writer room, with stored public
+showcase copy, hidden deep background, and member rosters. ConversationSegment can later
+use those members as speakers without replacing the artist schema.
+
 ---
 
 ## 2. News & Traffic (the easy, high-value part)
@@ -103,6 +108,7 @@ alignment can come if news/traffic prove popular.
 3. `ConversationSegment` model + single-call speaker-tagged scripting + assembly.
 4. Talk/podcast formats the Program Director can schedule.
 5. `TimingPlanner` for top-of-hour, selection-first with fade/jingle fallbacks.
+6. Rich artist creation from hints + member roster storage (pulled forward from Phase 5).
 
 ---
 
@@ -115,6 +121,7 @@ alignment can come if news/traffic prove popular.
       Phase 5 multi-agent with no schema change
 - [ ] News lands within ±2 s of :00 via selection/fades, never via time-stretch
 - [ ] Stream stays live throughout; long podcasts pre-produced
+- [ ] Artists have enough hidden background and member data to seed future talks
 
 ---
 

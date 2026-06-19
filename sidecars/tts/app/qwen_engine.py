@@ -66,7 +66,7 @@ class QwenEngine(EngineBase):
         # Designs are heavyweight (transient 1.7B model) and MUST be serialized:
         # concurrent designs (client retries!) would race for VRAM and OOM.
         self._design_lock = threading.Lock()
-        self._synth_lock = threading.Lock()
+        self._synth_lock = threading.RLock()
         VOICES_DIR.mkdir(parents=True, exist_ok=True)
 
     # --- resident synth model -------------------------------------------------
@@ -124,29 +124,50 @@ class QwenEngine(EngineBase):
         self, text: str, voice: str, speed: float,
         language: str = "en", instruction: str | None = None,
     ) -> np.ndarray:
-        model = self._synth_model()
-        prompt = self._clone_prompt(model, voice)
+        with self._synth_lock:
+            model = self._synth_model()
+            prompt = self._clone_prompt(model, voice)
 
-        kwargs = {
-            "text": text,
-            "language": _language_name(language),
-            "voice_clone_prompt": prompt,
-        }
-        if instruction:
-            kwargs["instruct"] = instruction
+            kwargs = {
+                "text": text,
+                "language": _language_name(language),
+                "voice_clone_prompt": prompt,
+            }
+            if instruction:
+                kwargs["instruct"] = instruction
 
-        try:
-            wavs, sr = model.generate_voice_clone(**kwargs)
-        except TypeError:
-            # this build's clone API has no instruct parameter - style comes
-            # from the designed voice itself then
-            kwargs.pop("instruct", None)
-            wavs, sr = model.generate_voice_clone(**kwargs)
+            try:
+                wavs, sr = model.generate_voice_clone(**kwargs)
+            except TypeError:
+                # this build's clone API has no instruct parameter - style comes
+                # from the designed voice itself then
+                kwargs.pop("instruct", None)
+                wavs, sr = model.generate_voice_clone(**kwargs)
 
         audio = np.asarray(wavs[0] if isinstance(wavs, (list, tuple)) else wavs, dtype=np.float32)
         if audio.ndim > 1:
             audio = audio.mean(axis=-1)
         return self._resample(audio, int(sr), self.sample_rate)
+
+    def unload(self) -> dict:
+        with self._synth_lock:
+            loaded = self._model is not None or bool(self._clone_prompts)
+            self._model = None
+            self._clone_prompts.clear()
+
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                if hasattr(torch.cuda, "ipc_collect"):
+                    torch.cuda.ipc_collect()
+        except Exception:  # noqa: BLE001 - best-effort VRAM cleanup endpoint
+            logger.exception("Qwen unload cleanup failed")
+
+        logger.info("Unloaded Qwen resident synth model: %s", loaded)
+        return {"engine": self.name, "unloaded": loaded}
 
     def voices(self) -> list[dict]:
         result = []
