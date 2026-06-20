@@ -13,7 +13,8 @@ public sealed record PromptContextInput(
     string? Purpose = null,
     PromptPriority Priority = PromptPriority.Normal,
     int? TargetSeconds = null,
-    string? AlreadySpokenContext = null);
+    string? AlreadySpokenContext = null,
+    DateTimeOffset? LocalNowOverride = null);
 
 public static class PromptWordBudget
 {

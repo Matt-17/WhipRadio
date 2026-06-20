@@ -39,7 +39,7 @@ public sealed class PromptContextBuilder(
             ? PromptWordBudget.EstimateWordBudget(language, speechRate, seconds)
             : (int?)null;
         var role = ResolveRole(input, moderator);
-        var localNow = timeProvider.GetLocalNow();
+        var localNow = input.LocalNowOverride ?? timeProvider.GetLocalNow();
         var baselineTraits = moderator is null ? null : MoodEngine.Baseline(moderator);
         var currentTraits = moderator is null ? null : MoodEngine.Current(moderator, localNow);
 

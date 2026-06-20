@@ -57,6 +57,41 @@ public class PromptContextBuilderTests
         Assert.Contains("Make original radio feel intentional.", rendered);
     }
 
+    [TestMethod]
+    public async Task BuildAsync_UsesLocalNowOverrideForScheduledAirtime()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        await using (var db = fixture.CreateDbContext())
+        {
+            db.StationSettings.Add(new StationSettings
+            {
+                Id = StationSettings.SingletonId,
+                StationName = "Night Lab FM",
+                DefaultLanguage = "en",
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var time = new FixedTimeProvider(new DateTime(2026, 6, 20, 21, 50, 0, DateTimeKind.Utc));
+        var builder = new PromptContextBuilder(
+            fixture,
+            new ScheduleService(fixture, time),
+            time,
+            new EmptyToolCatalog(),
+            NullLogger<PromptContextBuilder>.Instance);
+
+        var context = await builder.BuildAsync(
+            new PromptContextInput(
+                PromptScope.AnnouncementScript,
+                AnnouncementKind: AnnouncementKind.Weather,
+                LocalNowOverride: new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.FromHours(2))),
+            CancellationToken.None);
+
+        var rendered = context.RenderSituation();
+        Assert.Contains("2026-06-21 00:00", rendered);
+        Assert.DoesNotContain("21:50", rendered);
+    }
+
     private sealed class EmptyToolCatalog : ICharacterToolCatalog
     {
         public IReadOnlyList<CharacterToolDefinition> GetTools(PromptScope scope, CharacterRole role) => [];

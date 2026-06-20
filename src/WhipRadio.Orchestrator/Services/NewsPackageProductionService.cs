@@ -224,21 +224,22 @@ public sealed class NewsPackageProductionService(
             var targetEnd = targetUtc.AddSeconds(
                 TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
             var localNow = timeProvider.GetLocalNow();
-            var weatherAiringLocalTime = new DateTimeOffset(
+            var targetLocal = new DateTimeOffset(
                 DateTime.SpecifyKind(targetUtc, DateTimeKind.Utc),
                 TimeSpan.Zero).ToOffset(localNow.Offset);
-            var newsHandoff = BuildIntroText(context.Moderator, newsModerator, localNow);
+            var newsHandoff = BuildIntroText(context.Moderator, newsModerator, targetLocal);
 
             step = "writing news script";
             var newsDraft = await factory.WriteScriptDraftAsync(
                 AnnouncementKind.News,
                 newsModerator,
                 null,
-                BuildNewsFacts(items, localNow),
+                BuildNewsFacts(items, targetLocal),
                 settings.StationName,
                 ct,
                 lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
-                alreadySpokenContext: newsHandoff);
+                alreadySpokenContext: newsHandoff,
+                localNowOverride: targetLocal);
 
             Moderator? weatherModerator = null;
             string? weatherHandoff = null;
@@ -256,11 +257,12 @@ public sealed class NewsPackageProductionService(
                     AnnouncementKind.Weather,
                     weatherModerator,
                     null,
-                    report.ToFacts(weatherAiringLocalTime.DateTime),
+                    report.ToFacts(targetLocal.DateTime),
                     settings.StationName,
                     ct,
                     lengthHint: "A concise weather report, about 45 seconds.",
-                    alreadySpokenContext: weatherHandoff);
+                    alreadySpokenContext: weatherHandoff,
+                    localNowOverride: targetLocal);
             }
 
             step = "recording news handoff";

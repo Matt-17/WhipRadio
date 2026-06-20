@@ -33,7 +33,8 @@ public class AnnouncementFactory(
         string stationName,
         CancellationToken ct,
         string? lengthHint = null,
-        string? alreadySpokenContext = null)
+        string? alreadySpokenContext = null,
+        DateTimeOffset? localNowOverride = null)
     {
         var allowBreath = await GetAllowBreathAsync(moderator, ct);
 
@@ -52,7 +53,8 @@ public class AnnouncementFactory(
                 Facts: facts,
                 LengthHint: lengthHint,
                 Purpose: kind.ToString(),
-                AlreadySpokenContext: alreadySpokenContext),
+                AlreadySpokenContext: alreadySpokenContext,
+                LocalNowOverride: localNowOverride),
             ct);
 
         var request = new AnnouncementRequest(
@@ -74,7 +76,8 @@ public class AnnouncementFactory(
                 Facts: facts,
                 LengthHint: lengthHint,
                 Purpose: kind.ToString(),
-                AlreadySpokenContext: alreadySpokenContext),
+                AlreadySpokenContext: alreadySpokenContext,
+                LocalNowOverride: localNowOverride),
             ct);
 
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct, voiceContext);
@@ -157,7 +160,8 @@ public class AnnouncementFactory(
         string stationName,
         CancellationToken ct,
         string? lengthHint = null,
-        string? alreadySpokenContext = null)
+        string? alreadySpokenContext = null,
+        DateTimeOffset? localNowOverride = null)
     {
         // Personal talks reference what the host already said today.
         if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
@@ -174,7 +178,8 @@ public class AnnouncementFactory(
                 Facts: facts,
                 LengthHint: lengthHint,
                 Purpose: kind.ToString(),
-                AlreadySpokenContext: alreadySpokenContext),
+                AlreadySpokenContext: alreadySpokenContext,
+                LocalNowOverride: localNowOverride),
             ct);
 
         var request = new AnnouncementRequest(
@@ -194,6 +199,7 @@ public class AnnouncementFactory(
             facts,
             lengthHint,
             alreadySpokenContext,
+            localNowOverride,
             script,
             scriptContext);
     }
@@ -210,7 +216,8 @@ public class AnnouncementFactory(
                 Facts: draft.Facts,
                 LengthHint: draft.LengthHint,
                 Purpose: draft.Kind.ToString(),
-                AlreadySpokenContext: draft.AlreadySpokenContext),
+                AlreadySpokenContext: draft.AlreadySpokenContext,
+                LocalNowOverride: draft.LocalNowOverride),
             ct);
 
         var voiced = await voiceDirector.DirectAsync(draft.Script, draft.Moderator, ct, voiceContext);
@@ -529,6 +536,7 @@ public class AnnouncementFactory(
         string? Facts,
         string? LengthHint,
         string? AlreadySpokenContext,
+        DateTimeOffset? LocalNowOverride,
         string Script,
         Core.Prompting.PromptContext ScriptContext);
 }

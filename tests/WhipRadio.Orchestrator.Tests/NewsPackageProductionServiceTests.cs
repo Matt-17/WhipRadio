@@ -9,13 +9,25 @@ public class NewsPackageProductionServiceTests
     [TestMethod]
     public void BuildIntroText_UsesCurrentLocalTimeAndVariesByHost()
     {
-        var localNow = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
+        var airtime = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
         var currentHost = new Moderator { Id = 1, Name = "Ava" };
         var newsHost = new Moderator { Id = 2, Name = "Maya" };
 
-        var intro = NewsPackageProductionService.BuildIntroText(currentHost, newsHost, localNow);
+        var intro = NewsPackageProductionService.BuildIntroText(currentHost, newsHost, airtime);
 
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual("It's 18:00. Maya has the news.", intro);
+    }
+
+    [TestMethod]
+    public void BuildIntroText_UsesScheduledAirtimeAcrossMidnight()
+    {
+        var airtime = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.FromHours(2));
+        var currentHost = new Moderator { Id = 1, Name = "Ava" };
+        var newsHost = new Moderator { Id = 2, Name = "Maya" };
+
+        var intro = NewsPackageProductionService.BuildIntroText(currentHost, newsHost, airtime);
+
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual("It's 00:00. Maya has the news.", intro);
     }
 
     [TestMethod]
@@ -32,7 +44,7 @@ public class NewsPackageProductionServiceTests
     [TestMethod]
     public void BuildNewsFacts_PrependsBulletinTime()
     {
-        var localNow = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
+        var airtime = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
         var item = new NewsItem
         {
             Title = "Markets move",
@@ -43,7 +55,7 @@ public class NewsPackageProductionServiceTests
             ContentHash = "abc123",
         };
 
-        var facts = NewsPackageProductionService.BuildNewsFacts([item], localNow);
+        var facts = NewsPackageProductionService.BuildNewsFacts([item], airtime);
 
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.Contains("Bulletin time: 2026-06-20 18:00 local.", facts);
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.Contains("Title: Markets move", facts);

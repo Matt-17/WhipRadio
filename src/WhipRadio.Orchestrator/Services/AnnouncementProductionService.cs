@@ -85,7 +85,8 @@ public class AnnouncementProductionService(
                 null,
                 report.ToFacts(airingLocalTime.DateTime),
                 settings.StationName,
-                ct);
+                ct,
+                localNowOverride: airingLocalTime);
         }
     }
 
