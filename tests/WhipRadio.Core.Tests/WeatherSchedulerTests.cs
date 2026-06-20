@@ -39,5 +39,8 @@ public class WeatherSchedulerTests
         Assert.Equal(
             new DateTimeOffset(2026, 6, 17, 10, 30, 0, TimeSpan.Zero),
             WeatherScheduler.CurrentWindowStart(justAfterHalfHour, cadenceMinutes: 30));
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 17, 10, 30, 0, TimeSpan.Zero),
+            WeatherScheduler.NextWindowStart(nearHalfHour, cadenceMinutes: 30));
     }
 }

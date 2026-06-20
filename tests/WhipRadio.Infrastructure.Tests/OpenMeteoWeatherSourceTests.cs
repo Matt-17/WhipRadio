@@ -78,11 +78,12 @@ public class OpenMeteoWeatherSourceTests
         var summary = await source.GetSummaryAsync("en", CancellationToken.None);
 
         Assert.Contains("Location: New York, US.", summary);
-        Assert.Contains("Current conditions: 14.3 C, light rain, wind 12 km/h.", summary);
-        Assert.Contains("Today temperature range: current temperature 14.3 C; daily high 31 C appears to be earlier/already reached", summary);
-        Assert.Contains("Next hours: 21:00 13.7 C, light rain; 02:00 8.1 C, partly cloudy.", summary);
-        Assert.Contains("Tonight low: around 8.1 C.", summary);
-        Assert.Contains("Tomorrow: overcast, 18 C/8.1 C, rain chance 20%.", summary);
+        Assert.Contains("Weather airing time: now.", summary);
+        Assert.Contains("Current conditions: 14 C, light rain, wind 12 km/h.", summary);
+        Assert.Contains("Today temperature range: current temperature 14 C; daily high 31 C appears to be earlier/already reached", summary);
+        Assert.Contains("Next hours after airing time: 21:00 14 C, light rain; 02:00 8 C, partly cloudy.", summary);
+        Assert.Contains("Tonight low: around 8 C.", summary);
+        Assert.Contains("Tomorrow: overcast, 18 C/8 C, rain chance 20%.", summary);
     }
 
     [TestMethod]
@@ -94,7 +95,7 @@ public class OpenMeteoWeatherSourceTests
 
         var summary = await source.GetSummaryAsync("es", CancellationToken.None);
 
-        Assert.Contains("Current conditions: 14.3 C", summary);
+        Assert.Contains("Current conditions: 14 C", summary);
         Assert.Contains("light rain", summary);
         Assert.Contains("rain chance 60%", summary);
     }
@@ -152,8 +153,40 @@ public class OpenMeteoWeatherSourceTests
         var report = OpenMeteoWeatherSource.BuildReport(forecast, "en", "Dresden, DE");
 
         Assert.Equal(WeatherDailyMaxStatus.AlreadyReached, report.TodayTemperature.DailyMaxStatus);
-        Assert.Contains("current temperature 29.8 C already matches today's high 29.8 C", report.ToFacts());
+        Assert.Contains("current temperature 30 C already matches today's high 30 C", report.ToFacts());
         Assert.DoesNotContain("is still ahead", report.ToFacts());
+    }
+
+    [TestMethod]
+    public void ToFacts_FiltersPastTargetHourAgainstAiringTimeAndRoundsTemperatures()
+    {
+        var forecast = System.Text.Json.JsonSerializer.Deserialize<OpenMeteoWeatherSource.ForecastResponse>(
+            """
+            {
+              "current": { "time": "2026-06-17T20:55", "temperature_2m": 28.9, "weather_code": 3, "wind_speed_10m": 7.4 },
+              "hourly": {
+                "time": ["2026-06-17T20:00", "2026-06-17T21:00", "2026-06-17T22:00"],
+                "temperature_2m": [28.9, 27.9, 26.4],
+                "weather_code": [3, 3, 2]
+              },
+              "daily": {
+                "time": ["2026-06-17"],
+                "weather_code": [3],
+                "temperature_2m_max": [29.2],
+                "temperature_2m_min": [18.7],
+                "precipitation_probability_max": [10]
+              }
+            }
+            """)!;
+
+        var report = OpenMeteoWeatherSource.BuildReport(forecast, "en", "Dresden, DE");
+        var facts = report.ToFacts(new DateTime(2026, 6, 17, 21, 0, 0));
+
+        Assert.Contains("Weather airing time: 2026-06-17 21:00 local.", facts);
+        Assert.Contains("Current conditions: 29 C", facts);
+        Assert.Contains("Next hours after airing time: 22:00 26 C", facts);
+        Assert.DoesNotContain("21:00 27.9 C", facts);
+        Assert.DoesNotContain("21:00 28 C", facts);
     }
 
     [TestMethod]

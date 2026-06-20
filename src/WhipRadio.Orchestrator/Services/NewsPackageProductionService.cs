@@ -224,6 +224,9 @@ public sealed class NewsPackageProductionService(
             var targetEnd = targetUtc.AddSeconds(
                 TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
             var localNow = timeProvider.GetLocalNow();
+            var weatherAiringLocalTime = new DateTimeOffset(
+                DateTime.SpecifyKind(targetUtc, DateTimeKind.Utc),
+                TimeSpan.Zero).ToOffset(localNow.Offset);
             var newsHandoff = BuildIntroText(context.Moderator, newsModerator, localNow);
 
             step = "writing news script";
@@ -253,7 +256,7 @@ public sealed class NewsPackageProductionService(
                     AnnouncementKind.Weather,
                     weatherModerator,
                     null,
-                    report.ToFacts(),
+                    report.ToFacts(weatherAiringLocalTime.DateTime),
                     settings.StationName,
                     ct,
                     lengthHint: "A concise weather report, about 45 seconds.",

@@ -14,29 +14,33 @@ public sealed record WeatherReport(
     IReadOnlyList<WeatherDay> Outlook,
     IReadOnlyList<WeatherHour> NextHours)
 {
-    public string ToFacts()
+    public string ToFacts(DateTime? airingLocalTime = null)
     {
         var culture = CultureInfo.InvariantCulture;
+        var nearTermHours = airingLocalTime is null
+            ? NextHours
+            : NextHours.Where(hour => hour.Time > airingLocalTime.Value).ToList();
 
         var lines = new List<string>
         {
             $"Location: {LocationName}.",
             $"Weather observation time: {LocalTime:yyyy-MM-dd HH:mm} local.",
-            $"Current conditions: {Current.TemperatureC.ToString("0.#", culture)} C, {Current.Condition}, wind {Current.WindSpeedKmh.ToString("0.#", culture)} km/h.",
+            airingLocalTime is null ? "Weather airing time: now." : $"Weather airing time: {airingLocalTime.Value:yyyy-MM-dd HH:mm} local.",
+            $"Current conditions: {FormatTemperature(Current.TemperatureC, culture)} C, {Current.Condition}, wind {Current.WindSpeedKmh.ToString("0", culture)} km/h.",
             FormatTodayTemperature(culture),
         };
 
-        if (NextHours.Count > 0)
+        if (nearTermHours.Count > 0)
         {
-            lines.Add("Next hours: " + string.Join("; ", NextHours.Select(hour =>
-                $"{hour.Time:HH:mm} {hour.TemperatureC.ToString("0.#", culture)} C, {hour.Condition}")) + ".");
+            lines.Add("Next hours after airing time: " + string.Join("; ", nearTermHours.Select(hour =>
+                $"{hour.Time:HH:mm} {FormatTemperature(hour.TemperatureC, culture)} C, {hour.Condition}")) + ".");
         }
 
         lines.Add($"Today condition: {Today.Condition}; rain chance {Today.PrecipitationProbabilityPercent.GetValueOrDefault()}%.");
 
         if (TonightLowC is double low)
         {
-            lines.Add($"Tonight low: around {low.ToString("0.#", culture)} C.");
+            lines.Add($"Tonight low: around {FormatTemperature(low, culture)} C.");
         }
 
         if (Tomorrow is not null)
@@ -54,17 +58,25 @@ public sealed record WeatherReport(
 
     private static string FormatRange(WeatherDay day, CultureInfo culture)
     {
-        var max = day.MaxTemperatureC?.ToString("0.#", culture) ?? "?";
-        var min = day.MinTemperatureC?.ToString("0.#", culture) ?? "?";
+        var max = day.MaxTemperatureC is double maxTemperature ? FormatTemperature(maxTemperature, culture) : "?";
+        var min = day.MinTemperatureC is double minTemperature ? FormatTemperature(minTemperature, culture) : "?";
         return $"{max} C/{min} C";
     }
 
     private string FormatTodayTemperature(CultureInfo culture)
     {
-        var current = TodayTemperature.CurrentTemperatureC?.ToString("0.#", culture) ?? "?";
-        var max = TodayTemperature.DailyMaxTemperatureC?.ToString("0.#", culture) ?? "?";
-        var min = TodayTemperature.DailyMinTemperatureC?.ToString("0.#", culture) ?? "?";
-        var remaining = TodayTemperature.RemainingMaxTemperatureC?.ToString("0.#", culture);
+        var current = TodayTemperature.CurrentTemperatureC is double currentTemperatureValue
+            ? FormatTemperature(currentTemperatureValue, culture)
+            : "?";
+        var max = TodayTemperature.DailyMaxTemperatureC is double maxTemperature
+            ? FormatTemperature(maxTemperature, culture)
+            : "?";
+        var min = TodayTemperature.DailyMinTemperatureC is double minTemperature
+            ? FormatTemperature(minTemperature, culture)
+            : "?";
+        var remaining = TodayTemperature.RemainingMaxTemperatureC is double remainingTemperature
+            ? FormatTemperature(remainingTemperature, culture)
+            : null;
 
         return TodayTemperature.DailyMaxStatus switch
         {
@@ -80,6 +92,9 @@ public sealed record WeatherReport(
                 $"Today temperature range: daily high {max} C (do not say it is still ahead unless next-hours data supports that); daily low {min} C.",
         };
     }
+
+    private static string FormatTemperature(double temperatureC, CultureInfo culture)
+        => Math.Round(temperatureC, MidpointRounding.AwayFromZero).ToString("0", culture);
 }
 
 public sealed record WeatherNow(

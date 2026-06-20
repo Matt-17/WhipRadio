@@ -60,6 +60,8 @@ public class PromptTemplatesTests
         Assert.Contains("here in Dresden", prompt);
         Assert.Contains("Do not say \"for Dresden, Germany\"", prompt);
         Assert.Contains("Do not introduce yourself", prompt);
+        Assert.Contains("weather airing time", prompt);
+        Assert.Contains("next-hours-after-airing-time", prompt);
         Assert.DoesNotContain("{WeatherFacts}", prompt);
     }
 }

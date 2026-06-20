@@ -77,12 +77,13 @@ public class AnnouncementProductionService(
             && !await HasFreshUnplayedWeatherAsync(settings.WeatherCadenceMinutes, ct))
         {
             var weatherModerator = await ResolveWeatherModeratorAsync(settings, moderator, ct);
+            var airingLocalTime = WeatherScheduler.NextWindowStart(localNow, settings.WeatherCadenceMinutes);
             var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
             await factory.ProduceAsync(
                 AnnouncementKind.Weather,
                 weatherModerator,
                 null,
-                report.ToFacts(),
+                report.ToFacts(airingLocalTime.DateTime),
                 settings.StationName,
                 ct);
         }

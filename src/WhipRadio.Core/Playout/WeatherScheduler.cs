@@ -44,6 +44,21 @@ public static class WeatherScheduler
             localNow.Offset).AddMinutes(startMinute);
     }
 
+    public static DateTimeOffset NextWindowStart(DateTimeOffset localNow, int cadenceMinutes)
+    {
+        var cadence = NormalizeCadence(cadenceMinutes);
+        var minuteOfDay = localNow.Hour * 60 + localNow.Minute;
+        var startMinute = minuteOfDay - minuteOfDay % cadence + cadence;
+        return new DateTimeOffset(
+            localNow.Year,
+            localNow.Month,
+            localNow.Day,
+            0,
+            0,
+            0,
+            localNow.Offset).AddMinutes(startMinute);
+    }
+
     public static int NormalizeCadence(int cadenceMinutes)
         => Math.Clamp(cadenceMinutes, 15, 180);
 }
