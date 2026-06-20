@@ -65,6 +65,7 @@ builder.Services.AddSingleton<MusicProductionControl>();
 builder.Services.AddSingleton<DirectorControl>();
 builder.Services.AddSingleton<HostLanguageAligner>();
 builder.Services.AddSingleton<ServerStatsCollector>();
+builder.Services.AddSingleton<PrivacyReportService>();
 builder.Services.AddSingleton<IPromptContextBuilder, PromptContextBuilder>();
 builder.Services.AddSingleton<IStudioUpdatePublisher, SignalRStudioUpdatePublisher>();
 builder.Services.AddSingleton<IProductionUpdatePublisher, SignalRProductionUpdatePublisher>();

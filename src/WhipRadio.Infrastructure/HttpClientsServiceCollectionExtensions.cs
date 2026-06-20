@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Analysis;
@@ -7,6 +9,7 @@ using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.News;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Infrastructure.Privacy;
 using WhipRadio.Infrastructure.Prompting;
 using WhipRadio.Infrastructure.Studios;
 using WhipRadio.Infrastructure.Tts;
@@ -28,6 +31,9 @@ public static class HttpClientsServiceCollectionExtensions
         services.Configure<WeatherOptions>(configuration.GetSection(WeatherOptions.SectionName));
         services.Configure<AceStepOptions>(configuration.GetSection(AceStepOptions.SectionName));
         services.AddSingleton<StationSettingsCache>();
+        services.TryAddSingleton<OutgoingHttpRequestAudit>();
+        services.TryAddEnumerable(
+            ServiceDescriptor.Singleton<IHttpMessageHandlerBuilderFilter, PrivacyAuditHttpMessageHandlerFilter>());
 
         // The AI clients are long-running (model loads, CPU inference). Aspire's default
         // standard resilience handler (~10 s attempt timeout + retries) would cancel and

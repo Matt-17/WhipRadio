@@ -41,6 +41,7 @@ public static class RadioApiEndpoints
         MapFormatsAndSchedule(api);
         MapStats(api);
         MapConsole(api);
+        MapPrivacy(api);
 
         return app;
     }
@@ -1911,6 +1912,12 @@ public static class RadioApiEndpoints
 
         api.MapGet("/serverstats", async (ServerStatsCollector collector, CancellationToken ct) =>
             Results.Ok(await collector.CollectAsync(ct)));
+    }
+
+    private static void MapPrivacy(RouteGroupBuilder api)
+    {
+        api.MapGet("/privacy", (PrivacyReportService privacy) =>
+            Results.Ok(privacy.BuildReport()));
     }
 
     private static string? NextOnAir(IEnumerable<ProgramSlot> slots, DateTimeOffset now)

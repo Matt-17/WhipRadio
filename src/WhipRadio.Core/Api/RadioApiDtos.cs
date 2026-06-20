@@ -488,6 +488,32 @@ public sealed record ConsoleLineDto(
     string? SourceKind = null,
     string? SourceName = null);
 
+public sealed record PrivacyRequestDto(
+    DateTime TimestampUtc,
+    string Method,
+    string Target,
+    string Host,
+    string Source,
+    int? StatusCode,
+    bool Succeeded,
+    double DurationMs,
+    string Classification,
+    string? Error);
+
+public sealed record PrivacyServiceDto(
+    string Name,
+    string Target,
+    string Classification,
+    string Status,
+    string Detail);
+
+public sealed record PrivacyReportDto(
+    DateTime GeneratedAtUtc,
+    int RequestCapacity,
+    IReadOnlyList<PrivacyServiceDto> Services,
+    IReadOnlyList<PrivacyRequestDto> Requests,
+    IReadOnlyList<string> Notes);
+
 public sealed record GpuStatsDto(
     string Name,
     double UtilizationPercent,

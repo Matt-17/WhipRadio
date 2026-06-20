@@ -1,0 +1,357 @@
+@page "/privacy"
+@using System.Globalization
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio - Privacy</PageTitle>
+
+<h1 class="stage-title">Privacy</h1>
+<div class="stage-sub">external HTTP request audit - memory-only - sanitized at capture</div>
+
+@if (_report is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> checking the outbound patch bay...</div></div>
+}
+else
+{
+    <div class="privacy-summary-grid reveal">
+        <div class="panel privacy-stat">
+            <div class="panel-label">External Requests</div>
+            <div class="privacy-stat-value">@_report.Requests.Count</div>
+            <div class="dim">latest @_report.RequestCapacity in memory</div>
+        </div>
+        <div class="panel privacy-stat">
+            <div class="panel-label">Potential Exposure</div>
+            <div class="privacy-stat-value">@ExternalServices.Count(IsPotentialExposure)</div>
+            <div class="dim">configured external endpoints</div>
+        </div>
+        <div class="panel privacy-stat">
+            <div class="panel-label">Last Capture</div>
+            <div class="privacy-stat-value">@LastCaptureLabel</div>
+            <div class="dim">query strings redacted</div>
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="privacy-panel-head">
+            <div>
+                <div class="panel-label">Privacy Facts</div>
+                <div class="dim">read-only audit of noteworthy network and storage behavior</div>
+            </div>
+            <button class="btn small" disabled="@_refreshing" @onclick="LoadAsync">Refresh</button>
+        </div>
+
+        <div class="privacy-fact-groups">
+            <section class="privacy-fact-group">
+                <div class="privacy-category-title">External providers</div>
+                <div class="privacy-slim-list">
+                    @foreach (var service in ExternalServices)
+                    {
+                        <div class="privacy-slim-row">
+                            <span class="privacy-slim-main">
+                                <span>@service.Name</span>
+                                <span class="privacy-dot">&bull;</span>
+                                <span class="privacy-slim-reason">@ReasonForService(service)</span>
+                            </span>
+                            <StatusBadge Text="@StatusForService(service)" Tone="@ToneForService(service)" Title="@service.Target" />
+                        </div>
+                    }
+                </div>
+            </section>
+
+            @if (PrivateServices.Count > 0)
+            {
+                <section class="privacy-fact-group">
+                    <div class="privacy-category-title">Private endpoints</div>
+                    <div class="privacy-slim-list">
+                        @foreach (var service in PrivateServices)
+                        {
+                            <div class="privacy-slim-row">
+                                <span class="privacy-slim-main">
+                                    <span>@service.Name</span>
+                                    <span class="privacy-dot">&bull;</span>
+                                    <span class="privacy-slim-reason">@ReasonForService(service)</span>
+                                </span>
+                                <StatusBadge Text="@StatusForService(service)" Tone="@ToneForService(service)" Title="@service.Target" />
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+
+    <div class="privacy-toolbar reveal">
+        <div class="console-filter-block">
+            <div class="panel-label">Status</div>
+            <div class="seg" role="radiogroup" aria-label="Request status">
+                @foreach (var filter in _statusFilters)
+                {
+                    <button type="button"
+                            class="seg-btn @Active(_statusFilter == filter)"
+                            @onclick="() => _statusFilter = filter">@filter</button>
+                }
+            </div>
+        </div>
+
+        <div class="console-filter-block">
+            <label>Source</label>
+            <select @bind="_sourceFilter">
+                <option value="@All">All sources</option>
+                @foreach (var source in Sources)
+                {
+                    <option value="@source">@source</option>
+                }
+            </select>
+        </div>
+
+        <div class="console-filter-block console-filter-search">
+            <label>Search</label>
+            <input @bind="_search" @bind:event="oninput" placeholder="host, path, source" />
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="console-readout">
+            <span>@FilteredRequests.Count of @_report.Requests.Count external requests</span>
+            <span class="tag">memory only</span>
+        </div>
+
+        <table class="console-table privacy-request-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Method</th>
+                    <th>Target</th>
+                    <th>Source</th>
+                    <th>Status</th>
+                    <th class="num">Duration</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (FilteredRequests.Count == 0)
+                {
+                    <tr><td colspan="6"><div class="empty-state">no external requests match the current filter</div></td></tr>
+                }
+                else
+                {
+                    @foreach (var request in FilteredRequests)
+                    {
+                        <tr>
+                            <td class="dim">@request.TimestampUtc.ToLocalTime().ToString("HH:mm:ss")</td>
+                            <td>@request.Method</td>
+                            <td>
+                                <div class="privacy-target">@request.Target</div>
+                                @if (!string.IsNullOrWhiteSpace(request.Error))
+                                {
+                                    <div class="privacy-error">@request.Error</div>
+                                }
+                            </td>
+                            <td>@request.Source</td>
+                            <td><StatusBadge Text="@StatusLabel(request)" Tone="@ToneForRequest(request)" /></td>
+                            <td class="num">@request.DurationMs.ToString("0", CultureInfo.InvariantCulture) ms</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const string All = "All";
+    private readonly string[] _statusFilters = [All, "Succeeded", "Failed"];
+    private PrivacyReportDto? _report;
+    private string _statusFilter = All;
+    private string _sourceFilter = All;
+    private string _search = "";
+    private bool _refreshing;
+
+    protected override async Task OnInitializedAsync()
+        => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (_refreshing)
+        {
+            return;
+        }
+
+        _refreshing = true;
+        try
+        {
+            _report = await Api.GetPrivacyAsync();
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    private IReadOnlyList<PrivacyServiceDto> ExternalServices
+        => _report?.Services
+            .Where(service => service.Classification == "external")
+            .OrderBy(service => service.Name)
+            .ToList()
+        ?? [];
+
+    private IReadOnlyList<PrivacyServiceDto> PrivateServices
+        => _report?.Services
+            .Where(service => service.Classification != "external")
+            .OrderBy(service => service.Classification)
+            .ThenBy(service => service.Name)
+            .ToList()
+        ?? [];
+
+    private IEnumerable<string> Sources
+        => _report is null
+            ? []
+            : _report.Requests
+                .Select(request => request.Source)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(source => source);
+
+    private IReadOnlyList<PrivacyRequestDto> FilteredRequests
+    {
+        get
+        {
+            IEnumerable<PrivacyRequestDto> requests = _report?.Requests ?? [];
+
+            if (_statusFilter == "Succeeded")
+            {
+                requests = requests.Where(request => request.Succeeded);
+            }
+            else if (_statusFilter == "Failed")
+            {
+                requests = requests.Where(request => !request.Succeeded);
+            }
+
+            if (_sourceFilter != All)
+            {
+                requests = requests.Where(request => string.Equals(request.Source, _sourceFilter, StringComparison.Ordinal));
+            }
+
+            if (!string.IsNullOrWhiteSpace(_search))
+            {
+                var search = _search.Trim();
+                requests = requests.Where(request =>
+                    request.Target.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || request.Host.Contains(search, StringComparison.OrdinalIgnoreCase)
+                    || request.Source.Contains(search, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return requests.ToList();
+        }
+    }
+
+    private string LastCaptureLabel
+    {
+        get
+        {
+            var last = _report?.Requests.FirstOrDefault()?.TimestampUtc;
+            if (last is null)
+            {
+                return "none";
+            }
+
+            var local = last.Value.ToLocalTime();
+            return local.Date == DateTime.Today ? local.ToString("HH:mm:ss") : local.ToString("MMM d");
+        }
+    }
+
+    private static string StatusLabel(PrivacyRequestDto request)
+        => request.StatusCode is { } statusCode
+            ? statusCode.ToString(CultureInfo.InvariantCulture)
+            : request.Succeeded ? "ok" : "failed";
+
+    private static StatusBadgeTone ToneForRequest(PrivacyRequestDto request)
+        => request.Succeeded ? StatusBadgeTone.Green : StatusBadgeTone.Red;
+
+    private static StatusBadgeTone ToneForService(PrivacyServiceDto service)
+    {
+        if (service.Classification == "external")
+        {
+            return !IsPotentialExposure(service)
+                ? StatusBadgeTone.Default
+                : StatusBadgeTone.Amber;
+        }
+
+        return service.Status switch
+        {
+            "configured" or "local" or "local only" or "local by default" => StatusBadgeTone.Green,
+            "when feeds are enabled" => StatusBadgeTone.Amber,
+            "off" or "not configured" => StatusBadgeTone.Default,
+            _ => StatusBadgeTone.Default,
+        };
+    }
+
+    private static string StatusForService(PrivacyServiceDto service)
+    {
+        if (service.Classification == "external" && IsPotentialExposure(service))
+        {
+            if (service.Name.Contains("Open-Meteo", StringComparison.OrdinalIgnoreCase))
+            {
+                return "anonymous access";
+            }
+
+            if (service.Name.Contains("RSS", StringComparison.OrdinalIgnoreCase))
+            {
+                return "feed access";
+            }
+        }
+
+        return service.Status;
+    }
+
+    private static string ReasonForService(PrivacyServiceDto service)
+    {
+        if (service.Name.Contains("Open-Meteo", StringComparison.OrdinalIgnoreCase))
+        {
+            return "weather forecast API";
+        }
+
+        if (service.Name.Contains("RSS", StringComparison.OrdinalIgnoreCase))
+        {
+            return "operator-configured feed URLs";
+        }
+
+        if (service.Name.Contains("OpenTelemetry", StringComparison.OrdinalIgnoreCase))
+        {
+            return "trace/metric exporter endpoint";
+        }
+
+        if (service.Name.Contains("OpenAI", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cloud text generation endpoint";
+        }
+
+        if (service.Name.Contains("ElevenLabs", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cloud voice/music endpoint";
+        }
+
+        if (service.Name.Contains("Icecast", StringComparison.OrdinalIgnoreCase))
+        {
+            return "listener stream URL";
+        }
+
+        if (service.Name.Contains("Ollama", StringComparison.OrdinalIgnoreCase))
+        {
+            return "writer room endpoint";
+        }
+
+        if (service.Name.Contains("data", StringComparison.OrdinalIgnoreCase))
+        {
+            return "files and SQLite under data root";
+        }
+
+        return service.Detail;
+    }
+
+    private static string Active(bool active)
+        => active ? "active" : "";
+
+    private static bool IsPotentialExposure(PrivacyServiceDto service)
+        => service.Status is not ("off" or "not configured");
+}

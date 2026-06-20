@@ -477,6 +477,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<List<ConsoleLineDto>> GetConsoleAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ConsoleLineDto>>("/api/console", ct) ?? [];
 
+    public async Task<PrivacyReportDto?> GetPrivacyAsync(CancellationToken ct = default)
+        => await SafeGetAsync<PrivacyReportDto>("/api/privacy", ct);
+
     public async Task<(bool Ok, string Message)> SubmitGreetingAsync(SubmitGreetingDto request, CancellationToken ct = default)
     {
         try

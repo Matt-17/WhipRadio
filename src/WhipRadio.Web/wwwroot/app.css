@@ -2752,6 +2752,158 @@ table.console-table {
 .console-line.level-error .lvl, .console-line.level-critical .lvl { color: var(--red); }
 .console-line.level-error .msg { color: #ffb3ae; }
 
+/* ---------- privacy audit ---------- */
+
+.privacy-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 14px;
+    margin: 22px 0 16px;
+}
+
+.privacy-stat {
+    min-height: 120px;
+}
+
+.privacy-stat-value {
+    margin: 8px 0 4px;
+    font-family: var(--font-display);
+    font-size: 32px;
+    color: var(--amber);
+    text-shadow: var(--glow-amber);
+}
+
+.privacy-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+
+.privacy-note-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.privacy-note {
+    min-height: 56px;
+    padding: 10px 12px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    background: #0b0906;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--muted);
+}
+
+.privacy-fact-groups {
+    display: grid;
+    gap: 18px;
+}
+
+.privacy-fact-group {
+    min-width: 0;
+}
+
+.privacy-category-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 2px 0 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.privacy-category-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--amber);
+}
+
+.privacy-slim-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.privacy-slim-row {
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .014);
+}
+
+.privacy-slim-main {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text);
+}
+
+.privacy-dot,
+.privacy-slim-reason {
+    color: var(--muted);
+}
+
+.privacy-slim-reason {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.privacy-toolbar {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: auto minmax(180px, 240px) minmax(260px, 1fr);
+    gap: 14px;
+    align-items: end;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: linear-gradient(180deg, rgba(33, 26, 19, .92), rgba(21, 17, 13, .92));
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .35);
+}
+
+.privacy-service-table,
+.privacy-request-table {
+    margin-top: 10px;
+}
+
+.privacy-service-name,
+.privacy-target {
+    font-family: var(--font-mono);
+}
+
+.privacy-target {
+    max-width: 520px;
+    color: var(--amber-dim);
+    overflow-wrap: anywhere;
+}
+
+.privacy-error {
+    margin-top: 4px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.4;
+    color: #ffb3ae;
+    overflow-wrap: anywhere;
+}
+
 /* ---------- studio history ---------- */
 
 .history-dashboard {
@@ -3079,6 +3231,11 @@ table.console-table {
         grid-template-columns: 1fr 1fr;
     }
 
+    .privacy-summary-grid,
+    .privacy-toolbar {
+        grid-template-columns: 1fr 1fr;
+    }
+
     .console-filter-search,
     .console-actions {
         grid-column: 1 / -1;
@@ -3095,6 +3252,12 @@ table.console-table {
 
 @media (max-width: 760px) {
     .console-toolbar { grid-template-columns: 1fr; }
+    .privacy-summary-grid,
+    .privacy-toolbar { grid-template-columns: 1fr; }
+
+    .privacy-panel-head {
+        flex-direction: column;
+    }
 
     .console-line {
         grid-template-columns: 64px 36px minmax(0, 1fr);
