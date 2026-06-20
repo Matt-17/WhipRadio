@@ -1,270 +1,177 @@
-# WhipRadio — Phase 3c Brief: Rich Content
+# WhipRadio - Phase 3c Brief: News And Top-Of-Hour Packages
 
-> Design brief. Firm where it counts, open where the project's shape should decide.
-> Builds on 3a (mixer) and 3b (PromptContextBuilder, memory, priorities).
+> Design brief. This is now Phase 3c.1.
+> Traffic is moved to Phase 9. Podcasts and multi-speaker conversation segments are
+> moved to Phase 3c.2. This phase focuses on single-speaker news production and a
+> timing planner that can land larger spoken packages at the top of the hour.
 >
-> **Theme:** the station gets *real content* — news and traffic from the world,
-> multi-voice talk/podcast segments, and the ability to hit the top of the hour.
+> Product constraint: WhipRadio is mandatory international software. Defaults,
+> examples, prompts, and seeded sources should be English-first, with US/global news
+> as the primary baseline because the product is tech-oriented. Region-specific
+> sources must be user-configurable, not baked in as the default experience.
 
 ---
 
 ## 1. Goal
 
-Three capabilities: (1) news & traffic announcements through the existing
-`IAnnouncementDataSource` abstraction; (2) a **ConversationSegment** engine that
-produces multi-speaker talks and podcasts (same machine, different length/structure);
-(3) **top-of-the-hour timing** so news lands at :00.
+Phase 3c adds real editorial programming without taking on the full podcast engine yet:
 
-**Pulled forward from Phase 5:** rich artist creation is part of the content foundation
-now. Artists are created from one-line hints through the writer room, with stored public
-showcase copy, hidden deep background, and member rosters. ConversationSegment can later
-use those members as speakers without replacing the artist schema.
+1. **News production:** fetch RSS headlines, select useful items, rewrite them into
+   original radio copy, voice them through the existing host/TTS pipeline, and store
+   them as scheduled TalkBreak parts.
+2. **Top-of-hour package planning:** prepare and air a package at :00 that can contain
+   station ID, news, weather, and later traffic. In Phase 3c.1, traffic is only a
+   reserved placeholder for Phase 9.
+3. **News formats:** support short top-of-hour news packages and longer scheduled
+   news shows, such as an 8 AM or 8 PM 30-minute news format.
 
----
-
-## 2. News & Traffic (the easy, high-value part)
-
-The interfaces already exist from Phase 1. This is implementations + scheduling.
-
-- **News:** RSS sources (tagesschau, BBC, configurable list) → fetch top N headlines →
-  ScriptWriter summarises into spoken radio copy → TTS. **Firm copyright rule:**
-  summarise and rewrite in the host's own words; never read article text verbatim.
-- **Traffic:** start with a DE-friendly source. Options: the Autobahn API (no key,
-  Germany motorways) or HERE/TomTom (keyed, broader). Recommend Autobahn first for the
-  homelab use case; abstract behind `ITrafficSource` so a keyed provider can replace it.
-- **Scheduling:** these are `Scheduled` priority announcements (from 3b). News at :00,
-  traffic at :20/:50, etc. — all configurable. A dedicated news host is optional
-  (mirror the weather specialist pattern from 3b if desired).
-
-**Open Choice:** how much editorial filtering (skip certain categories, dedupe similar
-headlines). Recommend a simple per-source headline cap + a recency window; leave
-smarter curation as a later refinement.
+News is deliberately simpler than podcasts: one presenter, one topic at a time, no
+multi-speaker turn engine. That makes it the right first content system before Phase
+3c.2 introduces ConversationSegment.
 
 ---
 
-## 3. ConversationSegment engine (talks = podcasts, one machine)
+## 2. Non-Goals For This Phase
 
-A talk and a podcast are the same artifact at different scales. Model **one** concept:
-
-`ConversationSegment`:
-- `Kind` (Talk | Podcast) — really just presets for the fields below
-- `Participants` (ordered list of host/guest ids, 2–5)
-- `TargetDurationMinutes`
-- `Structure` (Freeform | Chaptered) + optional `Chapters[]`
-- `Topic` + `Brief` (what it's about)
-- `Status` (Planned/Scripted/Produced/Used)
-- produced output: a single mixed WAV + a stored transcript
-
-### Production pipeline (the firm part)
-1. **Plan** (LLM, reasoning provider): from topic + participants + duration, produce a
-   structure — for a podcast, 3–5 chapters with a one-line intent each; for a talk, just
-   a beat list. Word budget per chapter derived from each speaker's rate (reuse 3b's
-   word-budget math).
-2. **Script** the dialogue. **This is where Phase 5's multi-agent choice looms.** In 3c,
-   keep it tractable: a single LLM call can generate a *speaker-tagged* script
-   (`[CHARLIE]: …` / `[JENNY]: …`). Phase 5 will upgrade this to true per-agent turns
-   (Option B). **Design the `ConversationSegment` so that upgrade needs no schema
-   change** — store turns as a list of `(speakerId, text, markers)`, however they were
-   generated.
-3. **Voice** each turn via that speaker's TTS voice (from their `Moderator`/`Artist`
-   record).
-4. **Assemble** turns into one WAV. With the 3a mixer, turns can slightly overlap for
-   natural interruptions (a third source slot). Keep overlaps small and optional in 3c;
-   the 5-people-talking-over-each-other vision is Phase 5.
-5. **Schedule:** a segment occupies a format slot (a "talk show" / "podcast" format the
-   Program Director can place). Long segments need the mixer's lookahead to pre-produce.
-
-**Open Choice:** produce podcasts fully ahead of time (simpler, safe) vs stream-produced
-chapter-by-chapter. Recommend produce-ahead in 3c — a podcast is not time-sensitive and
-pre-production avoids any live stall.
+- No traffic provider implementation. Traffic belongs to Phase 9.
+- No multi-speaker podcasts or panel talks. Those belong to Phase 3c.2.
+- No article text read verbatim on air.
+- No time-stretching music to land a package at :00.
+- No region-specific hardcoded default that makes WhipRadio feel local-only.
 
 ---
 
-## 4. Top-of-the-hour timing
+## 3. News Pipeline
 
-The user flagged this as desirable-but-luxury. With the 3a mixer it's now reachable
-because the mixer already does sample-accurate scheduling.
+### Source model
 
-**Approach (firm enough):** the ShowRunner gains a `TimingPlanner` that, as :00
-approaches, looks at the remaining queue and chooses one of:
-- pick a *next track whose duration fits* the remaining time to :00 (selection-time
-  solution — cheapest, preferred);
-- start the crossfade early / extend an outro to land on :00 (mixer already supports
-  early fades);
-- drop in a short jingle or station-id to fill a small gap;
-- as last resort, a clean hard-cut at :00 into the news (radio does this constantly).
+Use RSS as the first news source because it is international, keyless, common, and
+simple to test.
 
-**Firm rule:** never time-stretch music to fit (out of scope; sounds bad). Timing is
-solved by *selection and fades*, not tempo manipulation.
+Initial source shape:
 
-**Open Choice:** how tight the target is (±2 s vs exact). Recommend ±2 s for 3c; exact
-alignment can come if news/traffic prove popular.
+- `NewsFeed`: label, URL, language, region tag, category, enabled flag, poll cadence,
+  max items per poll.
+- Default feeds: English US/global technology and world/general feeds.
+- User feeds: operators can add national, regional, or niche feeds later through
+  Settings/Admin.
+- Each fetched item stores enough metadata to dedupe and audit: title, URL, source,
+  published time, summary/description if present, content hash, first seen time,
+  status, and selected/not-selected reason.
 
----
+### Selection and rewrite
 
-## 5. Suggested milestone spine (agent refines)
-1. News source(s) + ScriptWriter summarisation + scheduled placement.
-2. Traffic source (Autobahn first) behind `ITrafficSource`.
-3. `ConversationSegment` model + single-call speaker-tagged scripting + assembly.
-4. Talk/podcast formats the Program Director can schedule.
-5. `TimingPlanner` for top-of-hour, selection-first with fade/jingle fallbacks.
-6. Rich artist creation from hints + member roster storage (pulled forward from Phase 5).
+The LLM should select from headline/teaser metadata first. Full article extraction is
+optional and should be a later refinement unless RSS summaries prove too thin.
 
----
+Rules:
 
-## 6. Definition of Done (themes)
-- [ ] News announcements: summarised (never verbatim), scheduled, host-voiced
-- [ ] Traffic announcements from a DE source, behind a swappable interface
-- [ ] A 2-speaker talk and a 3-speaker chaptered podcast both produce a mixed WAV +
-      transcript, schedulable as formats
-- [ ] `ConversationSegment` stores turns as `(speaker, text, markers)` — ready for
-      Phase 5 multi-agent with no schema change
-- [ ] News lands within ±2 s of :00 via selection/fades, never via time-stretch
-- [ ] Stream stays live throughout; long podcasts pre-produced
-- [ ] Artists have enough hidden background and member data to seed future talks
+- Summarize and rewrite in WhipRadio's own words.
+- Never read article text verbatim.
+- Prefer useful, current, high-signal stories over filler.
+- Dedupe near-identical headlines across feeds.
+- Keep source attribution factual and brief.
+- Store generated script/transcript and source metadata for audit.
 
----
+### Spoken output
 
-## 7. Open questions
-- News/traffic sources: which exact feeds, and any region beyond Germany at launch?
-- Podcast length ceiling for the homelab (production time vs library churn)?
-- Should talk/podcast transcripts surface on the existing /playlog + a new content page?
-- How aggressive should top-of-hour be before it's worth the complexity?
+Add news as a first-class announcement/talk part:
 
+- `AnnouncementKind.News`
+- `TalkPartKind.News`
+- `NewsBrief` or equivalent persisted source/selection model
+- `ScriptWriter.News` prompt template
+- host or dedicated news presenter, resolved through settings
 
-infos from sonnet: 
-
-# WhipRadio — Externe Datenquellen ohne API-Key
-
-*Location-Autocomplete · News · Verkehrsmeldungen — Stand: 18. Juni 2026*
+The output should be ordinary produced announcement WAVs so existing TalkBreak,
+SegmentRenderer, play log, and now-playing behavior can be reused.
 
 ---
 
-## 1. Location-Daten (Onboarding / Settings)
+## 4. Top-Of-Hour Package Planning
 
-Ziel: Der Nutzer tippt einen Ort ein (z. B. „Dresden") und bekommt sortierte Vorschläge nach Wahrscheinlichkeit/Relevanz — inklusive internationaler Gleichnamigkeit (Dresden, Germany vs. Dresden, USA).
+This is the most important Phase 3c capability.
 
-### Empfehlung: Photon (Komoot)
+A top-of-hour package is not just weather. It is a planned, timed spoken package that
+can contain:
 
-Open-Source-Geocoder auf OpenStreetMap-Basis, speziell für Autocomplete entwickelt. Kein API-Key, keine Registrierung, kein Billing.
+- station ID or jingle
+- news headlines or a longer news block
+- weather
+- traffic placeholder, implemented in Phase 9
+- short return or transition into music
 
-```
-https://photon.komoot.io/api/?q=Dresden&limit=5&lang=de
-```
+The package should be produced ahead of time, then landed at :00 within an initial
+tolerance of about +/-2 seconds.
 
-Optional gefiltert auf Städte/Orte:
+### Package durations
 
-```
-https://photon.komoot.io/api/?q=Dresden&limit=5&osm_tag=place:city&osm_tag=place:town
-```
+Support at least two package classes:
 
-Die Sortierung nach Relevanz/Importance ist bereits in der API eingebaut — größere/bekanntere Orte erscheinen zuerst.
+- **Short hourly package:** usually 60 seconds to 5 minutes.
+- **Long news format:** up to 30 minutes, scheduled as a format block such as morning
+  or evening news.
 
-### Warum nicht Nominatim direkt?
+The short package is a TalkBreak package. The long news format may be a sequence of
+news items and music beds/jingles, but it should still use the same source selection,
+script, and timing primitives where practical.
 
-Die offizielle Nominatim-API (nominatim.openstreetmap.org) verbietet Autocomplete-Nutzung in ihrer Policy explizit:
+### TimingPlanner
 
-> „Auto-complete search – This is not yet supported by Nominatim and you must not implement such a service on the client side using the API."
+The ShowRunner gains a `TimingPlanner` that looks at the current time, active item,
+queue depth, known durations, scheduled packages, and available jingles.
 
-Zusätzlich gilt ein hartes Rate-Limit von 1 Request/Sekunde. Photon nutzt dieselben OSM-Daten, ist aber genau für diesen Use Case gebaut und erlaubt Live-Suche während des Tippens (mit Debounce, z. B. 300–500 ms empfohlen).
+Preferred strategy order:
 
-### Entscheidung
+1. Pick the next track whose duration fits the remaining time before :00.
+2. If the gap is small, use a station ID/jingle/fill talk to bridge it.
+3. If a fitting top-of-hour intro/handoff is ready, it may start within the
+   configured grace window.
+4. If live audio is still active, fade it out with the configured package fade
+   duration (default: 1 second) before starting the package.
 
-| Komponente | Wahl |
-|---|---|
-| Geocoding/Autocomplete | Photon (photon.komoot.io) |
-| Fallback | Keiner — bewusst nicht eingeplant |
-| Debounce | ~300–500 ms client-seitig |
-| Kosten | Kostenlos, kein Key |
-
----
-
-## 2. Nachrichten (International / National / Regional)
-
-Ziel: Aktuelle Nachrichten als Grundlage für KI-generierte Radiomoderation — ohne API-Key, ohne feste Kuratierung für „Hunderte Städte", da WhipRadio international funktionieren soll.
-
-### Lösung: RSS + bedarfsgesteuerte Volltext-Extraktion
-
-- RSS-Feed wird periodisch gepollt (z. B. alle 15–30 Minuten) → liefert Titel + Teaser
-- LLM (Gemma) bewertet: „Ist das interessant genug für einen Radiobeitrag?"
-- Bei „Ja": Artikel-URL wird vollständig abgeholt und der Volltext extrahiert
-- LLM generiert daraus den Moderationstext
-
-Dieser zweistufige Ansatz spart Traffic, weil nicht jeder Artikel blind vollständig geladen wird — nur die vom LLM als relevant eingestuften.
-
-### Volltext-Extraktion
-
-Library:
-
-```
-npm install @extractus/article-extractor
-
-import { extract } from '@extractus/article-extractor'
-const article = await extract(url)
-// article.content = sauberer Volltext
-```
-
-Basiert auf Mozillas Readability-Algorithmus (derselbe wie in Firefox Reader Mode). Funktioniert ohne API-Key bei den meisten Nachrichtenseiten gut; bei Paywalled-Inhalten wird nur der frei zugängliche Teil extrahiert — für Radio-Zwecke meist ausreichend.
-
-### Feed-Strategie: Kuratierte internationale Defaults + Nutzer-Erweiterung
-
-Da WhipRadio international und ohne festen Kernmarkt funktionieren soll, ist eine statische Mapping-Tabelle pro Stadt/Region nicht praktikabel. Stattdessen:
-
-- Internationale Feeds sind feste, mitgelieferte Defaults (laufen überall)
-- Nationale & regionale Feeds trägt der Nutzer selbst ein — mit automatischer Validierung (Test-Fetch prüft, ob es ein gültiger RSS-Feed ist)
-- UI-Hinweis beim Onboarding: „Suche nach '[deine Stadt] RSS Feed' oder '[dein Sender] RSS'"
-- Langfristig optional: community-gepflegte `feeds.json` im Repo (Open-Source-PRs)
-
-### Beispiel-Defaults (International)
-
-| Quelle | Feed-URL |
-|---|---|
-| BBC World | feeds.bbci.co.uk/news/world/rss.xml |
-| The Guardian (World) | theguardian.com/world/rss |
-| NYT World | rss.nytimes.com/services/xml/rss/nyt/World.xml |
-
-### Entscheidung
-
-| Komponente | Wahl |
-|---|---|
-| Nachrichtenquelle | RSS-Feeds (kein API-Key) |
-| International | Feste Defaults (BBC, Guardian, NYT o. ä.) |
-| National / Regional | Nutzer trägt eigene Feeds ein, App validiert |
-| Volltext bei Bedarf | @extractus/article-extractor (Readability-basiert) |
-| Selektionslogik | LLM entscheidet pro Teaser, ob Volltext geholt wird |
+Firm rule: never time-stretch music. Timing is solved with selection, fades, fills,
+jingles, and short package fade-outs.
 
 ---
 
-## 3. Verkehrsmeldungen (Stau, Unfall, Blitzer)
+## 5. Suggested Milestone Spine
 
-Ziel: Kurze Verkehrshinweise wie „A13 Stau", „A4 Unfall", „Blitzer in Dresden" — keine Echtzeit-Flächendaten, sondern punktuelle Meldungen. International gewünscht.
-
-### Befund: Keine keylose internationale Quelle verfügbar
-
-Anders als bei Geocoding (Photon) und News (RSS) gibt es für Verkehrsmeldungen keine offene, internationale Alternative ohne API-Key. Diese Daten stammen entweder aus behördlichen Systemen (meist nur regional, z. B. nur ein US-Bundesstaat) oder aus kommerziellen Crowd-Netzwerken wie Waze, die lizenziert werden müssen.
-
-### Verfügbare Optionen (alle mit Key)
-
-| Anbieter | Abdeckung | Free-Tier |
-|---|---|---|
-| TomTom Traffic API | International | 2.500 Requests/Tag kostenlos |
-| Waze (via Drittanbieter-API) | International, gut für Unfälle/Blitzer/Stau | Meist kostenpflichtig nach Trial |
-| 511.org & ähnliche | Nur regional (z. B. US-Bundesstaat) | Begrenztes Free-Tier, regional |
-
-### Entscheidung
-
-- Traffic-Feature wird als optionales Modul eingeplant, nicht als Pflichtfeature
-- TomTom Traffic API mit kostenlosem Key als einzige sinnvolle Option (2.500 Req/Tag reichen für Polling alle 15–30 Min locker)
-- Nutzer trägt den TomTom-Key optional im Setup ein — ohne Key bleibt das Verkehrs-Segment in der Sendung einfach deaktiviert
-
-Damit bleibt das Grundprinzip „ohne Key nutzbar" für den Kern von WhipRadio erhalten; Traffic ist die einzige der drei Datenkategorien, die strukturell einen Key erfordert.
+1. Rescope docs and settings defaults around English-first international behavior.
+2. Add the news domain model and EF migration.
+3. Add RSS polling, feed validation, dedupe, and tests.
+4. Add news selection/rewrite prompt and `AnnouncementKind.News`.
+5. Add short top-of-hour package production: news + weather + station ID/jingle.
+6. Add `TimingPlanner` with duration-aware track selection and fill fallback.
+7. Add long scheduled news format support for blocks up to 30 minutes.
+8. Add operator UI/API for feeds, package cadence, news presenter, and package logs.
 
 ---
 
-## Gesamtübersicht
+## 6. Definition Of Done
 
-| Datenquelle | Anbieter | API-Key? | Abdeckung |
-|---|---|---|---|
-| Location-Autocomplete | Photon (Komoot) | Nein | International |
-| News | RSS + article-extractor | Nein | International (Defaults) + nutzerdefiniert |
-| Verkehrsmeldungen | TomTom Traffic API | Ja (optional, kostenlos) | International |
+- [ ] News feeds can be configured, polled, deduped, and audited.
+- [ ] News scripts are rewritten original radio copy, never article text playback.
+- [ ] News can be voiced by a host or configured news presenter.
+- [ ] Top-of-hour package can include station ID/jingle, news, weather, and a Phase 9
+      traffic placeholder.
+- [ ] Short packages can run up to 5 minutes without stalling the live stream.
+- [ ] A scheduled news format can run as a longer block, target 30 minutes.
+- [ ] TimingPlanner lands the package at :00 within about +/-2 seconds when feasible.
+- [ ] TimingPlanner never time-stretches music.
+- [ ] If exact timing is impossible, the system chooses a clean fallback and logs why.
+- [ ] Everything remains English-first by default and configurable for international
+      deployments.
+
+---
+
+## 7. Open Questions
+
+- Which English US/global RSS feeds should be seeded by default?
+- Should full article extraction be Phase 3c.1 or deferred until RSS summaries prove
+  insufficient?
+- Should a dedicated news presenter be seeded, or should the current host read news by
+  default?
+- Should long news formats include music beds/jingles in Phase 3c.1, or stay spoken
+  first?
+- How visible should source attribution and generated transcripts be in the UI?

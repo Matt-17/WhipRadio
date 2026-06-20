@@ -33,6 +33,16 @@ For a single 4070 machine, the old VRAM budget remains useful as operator guidan
 | Music studio | medium | Can be slow, queued, or moved to another machine. |
 | Image studio | lowest | Phase 6b; never real-time. |
 
+## International Product And Language Baseline
+
+**Firm decision:** WhipRadio is mandatory international software. Defaults and seeded
+examples should be English-first, with US/global assumptions as the primary baseline
+because the product is tech-oriented.
+
+Region-specific behavior belongs behind configuration. Plans, prompts, seed data,
+source lists, and UI copy should not bake in a local market as the default experience
+unless an operator explicitly configures it.
+
 ## Music Generation Quality Defaults
 
 **Firm decision:** the single-GPU default favors better ACE-Step output over maximum
@@ -144,6 +154,12 @@ elapsed wall-clock offset, and queued scheduled items such as weather stay in or
 and Icecast metadata line up with what the browser stream is actually playing. The
 development calibration is 5 seconds; operators should tune this value when a
 deployment's Icecast/browser buffering differs.
+
+**Implemented in Phase 3c:** top-of-hour packages are timed speech packages, not hard
+cuts. The mixer consumes a scheduled interrupt, fades active sources over
+`TopOfHourFadeOutSeconds` (default: 1 second), then starts the package within
+`TopOfHourIntroGraceSeconds` when a suitable intro/handoff is ready. Legacy playout
+falls back to queue-front insertion.
 
 **Implemented in Phase 3b:** station branding now includes slogan, vision, and mission
 as prompt context. Generated jingles are short instrumental station identity sources

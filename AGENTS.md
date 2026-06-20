@@ -36,6 +36,10 @@ Recent history uses concise conventional-style prefixes such as `fix:`, `feat:`,
 
 Do not commit secrets, local model caches, generated data roots, or production credentials. Development defaults such as `Icecast__SourcePassword=hackme-dev` are for local use only. Prefer user secrets or environment variables for API keys and machine-specific paths.
 
+## Third-Party Licenses
+
+Maintain `docs/licenses/` whenever adding, removing, or upgrading third-party dependencies. This includes NuGet `PackageReference` entries, Python packages, Docker base images, apt packages, AI model ids, model weight repositories, voice repositories, and external APIs. Record the version or constraint, source, license/SPDX identifier when known, and any special restriction such as non-commercial terms, copyleft distribution duties, model terms, cloud service terms, or voice consent requirements. For AI dependencies, document the wrapper package license and the model/service terms separately.
+
 ## Architecture Decision Notes
 
 When changing model defaults, studio ownership, images, voices, or audio behavior, update `Phase-0-Tech-Decisions.md` and, if work remains, `Phase-0-Deferred.md`.
