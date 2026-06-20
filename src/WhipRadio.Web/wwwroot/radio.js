@@ -174,8 +174,8 @@ window.whipRadio = {
     return false;
   },
 
-  async backToLive(url) {
-    if (!this._isPlaying()) {
+  async backToLive(url, shouldPlay = false) {
+    if (!shouldPlay && !this._isPlaying()) {
       return this.pause();
     }
 

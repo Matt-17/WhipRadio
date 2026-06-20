@@ -22,7 +22,13 @@ Follow `.editorconfig`. C# uses 4-space indentation, file-scoped namespaces are 
 
 ## Web UI Design Guide
 
-Before changing Blazor pages, shared components, or `src/WhipRadio.Web/wwwroot/app.css`, read `DESIGN-GUIDE.md`. Preserve the existing late-night broadcast-console design language. Treat switches as immediate-save controls for binary active/off state, always place them as the final item in their row or action cluster, and ask the user before choosing unresolved UI/UX directions such as dense tables versus cards, major layout changes, or icon-only versus text actions.
+Before changing Blazor pages, shared components, or `src/WhipRadio.Web/wwwroot/app.css`, read `DESIGN-GUIDE.md`. Preserve the existing late-night broadcast-console design language. Treat switches as immediate-save controls for binary active/off state, always place them as the final item in their row or action cluster. Use the shared `StatusBadge` component for changing operator states such as Active, Pending, Queued, REC, Recording, Failed, and Off; do not create page-local state tag spans. Ask the user before choosing unresolved UI/UX directions such as dense tables versus cards, major layout changes, or icon-only versus text actions.
+
+## Host Creation & Station Context
+
+Host hiring must stay easy: collect a short optional hint and let the program director/backend decide name, gender, persona, traits, talk profile, and voice description. Do not add frontend name lists, gender pickers, engine selectors, model selectors, or voice-id fields unless the user explicitly asks for an expert mode. Specialist host creation should follow the artist-creation pattern: close the modal immediately, show queued/creating/failed status on the page, and use structured JSON returned by the writer room instead of frontend-built persona strings.
+
+Station description is mandatory context for host creation and on-air specialist prompts. Include station name, slogan, vision, mission, audience/format context, and any manual hint when creating news or weather specialists. News and weather selectors should not offer "automatic" or "first available" wording; the user either chooses a host or leaves it for the program director to create one when needed. If no suitable news/weather specialist exists at runtime, create one rather than skipping the segment by default.
 
 ## Testing Guidelines
 

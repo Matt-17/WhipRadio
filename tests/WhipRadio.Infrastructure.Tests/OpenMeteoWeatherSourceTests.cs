@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Weather;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Infrastructure;
 using WhipRadio.Infrastructure.Persistence;
@@ -76,9 +77,12 @@ public class OpenMeteoWeatherSourceTests
 
         var summary = await source.GetSummaryAsync("en", CancellationToken.None);
 
-        Assert.Contains("Currently 14.3 C, light rain, wind 12 km/h.", summary);
-        Assert.Contains("Tonight around 8.1 C.", summary);
-        Assert.Contains("Tomorrow overcast, 18 C/8.1 C, rain chance 20%.", summary);
+        Assert.Contains("Location: New York, US.", summary);
+        Assert.Contains("Current conditions: 14.3 C, light rain, wind 12 km/h.", summary);
+        Assert.Contains("Today temperature range: current temperature 14.3 C; daily high 31 C appears to be earlier/already reached", summary);
+        Assert.Contains("Next hours: 21:00 13.7 C, light rain; 02:00 8.1 C, partly cloudy.", summary);
+        Assert.Contains("Tonight low: around 8.1 C.", summary);
+        Assert.Contains("Tomorrow: overcast, 18 C/8.1 C, rain chance 20%.", summary);
     }
 
     [TestMethod]
@@ -90,9 +94,9 @@ public class OpenMeteoWeatherSourceTests
 
         var summary = await source.GetSummaryAsync("es", CancellationToken.None);
 
-        Assert.Contains("Currently 14.3 C", summary);
+        Assert.Contains("Current conditions: 14.3 C", summary);
         Assert.Contains("light rain", summary);
-        Assert.Contains("60% rain chance", summary);
+        Assert.Contains("rain chance 60%", summary);
     }
 
     [TestMethod]
@@ -106,6 +110,50 @@ public class OpenMeteoWeatherSourceTests
 
         Assert.Equal(14.3, report.Current.TemperatureC, precision: 10);
         Assert.Equal(31.0, report.Today.MaxTemperatureC!.Value, precision: 10);
+    }
+
+    [TestMethod]
+    public void BuildReport_IncludesLocationAndMarksDailyHighAlreadyReachedWhenEveningHoursAreCooler()
+    {
+        var forecast = System.Text.Json.JsonSerializer.Deserialize<OpenMeteoWeatherSource.ForecastResponse>(SampleJson)!;
+
+        var report = OpenMeteoWeatherSource.BuildReport(forecast, "en", "Dresden, DE");
+
+        Assert.Equal("Dresden, DE", report.LocationName);
+        Assert.Equal(WeatherDailyMaxStatus.AlreadyReached, report.TodayTemperature.DailyMaxStatus);
+        Assert.Equal(14.3, report.TodayTemperature.CurrentTemperatureC!.Value, precision: 10);
+        Assert.Equal(13.7, report.TodayTemperature.RemainingMaxTemperatureC!.Value, precision: 10);
+        Assert.Contains("Location: Dresden, DE.", report.ToFacts());
+        Assert.Contains("daily high 31 C appears to be earlier/already reached", report.ToFacts());
+    }
+
+    [TestMethod]
+    public void BuildReport_DoesNotSayTheHighIsStillAheadWhenFutureHoursMatchTheCurrentTemperature()
+    {
+        var forecast = System.Text.Json.JsonSerializer.Deserialize<OpenMeteoWeatherSource.ForecastResponse>(
+            """
+            {
+              "current": { "time": "2026-06-17T18:00", "temperature_2m": 29.8, "weather_code": 3, "wind_speed_10m": 8.0 },
+              "hourly": {
+                "time": ["2026-06-17T18:00", "2026-06-17T19:00", "2026-06-17T20:00"],
+                "temperature_2m": [29.8, 29.8, 29.4],
+                "weather_code": [3, 3, 2]
+              },
+              "daily": {
+                "time": ["2026-06-17"],
+                "weather_code": [3],
+                "temperature_2m_max": [29.8],
+                "temperature_2m_min": [19.2],
+                "precipitation_probability_max": [10]
+              }
+            }
+            """)!;
+
+        var report = OpenMeteoWeatherSource.BuildReport(forecast, "en", "Dresden, DE");
+
+        Assert.Equal(WeatherDailyMaxStatus.AlreadyReached, report.TodayTemperature.DailyMaxStatus);
+        Assert.Contains("current temperature 29.8 C already matches today's high 29.8 C", report.ToFacts());
+        Assert.DoesNotContain("is still ahead", report.ToFacts());
     }
 
     [TestMethod]

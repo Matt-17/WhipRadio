@@ -23,6 +23,8 @@ public static class DbInitializer
     private const string PreviousLlamaSlogan = "Llamas whipped that radio's mix.";
     private const int PreviousDefaultMinTrackDurationSeconds = 180;
     private const int PreviousDefaultMaxTrackDurationSeconds = 300;
+    private const string LegacyNewsPresenterName = "Maya Current";
+    private const string SeedNewsPresenterName = "Maya Vale";
 
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
     {
@@ -343,12 +345,27 @@ public static class DbInitializer
     private static async Task EnsureNewsSeedsAsync(RadioDbContext db, CancellationToken ct)
     {
         var newsPresenter = await db.Moderators
-            .FirstOrDefaultAsync(m => m.Name == "Maya Current", ct);
+            .FirstOrDefaultAsync(m => m.Name == SeedNewsPresenterName, ct);
+        if (newsPresenter is null)
+        {
+            newsPresenter = await db.Moderators
+                .FirstOrDefaultAsync(m => m.Name == LegacyNewsPresenterName, ct);
+            if (newsPresenter is not null)
+            {
+                newsPresenter.Name = SeedNewsPresenterName;
+                newsPresenter.PersonaPrompt = SeedNewsPresenter().PersonaPrompt;
+            }
+        }
+
         if (newsPresenter is null)
         {
             newsPresenter = SeedNewsPresenter();
             db.Moderators.Add(newsPresenter);
             await db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            newsPresenter.IsNewsSpecialist = true;
         }
 
         var settings = await db.StationSettings
@@ -381,7 +398,7 @@ public static class DbInitializer
             settings.NewsSeedFeedsCreated = true;
         }
 
-        if (settings.NewsPresenterModeratorId is null)
+        if (settings.NewsPresenterModeratorId is null && newsPresenter.IsActive)
         {
             settings.NewsPresenterModeratorId = newsPresenter.Id;
         }
@@ -465,7 +482,7 @@ public static class DbInitializer
 
     private static Moderator SeedNewsPresenter() => new()
     {
-        Name = "Maya Current",
+        Name = SeedNewsPresenterName,
         Language = "en",
         Gender = ModeratorGenders.Female,
         TtsEngine = TtsEngines.Kokoro,
@@ -479,7 +496,7 @@ public static class DbInitializer
         BaselineTalkativeness = Talkativeness.Medium,
         BaselineWarmth = Warmth.Medium,
         PersonaPrompt =
-            "You are Maya Current, WhipRadio's news presenter. You sound calm, precise, " +
+            "You are Maya Vale, WhipRadio's news presenter. You sound calm, precise, " +
             "international, and editorially careful. You separate confirmed facts from context " +
             "and never sensationalize.",
             PreferredGenres = "news,technology",

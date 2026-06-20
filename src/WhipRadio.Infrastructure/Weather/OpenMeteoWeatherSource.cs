@@ -14,6 +14,9 @@ public class WeatherOptions
     public const string SectionName = "Weather";
 
     /// <summary>Fallback when station settings are unavailable. Default: New York, US.</summary>
+    public string LocationName { get; set; } = "New York, US";
+
+    /// <summary>Fallback when station settings are unavailable. Default: New York, US.</summary>
     public double Latitude { get; set; } = 40.7128;
 
     public double Longitude { get; set; } = -74.0060;
@@ -50,6 +53,7 @@ public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSou
     public async Task<WeatherReport> GetReportAsync(string language, CancellationToken ct)
     {
         var settings = _settingsCache is null ? null : await _settingsCache.GetAsync(ct);
+        var locationName = settings?.WeatherLocationName ?? _options.Value.LocationName;
         var latitude = settings?.WeatherLatitude ?? _options.Value.Latitude;
         var longitude = settings?.WeatherLongitude ?? _options.Value.Longitude;
         var lat = latitude.ToString(CultureInfo.InvariantCulture);
@@ -63,19 +67,23 @@ public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSou
         var forecast = await _http.GetFromJsonAsync<ForecastResponse>(url, ct)
                        ?? throw new InvalidOperationException("Empty response from Open-Meteo.");
 
-        return BuildReport(forecast, language);
+        return BuildReport(forecast, language, locationName);
     }
 
     internal static string BuildSummary(ForecastResponse forecast, string language)
         => BuildReport(forecast, language).ToFacts();
 
-    internal static WeatherReport BuildReport(ForecastResponse forecast, string language)
+    public static WeatherReport BuildReport(
+        ForecastResponse forecast,
+        string language,
+        string locationName = "New York, US")
     {
         var current = forecast.Current ?? throw new InvalidOperationException("Missing current weather data.");
         var observedAt = ParseDateTime(current.Time);
         var currentHour = SelectCurrentHour(forecast.Hourly, observedAt);
         var weatherCode = currentHour?.WeatherCode ?? current.WeatherCode;
         var currentTemperature = currentHour?.Temperature ?? current.Temperature;
+        var nextHours = SelectNextHours(forecast.Hourly, observedAt, count: 4);
         var days = BuildDays(forecast.Daily);
         var today = days.FirstOrDefault()
             ?? new WeatherDay(
@@ -87,6 +95,7 @@ public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSou
 
         return new WeatherReport(
             language,
+            string.IsNullOrWhiteSpace(locationName) ? "configured location" : locationName.Trim(),
             observedAt ?? DateTime.UtcNow,
             new WeatherNow(
                 observedAt,
@@ -94,9 +103,11 @@ public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSou
                 WmoWeatherCodes.Describe(weatherCode),
                 current.WindSpeed),
             today,
+            BuildTodayTemperatureContext(today, nextHours, observedAt, currentTemperature),
             SelectTonightLow(forecast.Hourly, observedAt) ?? days.Skip(1).FirstOrDefault()?.MinTemperatureC ?? today.MinTemperatureC,
             days.Skip(1).FirstOrDefault(),
-            days.Skip(1).Take(3).ToList());
+            days.Skip(1).Take(3).ToList(),
+            nextHours);
     }
 
     private static IReadOnlyList<WeatherDay> BuildDays(DailyWeather? daily)
@@ -164,6 +175,65 @@ public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSou
         }
 
         return closest;
+    }
+
+    private static IReadOnlyList<WeatherHour> SelectNextHours(
+        HourlyWeather? hourly,
+        DateTime? observedAt,
+        int count)
+    {
+        if (hourly is null || observedAt is null || hourly.Time.Count == 0 || hourly.Temperature.Count == 0)
+        {
+            return [];
+        }
+
+        return hourly.Time
+            .Select((value, index) => new { Time = ParseDateTime(value), Index = index })
+            .Where(item => item.Time is not null
+                && item.Time.Value > observedAt.Value
+                && item.Index < hourly.Temperature.Count)
+            .OrderBy(item => item.Time!.Value)
+            .Take(Math.Max(1, count))
+            .Select(item => new WeatherHour(
+                item.Time!.Value,
+                hourly.Temperature[item.Index],
+                WmoWeatherCodes.Describe(item.Index < hourly.WeatherCode.Count
+                    ? hourly.WeatherCode[item.Index]
+                    : 424242)))
+            .ToList();
+    }
+
+    private static WeatherDayTemperatureContext BuildTodayTemperatureContext(
+        WeatherDay today,
+        IReadOnlyList<WeatherHour> nextHours,
+        DateTime? observedAt,
+        double currentTemperature)
+    {
+        var remainingToday = observedAt is null
+            ? nextHours
+            : nextHours.Where(hour => hour.Time.Date == observedAt.Value.Date).ToList();
+        var remainingMax = remainingToday.Count == 0 ? null : remainingToday.MaxBy(hour => hour.TemperatureC);
+        var status = WeatherDailyMaxStatus.Unknown;
+
+        if (today.MaxTemperatureC is double dailyMax && remainingMax is not null)
+        {
+            status = remainingMax.TemperatureC > currentTemperature + 0.2
+                && remainingMax.TemperatureC >= dailyMax - 0.2
+                ? WeatherDailyMaxStatus.StillAhead
+                : WeatherDailyMaxStatus.AlreadyReached;
+        }
+        else if (observedAt?.Hour >= 18 && today.MaxTemperatureC is not null)
+        {
+            status = WeatherDailyMaxStatus.AlreadyReached;
+        }
+
+        return new WeatherDayTemperatureContext(
+            currentTemperature,
+            today.MaxTemperatureC,
+            today.MinTemperatureC,
+            remainingMax?.TemperatureC,
+            remainingMax?.Time,
+            status);
     }
 
     private static double? SelectTonightLow(HourlyWeather? hourly, DateTime? observedAt)

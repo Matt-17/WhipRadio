@@ -54,6 +54,19 @@ public class LlmOutputSanitizerTests
     }
 
     [TestMethod]
+    public void TrySanitizeSpokenText_KeepsLeadingSpeechMarkersIntact()
+    {
+        var ok = LlmOutputSanitizer.TrySanitizeSpokenText(
+            "[rate:slow] Coming up next [pause:300ms] something quiet and strange.",
+            out var result,
+            out var error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.Equal("[rate:slow] Coming up next [pause:300ms] something quiet and strange.", result);
+    }
+
+    [TestMethod]
     public void Sanitize_StripsHereWeGoLeadIn()
     {
         Assert.Equal("Welcome back to WhipRadio!",
@@ -118,6 +131,19 @@ public class LlmOutputSanitizerTests
         Assert.True(ok);
         Assert.Null(error);
         Assert.Equal("Weather next.", result);
+    }
+
+    [TestMethod]
+    public void TrySanitizeSpokenText_ExtractsAnnounceToolJsonArray()
+    {
+        var ok = LlmOutputSanitizer.TrySanitizeSpokenText(
+            """[{"tool":"Announce","arguments":{"text":"News after the break."}}]""",
+            out var result,
+            out var error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.Equal("News after the break.", result);
     }
 
     [TestMethod]

@@ -246,6 +246,24 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("Previous reply rejected", llm.UserPrompt);
     }
 
+    [TestMethod]
+    public async Task VoiceDirector_AcceptsLeadingSpeechMarkerWithoutRetry()
+    {
+        var llm = new CapturingLlm("[rate:slow] Adapted [pause:300ms] copy.");
+        var director = new VoiceDirector(llm);
+        var moderator = new Moderator
+        {
+            Name = "Lena",
+            PersonaPrompt = "Clear host.",
+            Style = "steady",
+        };
+
+        var result = await director.DirectAsync("Original script.", moderator, CancellationToken.None);
+
+        Assert.Equal("[rate:slow] Adapted [pause:300ms] copy.", result);
+        Assert.Equal(1, llm.CallCount);
+    }
+
     private static PromptContext ContextWithTalkDepth(TalkDepth talkDepth)
         => new()
         {

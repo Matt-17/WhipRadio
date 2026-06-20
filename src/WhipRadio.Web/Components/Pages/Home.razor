@@ -11,10 +11,10 @@
 
 <h1 class="stage-title">Live Broadcast</h1>
 <div class="stage-sub">
-    studio 1 · fully local · ai operated
+    studio 1 • fully local • ai operated
     @if (Live.NowPlaying?.FormatName is { } format)
     {
-        <span> · now: <span style="color:var(--amber)">@format</span></span>
+        <span> • now: <span style="color:var(--amber)">@format</span></span>
     }
 </div>
 
@@ -44,11 +44,11 @@
             <div class="vfd-meta">
                 @if (Live.NowPlaying.ArtistName is not null)
                 {
-                    <span>by <strong>@Live.NowPlaying.ArtistName</strong> · </span>
+                    <span>by <strong>@Live.NowPlaying.ArtistName</strong> • </span>
                 }
                 @if (Live.NowPlaying.ModeratorName is not null && Live.NowPlaying.ItemType == "Track")
                 {
-                    <span>host <strong>@Live.NowPlaying.ModeratorName</strong> · </span>
+                    <span>host <strong>@Live.NowPlaying.ModeratorName</strong> • </span>
                 }
                 <span>@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(Live.NowPlaying.DurationSeconds))</span>
             </div>

@@ -4,6 +4,7 @@
 @implements IAsyncDisposable
 @inject RadioApiClient Api
 @inject ProductionLiveClient Live
+@inject PlayerState Player
 
 <PageTitle>WhipRadio - News</PageTitle>
 
@@ -29,7 +30,7 @@ else
             <div class="field">
                 <label>News presenter</label>
                 <select @bind="_presenterId">
-                    <option value="">automatic</option>
+                    <option value="">Create host on next news</option>
                     @foreach (var host in ActiveHosts)
                     {
                         <option value="@host.Id">@host.Name</option>
@@ -38,7 +39,9 @@ else
             </div>
             <div class="field">
                 <label>Specialist desk</label>
-                <button class="btn" @onclick="() => _specialistModalOpen = true">Create news host</button>
+                <button class="btn specialist-create-btn specialist-create-launch-btn" disabled="@_creatingHost" @onclick="OpenSpecialistHostModal">
+                    Create News Host
+                </button>
             </div>
             <div class="field">
                 <label>Cadence</label>
@@ -137,7 +140,10 @@ else
     </div>
 
     <div class="panel reveal">
-        <div class="panel-label">Recent Packages</div>
+        <div class="news-feed-head">
+            <div class="panel-label">Recent Packages</div>
+            <button class="btn small" disabled="@_creatingPackage" @onclick="CreateNextPackageAsync">Create Next Package</button>
+        </div>
         @if (_news.RecentPackages.Count == 0)
         {
             <div class="empty-state">no packages produced yet</div>
@@ -150,7 +156,7 @@ else
                         <th style="width:155px">Target</th>
                         <th style="width:95px">Status</th>
                         <th>Sources</th>
-                        <th style="width:120px">Announcement</th>
+                        <th style="width:110px">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -160,7 +166,25 @@ else
                             <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
                             <td><span class="tag @PackageTag(package.Status)">@package.Status</span></td>
                             <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
-                            <td class="dim">@Short(package.AnnouncementId?.ToString() ?? "-", 12)</td>
+                            <td class="news-package-actions">
+                                @if (package.AnnouncementId is { } announcementId)
+                                {
+                                    <button class="btn small icon-only"
+                                            title="preview package in footer player"
+                                            @onclick="() => PlayPackage(package, announcementId)">
+                                        <Icon Name="play" />
+                                    </button>
+                                }
+                                @if (CanRecreatePackage(package))
+                                {
+                                    <button class="btn small icon-only"
+                                            disabled="@(_packageActionId == package.Id)"
+                                            title="recreate package"
+                                            @onclick="() => RecreatePackageAsync(package.Id)">
+                                        <Icon Name="refresh" />
+                                    </button>
+                                }
+                            </td>
                         </tr>
                     }
                 </tbody>
@@ -217,7 +241,7 @@ else
 <SpecialistHostModal Visible="@_specialistModalOpen"
                      Role="News"
                      OnClose="() => _specialistModalOpen = false"
-                     HostCreated="OnSpecialistCreatedAsync" />
+                     HostRequested="CreateNewsHostAsync" />
 
 <ConfirmDialog Visible="@(_deleteTarget is not null)"
                Title="Delete news feed"
@@ -242,6 +266,9 @@ else
     private bool _settingsSaved;
     private bool _feedModalOpen;
     private bool _specialistModalOpen;
+    private bool _creatingHost;
+    private bool _creatingPackage;
+    private Guid? _packageActionId;
 
     private bool _newsEnabled = true;
     private string _extract = "true";
@@ -382,11 +409,100 @@ else
         await LoadAsync();
     }
 
-    private async Task OnSpecialistCreatedAsync(ModeratorDto host)
+    private async Task CreateNextPackageAsync()
     {
-        _moderators = await Api.GetModeratorsAsync();
-        _presenterId = host.Id.ToString();
-        await SaveSettingsAsync();
+        if (_creatingPackage)
+        {
+            return;
+        }
+
+        _creatingPackage = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var (_, error) = await Api.CreateNextNewsPackageAsync();
+            _error = error;
+            await LoadAsync();
+        }
+        finally
+        {
+            _creatingPackage = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RecreatePackageAsync(Guid id)
+    {
+        if (_packageActionId is not null)
+        {
+            return;
+        }
+
+        _packageActionId = id;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var (_, error) = await Api.RecreateNewsPackageAsync(id);
+            _error = error;
+            await LoadAsync();
+        }
+        finally
+        {
+            _packageActionId = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void PlayPackage(NewsPackageDto package, Guid announcementId)
+    {
+        var title = $"News package {package.TargetUtc.ToLocalTime():ddd HH:mm}";
+        Player.PlayAnnouncement(
+            announcementId,
+            title,
+            Api.AnnouncementAudioUrl(announcementId),
+            package.TargetDurationSeconds);
+    }
+
+    private void OpenSpecialistHostModal()
+    {
+        if (!_creatingHost)
+        {
+            _specialistModalOpen = true;
+        }
+    }
+
+    private async Task CreateNewsHostAsync(string? hint)
+    {
+        if (_creatingHost)
+        {
+            return;
+        }
+
+        _creatingHost = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var (host, error) = await Api.CreateSpecialistHostAsync(new CreateSpecialistHostRequestDto("News", hint));
+            if (host is not null)
+            {
+                _moderators = await Api.GetModeratorsAsync();
+                _presenterId = host.Id.ToString();
+                await SaveSettingsAsync();
+            }
+            else
+            {
+                _error = string.IsNullOrWhiteSpace(error) ? "Host creation failed." : error;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _creatingHost = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private void OnNewsChanged()
@@ -417,11 +533,14 @@ else
     private static string? PackageTag(string status)
         => status switch
         {
-            "Ready" or "Queued" => "amber",
+            "Pending" or "Ready" or "Queued" => "amber",
             "Played" => "green",
             "Failed" => "red",
             _ => null,
         };
+
+    private static bool CanRecreatePackage(NewsPackageDto package)
+        => package.Status is "Pending" or "Ready" or "Failed";
 
     private static DateTime? AsUtc(DateTime? value)
         => value is null

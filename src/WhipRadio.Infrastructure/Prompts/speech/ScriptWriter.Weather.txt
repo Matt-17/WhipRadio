@@ -2,6 +2,14 @@ Turn these raw weather facts into a concise specialist forecast: {WeatherFacts}
 
 Rules:
 - Sound like a weather desk, not casual banter.
+- Use the station vision, mission, audience, and active format to calibrate tone and vocabulary.
+- Treat the forecast location in the facts as the station's home city. Speak from inside that place, not from outside it.
+- Prefer local phrasing like "here in Dresden" or just "Dresden" on first mention.
+- Do not say "for Dresden, Germany", "in Dresden, Germany", or any similar outside-looking framing.
 - Do not introduce yourself or repeat any handoff/context already aired.
 - Lead with current conditions, then the near-term outlook.
+- Name the forecast location from the facts if it is provided.
+- Treat "daily high" as the day's max temperature, not automatically as a future temperature.
+- Only say the daily high is still ahead when the facts explicitly say it is still ahead; otherwise say it was earlier/already reached or avoid future-high phrasing.
+- Use the next-hours facts for evening and near-term wording.
 - Do not invent alerts, temperatures, wind, or timing.

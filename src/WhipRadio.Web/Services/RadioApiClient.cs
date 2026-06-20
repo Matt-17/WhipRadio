@@ -162,10 +162,40 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         }
     }
 
+    public async Task<(ModeratorDto? Moderator, string? Error)> CreateSpecialistHostAsync(
+        CreateSpecialistHostRequestDto request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/moderators/specialist", request, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ModeratorDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Host creation timed out or the writer room / voice booth is unreachable.");
+        }
+    }
+
     public async Task ToggleModeratorAsync(int id, CancellationToken ct = default)
     {
         using var response = await http.PostAsync($"/api/moderators/{id}/toggle", content: null, ct);
         response.EnsureSuccessStatusCode();
+    }
+
+    public async Task<ModeratorUsageDto?> GetModeratorUsageAsync(int id, CancellationToken ct = default)
+        => await SafeGetAsync<ModeratorUsageDto>($"/api/moderators/{id}/usage", ct);
+
+    public async Task<(FireModeratorResultDto? Result, string? Error)> FireModeratorAsync(
+        int id,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/moderators/{id}/fire", content: null, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<FireModeratorResultDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
     }
 
     public async Task<ModeratorDto?> SetModeratorPhotoAsync(int id, string? photoUrl, CancellationToken ct = default)
@@ -347,6 +377,24 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     {
         using var response = await http.PutAsJsonAsync("/api/production/news/settings", settings, ct);
         return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<(NewsPackageDto? Package, string? Error)> CreateNextNewsPackageAsync(CancellationToken ct = default)
+    {
+        using var response = await LongClient.PostAsync("/api/production/news/packages/next", null, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<NewsPackageDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<(NewsPackageDto? Package, string? Error)> RecreateNewsPackageAsync(
+        Guid id,
+        CancellationToken ct = default)
+    {
+        using var response = await LongClient.PostAsync($"/api/production/news/packages/{id}/recreate", null, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<NewsPackageDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
     }
 
     public async Task<(NewsFeedDto? Feed, string? Error)> CreateNewsFeedAsync(

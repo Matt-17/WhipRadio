@@ -16,12 +16,13 @@ builder.Services.AddHttpClient<RadioApiClient>(client =>
     .RemoveAllResilienceHandlers();
 
 // Voice design runs for minutes (transient 1.7B model; first call downloads
-// weights). The default 10 s timeout + Polly retries would cancel and then
+// weights), and manual news package production can run close to 20 minutes.
+// The default 10 s timeout + Polly retries would cancel and then
 // QUEUE THREE designs — this client has neither.
 builder.Services.AddHttpClient("orchestrator-long", client =>
     {
         client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
-        client.Timeout = TimeSpan.FromMinutes(12);
+        client.Timeout = TimeSpan.FromMinutes(25);
     })
     .RemoveAllResilienceHandlers();
 

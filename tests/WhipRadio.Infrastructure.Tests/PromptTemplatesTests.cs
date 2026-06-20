@@ -34,12 +34,14 @@ public class PromptTemplatesTests
     {
         var prompt = PromptTemplates.Render("ScriptWriter.News", new Dictionary<string, string>
         {
-            ["NewsFacts"] = "Source: Test Wire\nTitle: Markets move",
+            ["NewsFacts"] = "Bulletin time: 2026-06-20 18:00 local.\n\nSource: Test Wire\nTitle: Markets move",
         });
 
         Assert.Contains("Do not say the station slogan", prompt);
         Assert.Contains("Do not frame this like a DJ break", prompt);
         Assert.Contains("Do not introduce yourself", prompt);
+        Assert.Contains("Anchor the lead to the bulletin time", prompt);
+        Assert.Contains("Vary the opening slightly", prompt);
         Assert.Contains("Avoid geography-tour transitions", prompt);
         Assert.DoesNotContain("{NewsFacts}", prompt);
     }
@@ -49,11 +51,14 @@ public class PromptTemplatesTests
     {
         var prompt = PromptTemplates.Render("ScriptWriter.Weather", new Dictionary<string, string>
         {
-            ["WeatherFacts"] = "Currently 14 C, light rain.",
+            ["WeatherFacts"] = "Location: Dresden, Germany.\nCurrently 14 C, light rain.",
         });
 
         Assert.Contains("concise specialist forecast", prompt);
         Assert.Contains("weather desk", prompt);
+        Assert.Contains("Treat the forecast location in the facts as the station's home city", prompt);
+        Assert.Contains("here in Dresden", prompt);
+        Assert.Contains("Do not say \"for Dresden, Germany\"", prompt);
         Assert.Contains("Do not introduce yourself", prompt);
         Assert.DoesNotContain("{WeatherFacts}", prompt);
     }

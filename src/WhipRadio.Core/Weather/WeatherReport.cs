@@ -4,36 +4,52 @@ namespace WhipRadio.Core.Weather;
 
 public sealed record WeatherReport(
     string Language,
+    string LocationName,
     DateTime LocalTime,
     WeatherNow Current,
     WeatherDay Today,
+    WeatherDayTemperatureContext TodayTemperature,
     double? TonightLowC,
     WeatherDay? Tomorrow,
-    IReadOnlyList<WeatherDay> Outlook)
+    IReadOnlyList<WeatherDay> Outlook,
+    IReadOnlyList<WeatherHour> NextHours)
 {
     public string ToFacts()
     {
         var culture = CultureInfo.InvariantCulture;
 
-        var current =
-            $"Currently {Current.TemperatureC.ToString("0.#", culture)} C, {Current.Condition}, wind {Current.WindSpeedKmh.ToString("0.#", culture)} km/h.";
+        var lines = new List<string>
+        {
+            $"Location: {LocationName}.",
+            $"Weather observation time: {LocalTime:yyyy-MM-dd HH:mm} local.",
+            $"Current conditions: {Current.TemperatureC.ToString("0.#", culture)} C, {Current.Condition}, wind {Current.WindSpeedKmh.ToString("0.#", culture)} km/h.",
+            FormatTodayTemperature(culture),
+        };
 
-        var today =
-            $" Today {FormatRange(Today, culture)} with {Today.PrecipitationProbabilityPercent.GetValueOrDefault()}% rain chance.";
+        if (NextHours.Count > 0)
+        {
+            lines.Add("Next hours: " + string.Join("; ", NextHours.Select(hour =>
+                $"{hour.Time:HH:mm} {hour.TemperatureC.ToString("0.#", culture)} C, {hour.Condition}")) + ".");
+        }
 
-        var tonight = TonightLowC is double low
-            ? $" Tonight around {low.ToString("0.#", culture)} C."
-            : string.Empty;
+        lines.Add($"Today condition: {Today.Condition}; rain chance {Today.PrecipitationProbabilityPercent.GetValueOrDefault()}%.");
 
-        var tomorrow = Tomorrow is not null
-            ? $" Tomorrow {Tomorrow.Condition}, {FormatRange(Tomorrow, culture)}, rain chance {Tomorrow.PrecipitationProbabilityPercent.GetValueOrDefault()}%."
-            : string.Empty;
+        if (TonightLowC is double low)
+        {
+            lines.Add($"Tonight low: around {low.ToString("0.#", culture)} C.");
+        }
 
-        var outlook = Outlook.Count > 0
-            ? " Three-day outlook: " + string.Join("; ", Outlook.Select(day => $"{day.Date:ddd}: {day.Condition}, {FormatRange(day, culture)}")) + "."
-            : string.Empty;
+        if (Tomorrow is not null)
+        {
+            lines.Add($"Tomorrow: {Tomorrow.Condition}, {FormatRange(Tomorrow, culture)}, rain chance {Tomorrow.PrecipitationProbabilityPercent.GetValueOrDefault()}%.");
+        }
 
-        return string.Concat(current, today, tonight, tomorrow, outlook);
+        if (Outlook.Count > 0)
+        {
+            lines.Add("Three-day outlook: " + string.Join("; ", Outlook.Select(day => $"{day.Date:ddd}: {day.Condition}, {FormatRange(day, culture)}")) + ".");
+        }
+
+        return string.Join("\n", lines);
     }
 
     private static string FormatRange(WeatherDay day, CultureInfo culture)
@@ -41,6 +57,28 @@ public sealed record WeatherReport(
         var max = day.MaxTemperatureC?.ToString("0.#", culture) ?? "?";
         var min = day.MinTemperatureC?.ToString("0.#", culture) ?? "?";
         return $"{max} C/{min} C";
+    }
+
+    private string FormatTodayTemperature(CultureInfo culture)
+    {
+        var current = TodayTemperature.CurrentTemperatureC?.ToString("0.#", culture) ?? "?";
+        var max = TodayTemperature.DailyMaxTemperatureC?.ToString("0.#", culture) ?? "?";
+        var min = TodayTemperature.DailyMinTemperatureC?.ToString("0.#", culture) ?? "?";
+        var remaining = TodayTemperature.RemainingMaxTemperatureC?.ToString("0.#", culture);
+
+        return TodayTemperature.DailyMaxStatus switch
+        {
+            WeatherDailyMaxStatus.AlreadyReached =>
+                TodayTemperature.CurrentTemperatureC is double currentTemperature
+                    && TodayTemperature.DailyMaxTemperatureC is double dailyMax
+                    && Math.Abs(currentTemperature - dailyMax) <= 0.2
+                        ? $"Today temperature range: current temperature {current} C already matches today's high {max} C; daily low {min} C; remaining hours stay near {remaining ?? current} C."
+                        : $"Today temperature range: current temperature {current} C; daily high {max} C appears to be earlier/already reached; daily low {min} C; remaining hours stay near {remaining ?? current} C.",
+            WeatherDailyMaxStatus.StillAhead =>
+                $"Today temperature range: daily high {max} C is still ahead, expected near {TodayTemperature.RemainingMaxAt:HH:mm}; daily low {min} C.",
+            _ =>
+                $"Today temperature range: daily high {max} C (do not say it is still ahead unless next-hours data supports that); daily low {min} C.",
+        };
     }
 }
 
@@ -56,3 +94,23 @@ public sealed record WeatherDay(
     double? MaxTemperatureC,
     double? MinTemperatureC,
     int? PrecipitationProbabilityPercent);
+
+public sealed record WeatherHour(
+    DateTime Time,
+    double TemperatureC,
+    string Condition);
+
+public sealed record WeatherDayTemperatureContext(
+    double? CurrentTemperatureC,
+    double? DailyMaxTemperatureC,
+    double? DailyMinTemperatureC,
+    double? RemainingMaxTemperatureC,
+    DateTime? RemainingMaxAt,
+    WeatherDailyMaxStatus DailyMaxStatus);
+
+public enum WeatherDailyMaxStatus
+{
+    Unknown,
+    AlreadyReached,
+    StillAhead,
+}

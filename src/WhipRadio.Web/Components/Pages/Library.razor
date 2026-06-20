@@ -8,7 +8,7 @@
 <PageTitle>WhipRadio — Library</PageTitle>
 
 <h1 class="stage-title">Record Collection</h1>
-<div class="stage-sub">every track composed in-house · by fictional artists</div>
+<div class="stage-sub">every track composed in-house • by fictional artists</div>
 
 <div class="library-split">
     <div class="panel reveal library-artists">
@@ -49,7 +49,7 @@
                         }
                     </span>
                     <span class="artist-meta-row">
-                        <span class="artist-meta dim">@artist.Subgenre · @artist.TrackCount songs</span>
+                        <span class="artist-meta dim">@artist.Subgenre • @artist.TrackCount songs</span>
                         @if (IsGenerating(artist.Id))
                         {
                             <span class="tag red"><span class="blink rec-dot">●</span> REC</span>
@@ -127,7 +127,7 @@
                             @{ var queuedCount = QueuedCount(selectedId); }
                             @if (queuedCount > 0)
                             {
-                                <div class="queue-box">Queue · @queuedCount song@(queuedCount == 1 ? "" : "s")</div>
+                                <div class="queue-box">Queue • @queuedCount song@(queuedCount == 1 ? "" : "s")</div>
                             }
                             <button class="btn small"
                                     disabled="@(ActiveRedefinitionFor(artist.Id) is not null)"

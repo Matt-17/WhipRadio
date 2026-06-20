@@ -1,39 +1,18 @@
-@using WhipRadio.Core.Api
-@using WhipRadio.Web.Services
-@inject RadioApiClient Api
-
 <Modal Visible="@Visible"
        Title="@($"Create {RoleLabel} Host")"
        Class="modal-wide"
        OnClose="CloseAsync">
     <ChildContent>
-        <div class="form-grid">
-            <div class="field">
+        <div class="form-grid specialist-host-grid">
+            <div class="field specialist-hint-field">
                 <label>Hint</label>
-                <input @bind="_hint" placeholder="@HintPlaceholder" />
-            </div>
-            <div class="field">
-                <label>Name</label>
-                <input @bind="_name" placeholder="automatic" />
-            </div>
-            <div class="field">
-                <label>Gender</label>
-                <select @bind="_gender">
-                    <option value="f">female</option>
-                    <option value="m">male</option>
-                </select>
+                <textarea @bind="_hint" rows="5" placeholder="@HintPlaceholder"></textarea>
             </div>
         </div>
-        @if (_error is not null)
-        {
-            <div class="production-warning">@_error</div>
-        }
     </ChildContent>
     <Footer>
         <button class="btn small" @onclick="CloseAsync">Cancel</button>
-        <button class="btn primary" disabled="@_creating" @onclick="CreateAsync">
-            @(_creating ? "creating..." : $"Create {RoleLabel}")
-        </button>
+        <button class="btn small specialist-create-btn" disabled="@_submitting" @onclick="CreateAsync">Create @RoleLabel Host</button>
     </Footer>
 </Modal>
 
@@ -44,91 +23,37 @@
 
     [Parameter] public EventCallback OnClose { get; set; }
 
-    [Parameter] public EventCallback<ModeratorDto> HostCreated { get; set; }
+    [Parameter] public EventCallback<string?> HostRequested { get; set; }
 
     private string _hint = "";
-    private string _name = "";
-    private string _gender = "f";
-    private string? _error;
-    private bool _creating;
+    private bool _submitting;
 
     private bool IsWeather => string.Equals(Role, "Weather", StringComparison.OrdinalIgnoreCase);
 
     private string RoleLabel => IsWeather ? "Weather" : "News";
 
     private string HintPlaceholder => IsWeather
-        ? "precise storm desk, calm overnight forecast"
-        : "BBC-style night editor, global business focus";
+        ? "calm overnight forecast, practical travel timing, warm but concise"
+        : "precise night editor, global business focus, public-service tone";
 
     private async Task CreateAsync()
     {
-        if (_creating)
+        if (_submitting)
         {
             return;
         }
 
-        _creating = true;
-        _error = null;
-        var spec = BuildSpec();
-        var (created, error) = await Api.CreateModeratorAsync(new CreateModeratorDto(
-            Name: spec.Name,
-            Language: "en",
-            Gender: _gender,
-            TtsEngine: "qwen",
-            Style: spec.Style,
-            PersonaPrompt: spec.Persona,
-            PrefersVocals: null,
-            PreferredGenres: spec.PreferredGenres,
-            Talkativeness: spec.Talkativeness,
-            IsWeatherSpecialist: IsWeather,
-            PhotoUrl: null,
-            BaselineTraits: spec.Traits,
-            TalkProfile: spec.TalkProfile,
-            IsNewsSpecialist: !IsWeather,
-            VoiceDescription: spec.VoiceDescription));
-        _creating = false;
-
-        if (created is null)
-        {
-            _error = string.IsNullOrWhiteSpace(error) ? "host creation failed" : error;
-            return;
-        }
-
-        await HostCreated.InvokeAsync(created);
-        Reset();
+        _submitting = true;
+        var hint = string.IsNullOrWhiteSpace(_hint) ? null : _hint.Trim();
         await OnClose.InvokeAsync();
-    }
-
-    private SpecialistSpec BuildSpec()
-    {
-        var hint = string.IsNullOrWhiteSpace(_hint) ? "steady specialist desk voice" : _hint.Trim();
-        var name = string.IsNullOrWhiteSpace(_name)
-            ? (IsWeather ? "Alex Barometer" : "Nora Current")
-            : _name.Trim();
-        var genderWord = _gender == "m" ? "male" : "female";
-
-        if (IsWeather)
+        try
         {
-            return new SpecialistSpec(
-                name,
-                "concise-weather-desk",
-                $"You are {name}, WhipRadio's weather specialist. You deliver concise forecasts with calm confidence, practical timing, and no casual DJ banter. Desk direction: {hint}.",
-                "weather,forecast",
-                0.25,
-                new ModeratorTraitsDto("Medium", "Formal", "VeryLow", "Low", "Medium"),
-                new HostTalkProfileDto(0, 1, 1, "Weather", 1, 0.1),
-                $"A {genderWord} weather specialist voice with clear diction, measured pace, and calm forecast authority. {hint}");
+            await HostRequested.InvokeAsync(hint);
         }
-
-        return new SpecialistSpec(
-            name,
-            "clear-editorial",
-            $"You are {name}, WhipRadio's news specialist. You deliver factual, sourced bulletins with calm editorial precision and no DJ framing. Desk direction: {hint}.",
-            "news,current events",
-            0.3,
-            new ModeratorTraitsDto("Medium", "Formal", "VeryLow", "Medium", "Medium"),
-            new HostTalkProfileDto(0, 1, 1, "News", 1, 0.1),
-            $"A {genderWord} newsreader voice with precise articulation, controlled pace, and neutral editorial authority. {hint}");
+        finally
+        {
+            Reset();
+        }
     }
 
     private async Task CloseAsync()
@@ -140,19 +65,6 @@
     private void Reset()
     {
         _hint = "";
-        _name = "";
-        _gender = "f";
-        _error = null;
-        _creating = false;
+        _submitting = false;
     }
-
-    private sealed record SpecialistSpec(
-        string Name,
-        string Style,
-        string Persona,
-        string PreferredGenres,
-        double Talkativeness,
-        ModeratorTraitsDto Traits,
-        HostTalkProfileDto TalkProfile,
-        string VoiceDescription);
 }

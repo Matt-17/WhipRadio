@@ -7,6 +7,50 @@ namespace WhipRadio.Orchestrator.Tests;
 public class ProductionSpecialistPolicyTests
 {
     [TestMethod]
+    public void ResolveNewsModerator_ReturnsNullWhenNoActiveNewsSpecialistExists()
+    {
+        var musicHost = Moderator(1, "Music");
+        var settings = new StationSettings
+        {
+            NewsEnabled = true,
+        };
+
+        var news = ProductionSpecialistPolicy.ResolveNewsModerator(settings, [musicHost]);
+
+        Assert.Null(news);
+    }
+
+    [TestMethod]
+    public void ResolveNewsModerator_UsesConfiguredActiveNewsSpecialist()
+    {
+        var firstNews = Moderator(1, "Aster", news: true);
+        var configuredNews = Moderator(2, "Beacon", news: true);
+        var settings = new StationSettings
+        {
+            NewsEnabled = true,
+            NewsPresenterModeratorId = configuredNews.Id,
+        };
+
+        var news = ProductionSpecialistPolicy.ResolveNewsModerator(settings, [firstNews, configuredNews]);
+
+        Assert.NotNull(news);
+        Assert.Equal(configuredNews.Id, news!.Id);
+    }
+
+    [TestMethod]
+    public void BuildWarning_ReportsAutomaticNewsCreation()
+    {
+        var settings = new StationSettings
+        {
+            NewsEnabled = true,
+        };
+
+        var warning = ProductionSpecialistPolicy.BuildWarning(settings, []);
+
+        Assert.Contains("program director will create one", warning);
+    }
+
+    [TestMethod]
     public void ResolveWeatherModerator_ReturnsNullWhenOnlyNewsPresenterIsWeatherSpecialist()
     {
         var news = Moderator(1, "News", news: true, weather: true);
@@ -52,7 +96,7 @@ public class ProductionSpecialistPolicyTests
 
         var warning = ProductionSpecialistPolicy.BuildWarning(settings, [news]);
 
-        Assert.Contains("weather will be skipped", warning);
+        Assert.Contains("program director will create one", warning);
     }
 
     private static Moderator Moderator(int id, string name, bool news = false, bool weather = false)

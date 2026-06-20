@@ -30,7 +30,7 @@ else
             {
                 <div class="empty-state">nobody on the roster yet</div>
             }
-            @foreach (var moderator in _moderators)
+            @foreach (var moderator in RosterHosts)
             {
                 <div class="host-row @(moderator.Id == _selectedId ? "selected" : null) @(moderator.IsActive ? null : "inactive")"
                      @onclick="() => Select(moderator.Id)">
@@ -152,7 +152,10 @@ else
                             @(_designing && _redesignFor == host.Id ? "designing..." : "redesign voice")
                         </button>
                     </div>
-                    <button class="btn small danger" disabled title="coming soon — hosts can't be fired yet">🔥 fire</button>
+                    <button class="btn small danger host-fire-action" disabled="@_firingHost" title="remove this host from active use"
+                            @onclick="() => OpenFireAsync(host)">
+                        @(_firingHost && _fireTarget?.Id == host.Id ? "firing..." : "Fire")
+                    </button>
                 </footer>
                 @if (_talksFor == host.Id)
                 {
@@ -311,6 +314,49 @@ else
     </Footer>
 </Modal>
 
+<ConfirmDialog Visible="@(_fireTarget is not null)"
+               Title="Fire host"
+               ConfirmText="Fire"
+               CancelText="Keep"
+               Danger="true"
+               OnConfirm="FireConfirmedAsync"
+               OnCancel="CloseFireDialog">
+    @if (_fireTarget is { } hostToFire)
+    {
+        <p>Fire <strong>@hostToFire.Name</strong>?</p>
+        <p class="dim">This turns the host off and removes future assignments. Existing aired audio and logs stay in history.</p>
+        @if (_fireUsage is null)
+        {
+            <div class="empty-state">checking usage...</div>
+        }
+        else
+        {
+            var clearedItems = FireClearedItems(_fireUsage);
+            <div class="host-fire-impact">
+                <div class="host-fire-impact-title">Firing this host will clear:</div>
+                @if (clearedItems.Count == 0)
+                {
+                    <div class="host-fire-empty">No active assignments.</div>
+                }
+                else
+                {
+                    <ul class="host-fire-list">
+                        @foreach (var item in clearedItems)
+                        {
+                            <li>@item</li>
+                        }
+                    </ul>
+                }
+                <div class="host-fire-history">@FireHistoryText(_fireUsage)</div>
+            </div>
+        }
+        @if (_fireError is not null)
+        {
+            <div class="production-warning">@_fireError</div>
+        }
+    }
+</ConfirmDialog>
+
 @code {
     private List<ModeratorDto>? _moderators;
     private List<PlayLogEntryDto> _talks = [];
@@ -344,18 +390,33 @@ else
     private string? _designError;
     private int? _redesignFor;
     private DesignedVoiceDto? _redesigned;
+    private ModeratorDto? _fireTarget;
+    private ModeratorUsageDto? _fireUsage;
+    private string? _fireError;
+    private bool _firingHost;
 
     private ModeratorDto? Selected => _moderators?.FirstOrDefault(m => m.Id == _selectedId);
 
+    private IEnumerable<ModeratorDto> RosterHosts
+        => (_moderators ?? [])
+            .OrderBy(host => host.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(host => host.Id);
+
     protected override async Task OnInitializedAsync()
     {
-        _moderators = await Api.GetModeratorsAsync();
-        _selectedId = _moderators.FirstOrDefault()?.Id;
+        _moderators = SortHosts(await Api.GetModeratorsAsync());
+        _selectedId = RosterHosts.FirstOrDefault()?.Id;
         _photoUrlEdit = Selected?.PhotoUrl ?? "";
         _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "en";
     }
 
     private static bool HasPhoto(ModeratorDto m) => !string.IsNullOrWhiteSpace(m.PhotoUrl);
+
+    private static List<ModeratorDto> SortHosts(IEnumerable<ModeratorDto> hosts)
+        => hosts
+            .OrderBy(host => host.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(host => host.Id)
+            .ToList();
 
     private void Select(int id)
     {
@@ -420,7 +481,7 @@ else
         _newVoiceHandle = null;
         _newDesigned = null;
         _hireOpen = false;
-        _moderators = await Api.GetModeratorsAsync();
+        _moderators = SortHosts(await Api.GetModeratorsAsync());
         Select(created.Id);
     }
 
@@ -487,7 +548,53 @@ else
         await Api.ApplyVoiceAsync(moderatorId, new ApplyVoiceDto(_redesigned.Handle, _redesigned.Description));
         _redesignFor = null;
         _redesigned = null;
-        _moderators = await Api.GetModeratorsAsync();
+        _moderators = SortHosts(await Api.GetModeratorsAsync());
+    }
+
+    private async Task OpenFireAsync(ModeratorDto host)
+    {
+        _fireTarget = host;
+        _fireUsage = null;
+        _fireError = null;
+        _fireUsage = await Api.GetModeratorUsageAsync(host.Id);
+        if (_fireUsage is null)
+        {
+            _fireError = "Could not load host usage.";
+        }
+    }
+
+    private void CloseFireDialog()
+    {
+        _fireTarget = null;
+        _fireUsage = null;
+        _fireError = null;
+        _firingHost = false;
+    }
+
+    private async Task FireConfirmedAsync()
+    {
+        if (_fireTarget is not { } host)
+        {
+            return;
+        }
+
+        _firingHost = true;
+        _fireError = null;
+        var (result, error) = await Api.FireModeratorAsync(host.Id);
+        _firingHost = false;
+        if (result is null)
+        {
+            _fireError = string.IsNullOrWhiteSpace(error) ? "Could not fire host." : error;
+            return;
+        }
+
+        _created = null;
+        _talksFor = null;
+        _redesignFor = null;
+        _redesigned = null;
+        _moderators = SortHosts(await Api.GetModeratorsAsync());
+        Select(result.Moderator.Id);
+        CloseFireDialog();
     }
 
     /// <summary>Voice previews play in the footer player like song previews.</summary>
@@ -573,4 +680,39 @@ else
             "VeryFormal" => "very formal",
             _ => value.ToLowerInvariant(),
         };
+
+    private static IReadOnlyList<string> FireClearedItems(ModeratorUsageDto usage)
+    {
+        var items = new List<string>();
+        if (usage.IsNewsPresenter)
+        {
+            items.Add("News presenter assignment");
+        }
+
+        if (usage.IsWeatherSpecialist)
+        {
+            items.Add("Weather specialist assignment");
+        }
+
+        AddCount(items, usage.AssignedFormatCount, "show format assignment");
+        AddCount(items, usage.ActiveTalkBitCount, "active reusable talk bit");
+        AddCount(items, usage.PendingTalkBreakCount, "pending talk");
+        AddCount(items, usage.AssignedListenerMessageCount, "assigned listener message");
+        return items;
+    }
+
+    private static void AddCount(List<string> items, int count, string singular)
+    {
+        if (count > 0)
+        {
+            items.Add($"{count} {singular}{(count == 1 ? "" : "s")}");
+        }
+    }
+
+    private static string FireHistoryText(ModeratorUsageDto usage)
+        => $"History kept: {CountText(usage.HistoricalAnnouncementCount, "archived talk")}, "
+            + $"{CountText(usage.HistoricalPlayCount, "logged play")}.";
+
+    private static string CountText(int count, string singular)
+        => $"{count} {singular}{(count == 1 ? "" : "s")}";
 }

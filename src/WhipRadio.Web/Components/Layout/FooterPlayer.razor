@@ -25,7 +25,7 @@
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
             </div>
             <div class="player-meta">
-                Voice preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+                Voice preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
             <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
@@ -42,7 +42,23 @@
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
             </div>
             <div class="player-meta">
-                Jingle preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+                Jingle preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+            </div>
+            <div class="player-progress seekable" style="@SeekProgressStyle">
+                <input type="range" class="seek-overlay"
+                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                       @oninput="OnSeekAsync" title="drag to seek" />
+            </div>
+        }
+        else if (Player.CurrentAnnouncement is { } announcement)
+        {
+            <div class="player-title">
+                <span class="player-title-text">@announcement.Title</span>
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
+            </div>
+            <div class="player-meta">
+                Announcement preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
             <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
@@ -58,7 +74,7 @@
                 <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
             </div>
             <div class="player-meta">
-                Preview · @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+                Preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
             </div>
             <div class="player-progress seekable" style="@SeekProgressStyle">
                 <input type="range" class="seek-overlay"
@@ -81,7 +97,7 @@
             </div>
             <div class="player-meta">
                 @(np.FormatName ?? "WhipRadio")@(np.ModeratorName is not null ? $" with {np.ModeratorName}" : "")
-                · @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))
+                • @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))
             </div>
             <div class="player-progress"><div class="fill" style="@ProgressFillStyle(Progress)"></div></div>
         }
@@ -141,12 +157,14 @@
         : Player.CurrentTrack?.DurationSeconds
             ?? Player.CurrentVoice?.DurationSeconds
             ?? Player.CurrentJingle?.Jingle.DurationSeconds
+            ?? Player.CurrentAnnouncement?.DurationSeconds
             ?? 0;
 
     private double SongProgress => SongDuration > 0 ? Math.Clamp(_songPos / SongDuration * 100, 0, 100) : 0;
 
     private bool CanVote => Player.CurrentVoice is null
         && Player.CurrentJingle is null
+        && Player.CurrentAnnouncement is null
         && (Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track");
 
     private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
@@ -233,7 +251,7 @@
 
             if (status.Ended)
             {
-                await BackToLiveAsync();
+                await BackToLiveAsync(shouldPlay: true);
                 return;
             }
         }
@@ -265,6 +283,10 @@
         {
             await StartPreviewAsync(jingle.Url, jingle.Jingle.DurationSeconds);
         }
+        else if (Player.CurrentAnnouncement is { } announcement)
+        {
+            await StartPreviewAsync(announcement.Url, announcement.DurationSeconds);
+        }
 
         StateHasChanged();
     });
@@ -278,9 +300,11 @@
         await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
     }
 
-    private async Task BackToLiveAsync()
+    private Task BackToLiveAsync() => BackToLiveAsync(shouldPlay: false);
+
+    private async Task BackToLiveAsync(bool shouldPlay)
     {
-        var shouldKeepPlaying = _songPlaying;
+        var shouldKeepPlaying = shouldPlay || _songPlaying;
         _songPlaying = false;
         _livePlaying = shouldKeepPlaying;
         _songPos = 0;
@@ -290,7 +314,7 @@
 
         await Js.InvokeVoidAsync("whipRadio.nextFrame");
 
-        var livePlaying = await Js.InvokeAsync<bool>("whipRadio.backToLive", _streamUrl);
+        var livePlaying = await Js.InvokeAsync<bool>("whipRadio.backToLive", _streamUrl, shouldKeepPlaying);
         _livePlaying = livePlaying;
         await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
 

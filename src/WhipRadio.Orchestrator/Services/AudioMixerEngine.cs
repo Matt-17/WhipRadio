@@ -485,17 +485,36 @@ public sealed class AudioMixerEngine(
         var startAt = masterPos;
         if (actives.Count > 0)
         {
-            var fadeEnd = masterPos + Math.Max(1, fadeSamples);
-            foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+            var naturalEnd = actives
+                .Where(source => source.EndAtMaster > masterPos)
+                .Select(source => source.EndAtMaster)
+                .DefaultIfEmpty(masterPos)
+                .Max();
+            var remainingSeconds = Format.SamplesToSeconds(naturalEnd - masterPos);
+            var wouldStartWithinLateWindow = DateTime.UtcNow.AddSeconds(remainingSeconds)
+                <= interrupt.TargetUtc.AddSeconds(interrupt.LateWindowSeconds);
+            if (wouldStartWithinLateWindow)
             {
-                var currentGain = active.Slot.Envelope.GainAt(masterPos);
-                active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
-                active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
-                active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
-                active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+                startAt = naturalEnd;
+                logger.LogInformation(
+                    "Mixer timed package: letting current audio finish ({Remaining:F1}s remaining) before {Title}",
+                    remainingSeconds,
+                    interrupt.Item.Title);
             }
+            else
+            {
+                var fadeEnd = masterPos + Math.Max(1, fadeSamples);
+                foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+                {
+                    var currentGain = active.Slot.Envelope.GainAt(masterPos);
+                    active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
+                    active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
+                    active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
+                    active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+                }
 
-            startAt = fadeEnd;
+                startAt = fadeEnd;
+            }
         }
 
         var info = await BuildItemInfoAsync(interrupt.Item, ct);
@@ -507,9 +526,9 @@ public sealed class AudioMixerEngine(
             EnvelopeKind.Full,
             reportAt: startAt));
         logger.LogInformation(
-            "Mixer timed package: faded current audio over {Fade:F1}s and started {Title}",
-            interrupt.FadeOutSeconds,
-            interrupt.Item.Title);
+            "Mixer timed package: starting {Title} at {Delay:F1}s after decision",
+            interrupt.Item.Title,
+            Format.SamplesToSeconds(startAt - masterPos));
     }
 
     // --- helpers --------------------------------------------------------------------

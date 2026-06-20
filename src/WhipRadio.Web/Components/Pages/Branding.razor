@@ -56,11 +56,11 @@ else
             <button class="btn primary" @onclick="QueueJingleAsync">Queue Jingle</button>
             @if (ActiveJingle is { } active)
             {
-                <div class="queue-box">Recording · @active.Label</div>
+                <div class="queue-box">Recording • @active.Label</div>
             }
             @if (QueuedJingleCount > 0)
             {
-                <div class="queue-box">Queue · @QueuedJingleCount jingle@(QueuedJingleCount == 1 ? "" : "s")</div>
+                <div class="queue-box">Queue • @QueuedJingleCount jingle@(QueuedJingleCount == 1 ? "" : "s")</div>
             }
             @if (_jingleError is not null)
             {
@@ -105,7 +105,7 @@ else
                             <span>@item.Style</span>
                             @if (item.Error is not null)
                             {
-                                <span class="library-meta-dot">·</span>
+                                <span class="library-meta-dot">•</span>
                                 <span>@item.Error</span>
                             }
                         </div>
@@ -133,7 +133,7 @@ else
                         </div>
                         <div class="library-song-meta">
                             <span>@jingle.Style</span>
-                            <span class="library-meta-dot">·</span>
+                            <span class="library-meta-dot">•</span>
                             <span>@jingle.Backend</span>
                         </div>
                         <div class="library-length-cell num">@FormatDuration(jingle.DurationSeconds)</div>

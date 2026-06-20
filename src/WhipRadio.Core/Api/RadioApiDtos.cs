@@ -146,6 +146,10 @@ public sealed record CreateModeratorDto(
     bool IsNewsSpecialist = false,
     string? VoiceDescription = null);
 
+public sealed record CreateSpecialistHostRequestDto(
+    string Role,
+    string? Hint = null);
+
 public sealed record ModeratorTraitsDto(
     string Energy,
     string Formality,
@@ -162,6 +166,20 @@ public sealed record HostTalkProfileDto(
     double EvergreenBitTolerance = 0.5);
 
 public sealed record ModeratorPhotoDto(string? PhotoUrl);
+
+public sealed record ModeratorUsageDto(
+    bool IsNewsPresenter,
+    bool IsWeatherSpecialist,
+    int AssignedFormatCount,
+    int ActiveTalkBitCount,
+    int PendingTalkBreakCount,
+    int AssignedListenerMessageCount,
+    int HistoricalAnnouncementCount,
+    int HistoricalPlayCount);
+
+public sealed record FireModeratorResultDto(
+    ModeratorDto Moderator,
+    ModeratorUsageDto Usage);
 
 public sealed record StationSettingsDto(
     string StationName,

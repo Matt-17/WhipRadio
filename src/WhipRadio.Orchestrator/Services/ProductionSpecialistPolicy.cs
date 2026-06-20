@@ -4,10 +4,9 @@ namespace WhipRadio.Orchestrator.Services;
 
 public static class ProductionSpecialistPolicy
 {
-    public static Moderator ResolveNewsModerator(
+    public static Moderator? ResolveNewsModerator(
         StationSettings settings,
-        IEnumerable<Moderator> moderators,
-        Moderator fallback)
+        IEnumerable<Moderator> moderators)
     {
         var active = moderators.Where(m => m.IsActive).ToList();
         if (settings.NewsPresenterModeratorId is int configuredId)
@@ -19,9 +18,7 @@ public static class ProductionSpecialistPolicy
             }
         }
 
-        return active.FirstOrDefault(m => m.IsNewsSpecialist)
-            ?? active.FirstOrDefault(m => string.Equals(m.Name, "Maya Current", StringComparison.OrdinalIgnoreCase))
-            ?? fallback;
+        return active.OrderBy(m => m.Name).ThenBy(m => m.Id).FirstOrDefault(m => m.IsNewsSpecialist);
     }
 
     public static Moderator? ResolveWeatherModerator(
@@ -52,7 +49,7 @@ public static class ProductionSpecialistPolicy
 
         if (settings.NewsEnabled && newsModerator is null)
         {
-            return "No active news specialist is assigned; create or activate a news host before the next package.";
+            return "No active news specialist is assigned; the program director will create one when the next news package needs it.";
         }
 
         if (!settings.WeatherEnabled)
@@ -61,7 +58,7 @@ public static class ProductionSpecialistPolicy
         }
 
         return ResolveWeatherModerator(settings, active, newsModerator ?? new Moderator { Id = int.MinValue }) is null
-            ? "Weather is enabled, but no distinct active weather specialist is available; weather will be skipped in top-of-hour packages."
+            ? "Weather is enabled, but no distinct active weather specialist is available; the program director will create one when weather is needed."
             : null;
     }
 }

@@ -1,0 +1,49 @@
+Design one specialist radio host for WhipRadio's {Role} desk.
+
+Station context is mandatory:
+- Station name: {StationName}
+- Slogan: {StationSlogan}
+- Vision: {StationVision}
+- Mission: {StationMission}
+- Default language: {Language}
+
+Manual hint:
+{Hint}
+
+Existing host names to avoid:
+{AvoidNames}
+
+Requirements:
+- The station vision, mission, audience, and format must shape the host. A child station, business station, party station, and late-night local station should create different specialists.
+- The manual hint may include name, gender, accent, tone, or desk direction. Follow it when it fits the station.
+- If the hint names the host, use that exact name unless it collides with an existing host.
+- If the hint specifies gender, use that gender unless the station context clearly conflicts.
+- If the hint does not name or gender the host, invent both. Choose a name that sounds plausible for the chosen gender.
+- Do not reuse, closely duplicate, or vary an existing host name.
+- Avoid role/status placeholder names such as Current, Automatic, Default, First, News Anchor, or Weather Host.
+- News specialists are factual anchors: calm, sourced, concise, no DJ framing, no station slogan in bulletins.
+- Weather specialists are practical forecasters: concise, clear, useful timing, no casual banter.
+- PersonaPrompt is hidden system context for future speech generation, not public biography.
+- VoiceDescription is for Qwen voice design: include speaking timbre, age impression, accent if relevant, pacing, energy, microphone character, and desk authority.
+- Keep Style short and machine-friendly, like "clear-editorial" or "concise-weather-desk".
+- PreferredGenres should be a concise comma-separated affinity list.
+- Return valid JSON only. Do not use Markdown fences, comments, trailing commas, or function-call syntax.
+- JSON strings must use normal double quotes. Do not put quote characters inside string values.
+
+Answer with exactly one JSON object in this schema:
+{
+  "name": "<unique host name>",
+  "gender": "<m or f>",
+  "style": "<short style key>",
+  "personaPrompt": "<2-4 sentences with role, station fit, tone limits, and specialist behavior>",
+  "preferredGenres": "<comma-separated affinities>",
+  "talkativeness": 0.3,
+  "traits": {
+    "energy": "<VeryLow, Low, Medium, High, or VeryHigh>",
+    "formality": "<VeryCasual, Casual, Balanced, Formal, or VeryFormal>",
+    "humorLevel": "<VeryLow, Low, Medium, High, or VeryHigh>",
+    "talkativeness": "<VeryLow, Low, Medium, High, or VeryHigh>",
+    "warmth": "<VeryLow, Low, Medium, High, or VeryHigh>"
+  },
+  "voiceDescription": "<voice design prompt>"
+}

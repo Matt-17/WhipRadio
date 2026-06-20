@@ -11,6 +11,8 @@ public sealed record VoicePreview(string Title, string Url, double DurationSecon
 
 public sealed record JinglePreview(JingleDto Jingle, string Url);
 
+public sealed record AnnouncementPreview(Guid Id, string Title, string Url, double DurationSeconds);
+
 public class PlayerState
 {
     /// <summary>Track preview mode (library). Null unless previewing a track.</summary>
@@ -22,7 +24,13 @@ public class PlayerState
     /// <summary>Station jingle preview mode (branding page). Null unless previewing a jingle.</summary>
     public JinglePreview? CurrentJingle { get; private set; }
 
-    public bool IsLive => CurrentTrack is null && CurrentVoice is null && CurrentJingle is null;
+    /// <summary>Produced talk/news preview mode. Null unless previewing an announcement.</summary>
+    public AnnouncementPreview? CurrentAnnouncement { get; private set; }
+
+    public bool IsLive => CurrentTrack is null
+        && CurrentVoice is null
+        && CurrentJingle is null
+        && CurrentAnnouncement is null;
 
     public event Action? Changed;
 
@@ -31,6 +39,7 @@ public class PlayerState
         CurrentTrack = track;
         CurrentVoice = null;
         CurrentJingle = null;
+        CurrentAnnouncement = null;
         Changed?.Invoke();
     }
 
@@ -39,6 +48,7 @@ public class PlayerState
         CurrentVoice = new VoicePreview(title, url, durationSeconds);
         CurrentTrack = null;
         CurrentJingle = null;
+        CurrentAnnouncement = null;
         Changed?.Invoke();
     }
 
@@ -47,6 +57,16 @@ public class PlayerState
         CurrentJingle = new JinglePreview(jingle, url);
         CurrentTrack = null;
         CurrentVoice = null;
+        CurrentAnnouncement = null;
+        Changed?.Invoke();
+    }
+
+    public void PlayAnnouncement(Guid id, string title, string url, double durationSeconds)
+    {
+        CurrentAnnouncement = new AnnouncementPreview(id, title, url, durationSeconds);
+        CurrentTrack = null;
+        CurrentVoice = null;
+        CurrentJingle = null;
         Changed?.Invoke();
     }
 
@@ -55,6 +75,7 @@ public class PlayerState
         CurrentTrack = null;
         CurrentVoice = null;
         CurrentJingle = null;
+        CurrentAnnouncement = null;
         Changed?.Invoke();
     }
 }

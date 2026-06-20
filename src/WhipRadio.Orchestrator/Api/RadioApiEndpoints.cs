@@ -534,7 +534,10 @@ public static class RadioApiEndpoints
     {
         api.MapGet("/moderators", async (RadioDbContext db, TimeProvider time, CancellationToken ct) =>
         {
-            var moderators = await db.Moderators.AsNoTracking().OrderBy(m => m.Id).ToListAsync(ct);
+            var moderators = await db.Moderators.AsNoTracking()
+                .OrderBy(m => m.Name)
+                .ThenBy(m => m.Id)
+                .ToListAsync(ct);
             var now = time.GetLocalNow();
             return Results.Ok(moderators.Select(m => ToDto(m, now)).ToList());
         });
@@ -615,6 +618,35 @@ public static class RadioApiEndpoints
             return Results.Ok(ToDto(moderator, time.GetLocalNow()));
         });
 
+        api.MapPost("/moderators/specialist", async (
+            CreateSpecialistHostRequestDto request,
+            SpecialistHostCreationService specialistHosts,
+            TimeProvider time,
+            CancellationToken ct) =>
+        {
+            if (!Enum.TryParse<SpecialistHostRole>(request.Role, ignoreCase: true, out var role)
+                || role is not (SpecialistHostRole.News or SpecialistHostRole.Weather))
+            {
+                return Results.BadRequest("Role must be News or Weather.");
+            }
+
+            try
+            {
+                var moderator = await specialistHosts.CreateAsync(role, request.Hint, ct);
+                return Results.Ok(ToDto(moderator, time.GetLocalNow()));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 503);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                return Results.Problem(
+                    "Host creation timed out or the writer room / voice booth is unreachable.",
+                    statusCode: 503);
+            }
+        });
+
         api.MapPost("/moderators/{id:int}/toggle", async (int id, RadioDbContext db,
             IProductionUpdatePublisher productionUpdates, CancellationToken ct) =>
         {
@@ -637,6 +669,81 @@ public static class RadioApiEndpoints
             }
 
             return Results.Ok(new { moderator.Id, moderator.IsActive });
+        });
+
+        api.MapGet("/moderators/{id:int}/usage", async (int id, RadioDbContext db, CancellationToken ct) =>
+        {
+            if (!await db.Moderators.AsNoTracking().AnyAsync(m => m.Id == id, ct))
+            {
+                return Results.NotFound();
+            }
+
+            return Results.Ok(await BuildModeratorUsageAsync(db, id, ct));
+        });
+
+        api.MapPost("/moderators/{id:int}/fire", async (int id, RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates, TimeProvider time, CancellationToken ct) =>
+        {
+            var moderator = await db.Moderators.FirstOrDefaultAsync(m => m.Id == id, ct);
+            if (moderator is null)
+            {
+                return Results.NotFound();
+            }
+
+            var usage = await BuildModeratorUsageAsync(db, id, ct);
+            var now = DateTime.UtcNow;
+            moderator.IsActive = false;
+
+            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
+            if (settings is not null)
+            {
+                if (settings.NewsPresenterModeratorId == id)
+                {
+                    settings.NewsPresenterModeratorId = null;
+                }
+
+                if (settings.WeatherSpecialistModeratorId == id)
+                {
+                    settings.WeatherSpecialistModeratorId = null;
+                }
+            }
+
+            await db.Formats
+                .Where(format => format.ModeratorId == id)
+                .ExecuteUpdateAsync(update => update.SetProperty(format => format.ModeratorId, (int?)null), ct);
+
+            await db.ListenerMessages
+                .Where(message => message.ModeratorId == id
+                    && (message.Status == ListenerMessageStatus.Pending || message.Status == ListenerMessageStatus.Queued))
+                .ExecuteUpdateAsync(update => update.SetProperty(message => message.ModeratorId, (int?)null), ct);
+
+            await db.TalkBits
+                .Where(bit => bit.ModeratorId == id && bit.Status == TalkBitStatus.Active)
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(bit => bit.Status, TalkBitStatus.Retired)
+                    .SetProperty(bit => bit.RetiredAtUtc, now)
+                    .SetProperty(bit => bit.RetirementReason, "Host fired"), ct);
+
+            await db.TalkParts
+                .Where(part => db.TalkBreaks.Any(talkBreak => talkBreak.Id == part.TalkBreakId
+                    && talkBreak.ModeratorId == id
+                    && (talkBreak.Status == TalkBreakStatus.Pending || talkBreak.Status == TalkBreakStatus.Rendered)))
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(part => part.Status, TalkPartStatus.Expired)
+                    .SetProperty(part => part.ExpiresAtUtc, now), ct);
+
+            await db.TalkBreaks
+                .Where(talkBreak => talkBreak.ModeratorId == id
+                    && (talkBreak.Status == TalkBreakStatus.Pending || talkBreak.Status == TalkBreakStatus.Rendered))
+                .ExecuteUpdateAsync(update => update
+                    .SetProperty(talkBreak => talkBreak.Status, TalkBreakStatus.Expired)
+                    .SetProperty(talkBreak => talkBreak.ExpiresAtUtc, now), ct);
+
+            await db.SaveChangesAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
+            await productionUpdates.PublishWeatherChangedAsync(ct);
+
+            return Results.Ok(new FireModeratorResultDto(ToDto(moderator, time.GetLocalNow()), usage));
         });
 
         api.MapPut("/moderators/{id:int}/photo", async (int id, ModeratorPhotoDto request,
@@ -803,6 +910,38 @@ public static class RadioApiEndpoints
             await productionUpdates.PublishNewsChangedAsync(ct);
             await productionUpdates.PublishWeatherChangedAsync(ct);
             return Results.NoContent();
+        });
+
+        api.MapPost("/production/news/packages/next", async (
+            NewsPackageProductionService production,
+            CancellationToken ct) =>
+        {
+            var package = await production.ProduceNextPackageAsync(ct);
+            return package is null
+                ? Results.BadRequest("No fresh news items are available for a package.")
+                : Results.Ok(ToDto(package));
+        });
+
+        api.MapPost("/production/news/packages/{id:guid}/recreate", async (
+            Guid id,
+            NewsPackageProductionService production,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                var package = await production.RecreatePackageAsync(id, ct);
+                return package is null
+                    ? Results.BadRequest("No fresh news items are available for a replacement package.")
+                    : Results.Ok(ToDto(package));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
         });
 
         api.MapPost("/news/feeds", async (SaveNewsFeedDto request, RadioDbContext db,
@@ -1853,6 +1992,26 @@ public static class RadioApiEndpoints
             string.Join(",", profile.AllowedKinds.OrderBy(kind => kind.ToString())),
             profile.ExactReplayTolerance,
             profile.EvergreenBitTolerance);
+
+    private static async Task<ModeratorUsageDto> BuildModeratorUsageAsync(
+        RadioDbContext db,
+        int moderatorId,
+        CancellationToken ct)
+    {
+        var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+        return new ModeratorUsageDto(
+            settings.NewsPresenterModeratorId == moderatorId,
+            settings.WeatherSpecialistModeratorId == moderatorId,
+            await db.Formats.AsNoTracking().CountAsync(format => format.ModeratorId == moderatorId, ct),
+            await db.TalkBits.AsNoTracking().CountAsync(bit => bit.ModeratorId == moderatorId
+                && bit.Status == TalkBitStatus.Active, ct),
+            await db.TalkBreaks.AsNoTracking().CountAsync(talkBreak => talkBreak.ModeratorId == moderatorId
+                && (talkBreak.Status == TalkBreakStatus.Pending || talkBreak.Status == TalkBreakStatus.Rendered), ct),
+            await db.ListenerMessages.AsNoTracking().CountAsync(message => message.ModeratorId == moderatorId
+                && (message.Status == ListenerMessageStatus.Pending || message.Status == ListenerMessageStatus.Queued), ct),
+            await db.Announcements.AsNoTracking().CountAsync(announcement => announcement.ModeratorId == moderatorId, ct),
+            await db.PlayLog.AsNoTracking().CountAsync(entry => entry.ModeratorId == moderatorId, ct));
+    }
 
     private static void ApplyTalkProfile(Moderator moderator, HostTalkProfileDto? profile)
     {

@@ -3,6 +3,7 @@ namespace WhipRadio.Core.Playout;
 public static class TopOfHourScheduler
 {
     public const int DefaultPrepareAheadMinutes = 10;
+    public const int DefaultLateWindowSeconds = 5 * 60;
 
     public static int NormalizeCadence(int cadenceMinutes)
         => Math.Clamp(cadenceMinutes, 15, 24 * 60);
@@ -12,6 +13,9 @@ public static class TopOfHourScheduler
 
     public static int NormalizeIntroGraceSeconds(int seconds)
         => Math.Clamp(seconds, 0, 60);
+
+    public static int NormalizeLateWindowSeconds(int seconds)
+        => Math.Clamp(seconds, 60, 15 * 60);
 
     public static DateTimeOffset NextTarget(DateTimeOffset localNow, int cadenceMinutes)
     {

@@ -29,7 +29,7 @@ else
             <div class="field">
                 <label>Weather host</label>
                 <select @bind="_hostId">
-                    <option value="">automatic</option>
+                    <option value="">Create host on next weather</option>
                     @foreach (var host in WeatherHosts)
                     {
                         <option value="@host.Id">@host.Name</option>
@@ -38,7 +38,9 @@ else
             </div>
             <div class="field">
                 <label>Specialist desk</label>
-                <button class="btn" @onclick="() => _specialistModalOpen = true">Create weather host</button>
+                <button class="btn specialist-create-btn specialist-create-launch-btn" disabled="@_creatingHost" @onclick="OpenSpecialistHostModal">
+                    Create Weather Host
+                </button>
             </div>
             <div class="field">
                 <label>Cadence</label>
@@ -87,7 +89,7 @@ else
 <SpecialistHostModal Visible="@_specialistModalOpen"
                      Role="Weather"
                      OnClose="() => _specialistModalOpen = false"
-                     HostCreated="OnSpecialistCreatedAsync" />
+                     HostRequested="CreateWeatherHostAsync" />
 
 @code {
     private WeatherProductionDto? _weather;
@@ -102,6 +104,7 @@ else
     private bool _saved;
     private string? _error;
     private bool _specialistModalOpen;
+    private bool _creatingHost;
 
     private IEnumerable<ModeratorDto> WeatherHosts
         => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true }).OrderBy(host => host.Name);
@@ -151,11 +154,45 @@ else
         }
     }
 
-    private async Task OnSpecialistCreatedAsync(ModeratorDto host)
+    private async Task CreateWeatherHostAsync(string? hint)
     {
-        _moderators = await Api.GetModeratorsAsync();
-        _hostId = host.Id.ToString();
-        await SaveAsync();
+        if (_creatingHost)
+        {
+            return;
+        }
+
+        _creatingHost = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var (host, error) = await Api.CreateSpecialistHostAsync(
+                new CreateSpecialistHostRequestDto("Weather", hint));
+
+            if (host is null)
+            {
+                _error = string.IsNullOrWhiteSpace(error) ? "Host creation failed." : error;
+                await LoadAsync();
+                return;
+            }
+
+            _moderators = await Api.GetModeratorsAsync();
+            _hostId = host.Id.ToString();
+            await SaveAsync();
+        }
+        finally
+        {
+            _creatingHost = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void OpenSpecialistHostModal()
+    {
+        if (!_creatingHost)
+        {
+            _specialistModalOpen = true;
+        }
     }
 
     private void OnWeatherChanged()

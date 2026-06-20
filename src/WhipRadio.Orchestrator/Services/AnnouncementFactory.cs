@@ -149,6 +149,145 @@ public class AnnouncementFactory(
         return announcement;
     }
 
+    public async Task<AnnouncementScriptDraft> WriteScriptDraftAsync(
+        AnnouncementKind kind,
+        Moderator moderator,
+        Track? relatedTrack,
+        string? facts,
+        string stationName,
+        CancellationToken ct,
+        string? lengthHint = null,
+        string? alreadySpokenContext = null)
+    {
+        // Personal talks reference what the host already said today.
+        if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
+        {
+            facts = await GetTodaysMemoryAsync(moderator.Id, ct);
+        }
+
+        var scriptContext = await promptContextBuilder.BuildAsync(
+            new PromptContextInput(
+                PromptScope.AnnouncementScript,
+                Moderator: moderator,
+                AnnouncementKind: kind,
+                RelatedTrack: relatedTrack,
+                Facts: facts,
+                LengthHint: lengthHint,
+                Purpose: kind.ToString(),
+                AlreadySpokenContext: alreadySpokenContext),
+            ct);
+
+        var request = new AnnouncementRequest(
+            kind,
+            stationName,
+            moderator.Language,
+            relatedTrack,
+            facts,
+            lengthHint,
+            scriptContext);
+        var script = await scriptWriter.WriteAsync(request, ct);
+
+        return new AnnouncementScriptDraft(
+            kind,
+            moderator,
+            relatedTrack,
+            facts,
+            lengthHint,
+            alreadySpokenContext,
+            script,
+            scriptContext);
+    }
+
+    public async Task<Announcement> ProduceFromDraftAsync(AnnouncementScriptDraft draft, CancellationToken ct)
+    {
+        var allowBreath = await GetAllowBreathAsync(draft.Moderator, ct);
+        var voiceContext = await promptContextBuilder.BuildAsync(
+            new PromptContextInput(
+                PromptScope.VoiceDirection,
+                Moderator: draft.Moderator,
+                AnnouncementKind: draft.Kind,
+                RelatedTrack: draft.RelatedTrack,
+                Facts: draft.Facts,
+                LengthHint: draft.LengthHint,
+                Purpose: draft.Kind.ToString(),
+                AlreadySpokenContext: draft.AlreadySpokenContext),
+            ct);
+
+        var voiced = await voiceDirector.DirectAsync(draft.Script, draft.Moderator, ct, voiceContext);
+        var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
+        var instruction = BuildTtsInstruction(draft.Moderator, allowBreath);
+
+        var tts = await ttsEngine.SynthesizeAsync(
+            normalized,
+            new TtsVoiceOptions(
+                draft.Moderator.VoiceId,
+                draft.Moderator.Language,
+                draft.Moderator.SpeechRate,
+                draft.Moderator.TtsEngine,
+                instruction),
+            ct);
+        var producedWords = PromptWordBudget.CountWords(draft.Script);
+        logger.LogInformation(
+            "Announcement prompt budget for {Kind}: available {AvailableSeconds}s, target {TargetWords} words, produced {ProducedWords} words, rendered {Duration:F1}s",
+            draft.Kind,
+            draft.ScriptContext.AvailableSeconds,
+            draft.ScriptContext.WordBudget,
+            producedWords,
+            tts.DurationSeconds);
+
+        var id = Guid.NewGuid();
+        var relativePath = Path.Combine("library", "announcements", $"{id}.wav");
+        var absolutePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
+        await File.WriteAllBytesAsync(absolutePath, tts.WavData, ct);
+
+        var announcement = new Announcement
+        {
+            Id = id,
+            ModeratorId = draft.Moderator.Id,
+            Kind = draft.Kind,
+            ScriptText = draft.Script,
+            VoicedText = normalized,
+            FilePath = relativePath,
+            DurationSeconds = tts.DurationSeconds,
+            RelatedTrackId = draft.RelatedTrack?.Id,
+            CreatedAt = DateTime.UtcNow,
+            WasPlayed = false,
+        };
+
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        db.Announcements.Add(announcement);
+        db.TalkBreaks.Add(CreateTalkBreak(
+            announcement,
+            draft.Kind,
+            draft.Moderator,
+            draft.RelatedTrack,
+            draft.ScriptContext));
+
+        if (draft.Kind is AnnouncementKind.Banter or AnnouncementKind.PersonalNote or AnnouncementKind.Joke)
+        {
+            db.ModeratorMemories.Add(new ModeratorMemory
+            {
+                ModeratorId = draft.Moderator.Id,
+                Layer = ModeratorMemoryLayer.DayMemory,
+                Date = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime),
+                Content = draft.Script.Length > 300 ? draft.Script[..300] : draft.Script,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        await analysisRecorder.AnalyzeAndStoreAsync(
+            Core.Entities.PlayoutItemType.Announcement, id, relativePath, ct);
+
+        logger.LogInformation(
+            "Produced {Kind} announcement {Id} ({Duration:F1}s) by {Moderator} [{Engine}]",
+            draft.Kind, id, tts.DurationSeconds, draft.Moderator.Name, draft.Moderator.TtsEngine);
+
+        return announcement;
+    }
+
     public async Task<Announcement> ProduceDirectAsync(
         AnnouncementKind kind,
         TalkPartKind partKind,
@@ -382,4 +521,14 @@ public class AnnouncementFactory(
             AnnouncementKind.HostChange => TalkPartKind.HostChange,
             _ => TalkPartKind.Banter,
         };
+
+    public sealed record AnnouncementScriptDraft(
+        AnnouncementKind Kind,
+        Moderator Moderator,
+        Track? RelatedTrack,
+        string? Facts,
+        string? LengthHint,
+        string? AlreadySpokenContext,
+        string Script,
+        Core.Prompting.PromptContext ScriptContext);
 }

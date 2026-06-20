@@ -35,6 +35,7 @@ builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
 builder.Services.AddScoped<ArtistCreationService>();
+builder.Services.AddScoped<SpecialistHostCreationService>();
 builder.Services.AddScoped<AnnouncementFactory>();
 builder.Services.AddScoped<TalkBitRuntimeService>();
 builder.Services.AddScoped<SegmentRenderer>();
@@ -89,7 +90,8 @@ builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddSingleton<NewsFeedPollingService>();
-builder.Services.AddHostedService<NewsPackageProductionService>();
+builder.Services.AddSingleton<NewsPackageProductionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<NewsPackageProductionService>());
 builder.Services.AddHostedService<TopOfHourPackageDispatcher>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();

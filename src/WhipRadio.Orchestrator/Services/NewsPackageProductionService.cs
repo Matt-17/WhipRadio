@@ -17,7 +17,7 @@ public sealed class NewsPackageProductionService(
     ILogger<NewsPackageProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
-    private static readonly TimeSpan ProductionBudget = TimeSpan.FromMinutes(6);
+    private static readonly TimeSpan ProductionBudget = TimeSpan.FromMinutes(20);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -70,15 +70,84 @@ public sealed class NewsPackageProductionService(
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(ProductionBudget);
-        await ProducePackageAsync(settings, targetLocal.UtcDateTime, budget.Token);
+        await ProducePackageAsync(settings, targetLocal.UtcDateTime, ct, budget.Token);
     }
 
-    private async Task ProducePackageAsync(StationSettings settings, DateTime targetUtc, CancellationToken ct)
+    public async Task<NewsPackage?> ProduceNextPackageAsync(CancellationToken ct)
     {
+        StationSettings settings;
+        DateTime targetUtc;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            targetUtc = TopOfHourScheduler.NextTarget(
+                timeProvider.GetLocalNow(),
+                settings.NewsPackageCadenceMinutes).UtcDateTime;
+
+            var existing = await db.NewsPackages.AsNoTracking()
+                .Where(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc == targetUtc
+                    && package.Status != NewsPackageStatus.Failed)
+                .OrderByDescending(package => package.CreatedAtUtc)
+                .FirstOrDefaultAsync(ct);
+            if (existing is not null)
+            {
+                return existing;
+            }
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(ProductionBudget);
+        return await ProducePackageAsync(settings, targetUtc, ct, budget.Token);
+    }
+
+    public async Task<NewsPackage?> RecreatePackageAsync(Guid packageId, CancellationToken ct)
+    {
+        StationSettings settings;
+        DateTime targetUtc;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var package = await db.NewsPackages.FirstOrDefaultAsync(candidate => candidate.Id == packageId, ct)
+                ?? throw new KeyNotFoundException("News package was not found.");
+            if (package.Status is NewsPackageStatus.Queued or NewsPackageStatus.Played)
+            {
+                throw new InvalidOperationException("Queued or played packages cannot be recreated.");
+            }
+
+            targetUtc = package.TargetUtc;
+            foreach (var item in await db.NewsItems
+                .Where(item => item.Status == NewsItemStatus.Selected
+                    && item.SelectionReason == "Top-of-hour package")
+                .ToListAsync(ct))
+            {
+                item.Status = NewsItemStatus.New;
+                item.SelectionReason = null;
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        await productionUpdates.PublishNewsChangedAsync(ct);
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(ProductionBudget);
+        return await ProducePackageAsync(settings, targetUtc, ct, budget.Token, packageId);
+    }
+
+    private async Task<NewsPackage?> ProducePackageAsync(
+        StationSettings settings,
+        DateTime targetUtc,
+        CancellationToken stoppingToken,
+        CancellationToken ct,
+        Guid? reusePackageId = null)
+    {
+        var step = "polling feeds";
         await feedPolling.PollEnabledFeedsAsync(ct);
 
         List<NewsItem> items;
         NewsPackage package;
+        step = "selecting news items";
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var candidates = await db.NewsItems
@@ -93,19 +162,38 @@ public sealed class NewsPackageProductionService(
                 .ToList();
             if (items.Count == 0)
             {
-                return;
+                return null;
             }
 
-            package = new NewsPackage
+            if (reusePackageId is { } packageId)
             {
-                Id = Guid.NewGuid(),
-                Kind = NewsPackageKind.TopOfHour,
-                Status = NewsPackageStatus.Pending,
-                TargetUtc = targetUtc,
-                TargetDurationSeconds = Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60),
-                CreatedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
-            };
-            db.NewsPackages.Add(package);
+                package = await db.NewsPackages.FirstOrDefaultAsync(candidate => candidate.Id == packageId, ct)
+                    ?? throw new KeyNotFoundException("News package was not found.");
+                package.Kind = NewsPackageKind.TopOfHour;
+                package.Status = NewsPackageStatus.Pending;
+                package.TargetUtc = targetUtc;
+                package.TargetDurationSeconds = Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60);
+                package.AnnouncementId = null;
+                package.ProducedAtUtc = null;
+                package.QueuedAtUtc = null;
+                package.PlayedAtUtc = null;
+                package.FailureReason = null;
+                package.SourceSummary = null;
+            }
+            else
+            {
+                package = new NewsPackage
+                {
+                    Id = Guid.NewGuid(),
+                    Kind = NewsPackageKind.TopOfHour,
+                    Status = NewsPackageStatus.Pending,
+                    TargetUtc = targetUtc,
+                    TargetDurationSeconds = Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60),
+                    CreatedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
+                };
+                db.NewsPackages.Add(package);
+            }
+
             foreach (var item in items)
             {
                 item.Status = NewsItemStatus.Selected;
@@ -118,20 +206,61 @@ public sealed class NewsPackageProductionService(
 
         try
         {
+            step = "creating production scope";
             using var scope = scopeFactory.CreateScope();
             var factory = scope.ServiceProvider.GetRequiredService<AnnouncementFactory>();
             var renderer = scope.ServiceProvider.GetRequiredService<SegmentRenderer>();
             var extractor = scope.ServiceProvider.GetRequiredService<INewsArticleExtractor>();
             var weatherSource = scope.ServiceProvider.GetRequiredService<IWeatherReportSource>();
+            var specialistHosts = scope.ServiceProvider.GetRequiredService<SpecialistHostCreationService>();
+            step = "loading current show context";
             var context = await schedule.GetCurrentAsync(ct);
 
-            var newsModerator = await ResolveNewsModeratorAsync(settings, context.Moderator, ct);
+            step = "resolving news specialist";
+            var newsModerator = await ResolveNewsModeratorAsync(settings, specialistHosts, ct);
+            step = "extracting article text";
             await EnrichItemsAsync(items, settings.NewsExtractionEnabled, extractor, ct);
-            var facts = BuildNewsFacts(items);
             var expiresAt = targetUtc.AddMinutes(15);
-            var targetEnd = targetUtc.AddSeconds(TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds));
-            var newsHandoff = BuildIntroText(context.Moderator, newsModerator);
+            var targetEnd = targetUtc.AddSeconds(
+                TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
+            var localNow = timeProvider.GetLocalNow();
+            var newsHandoff = BuildIntroText(context.Moderator, newsModerator, localNow);
 
+            step = "writing news script";
+            var newsDraft = await factory.WriteScriptDraftAsync(
+                AnnouncementKind.News,
+                newsModerator,
+                null,
+                BuildNewsFacts(items, localNow),
+                settings.StationName,
+                ct,
+                lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
+                alreadySpokenContext: newsHandoff);
+
+            Moderator? weatherModerator = null;
+            string? weatherHandoff = null;
+            AnnouncementFactory.AnnouncementScriptDraft? weatherDraft = null;
+            if (settings.WeatherEnabled)
+            {
+                step = "resolving weather specialist";
+                weatherModerator = await ResolveWeatherModeratorAsync(settings, newsModerator, specialistHosts, ct);
+                weatherHandoff = $"{weatherModerator.Name} has the weather.";
+
+                step = "loading weather report";
+                var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
+                step = "writing weather script";
+                weatherDraft = await factory.WriteScriptDraftAsync(
+                    AnnouncementKind.Weather,
+                    weatherModerator,
+                    null,
+                    report.ToFacts(),
+                    settings.StationName,
+                    ct,
+                    lengthHint: "A concise weather report, about 45 seconds.",
+                    alreadySpokenContext: weatherHandoff);
+            }
+
+            step = "recording news handoff";
             var parts = new List<Announcement>
             {
                 await factory.ProduceDirectAsync(
@@ -146,57 +275,36 @@ public sealed class NewsPackageProductionService(
                     expiresAtUtc: expiresAt,
                     desiredDurationSeconds: 8,
                     wordBudget: 22),
-                await factory.ProduceAsync(
-                    AnnouncementKind.News,
-                    newsModerator,
-                    null,
-                    facts,
-                    settings.StationName,
-                    ct,
-                    lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
-                    alreadySpokenContext: newsHandoff),
             };
 
-            if (settings.WeatherEnabled)
-            {
-                var weatherModerator = await ResolveWeatherModeratorAsync(settings, newsModerator, ct);
-                if (weatherModerator is null)
-                {
-                    logger.LogWarning(
-                        "Weather skipped for top-of-hour package {PackageId}: no distinct active weather specialist",
-                        package.Id);
-                }
-                else
-                {
-                    var weatherHandoff = $"{weatherModerator.Name} has the weather.";
-                    parts.Add(await factory.ProduceDirectAsync(
-                        AnnouncementKind.StationId,
-                        TalkPartKind.WeatherHandoff,
-                        TalkBreakPriority.Scheduled,
-                        newsModerator,
-                        weatherHandoff,
-                        "WeatherHandoff",
-                        ct,
-                        title: "Weather handoff",
-                        expiresAtUtc: expiresAt,
-                        desiredDurationSeconds: 5,
-                        wordBudget: 14));
+            step = "directing and recording news bulletin";
+            parts.Add(await factory.ProduceFromDraftAsync(newsDraft, ct));
 
-                    var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
-                    parts.Add(await factory.ProduceAsync(
-                        AnnouncementKind.Weather,
-                        weatherModerator,
-                        null,
-                        report.ToFacts(),
-                        settings.StationName,
-                        ct,
-                        lengthHint: "A concise weather report, about 45 seconds.",
-                        alreadySpokenContext: weatherHandoff));
-                }
+            if (weatherDraft is not null && weatherModerator is not null && weatherHandoff is not null)
+            {
+                step = "recording weather handoff";
+                parts.Add(await factory.ProduceDirectAsync(
+                    AnnouncementKind.StationId,
+                    TalkPartKind.WeatherHandoff,
+                    TalkBreakPriority.Scheduled,
+                    newsModerator,
+                    weatherHandoff,
+                    "WeatherHandoff",
+                    ct,
+                    title: "Weather handoff",
+                    expiresAtUtc: expiresAt,
+                    desiredDurationSeconds: 5,
+                    wordBudget: 14));
+
+                step = "directing and recording weather forecast";
+                parts.Add(await factory.ProduceFromDraftAsync(weatherDraft, ct));
             }
 
+            step = "marking package announcements as scheduled";
             await MarkScheduledAsync(parts.Select(part => part.Id).ToList(), targetUtc, targetEnd, expiresAt, ct);
+            step = "rendering package audio";
             var composite = parts.Count == 1 ? parts[0] : await renderer.RenderAsync(parts, newsModerator, ct);
+            step = "finalizing package";
             await FinalizePackageAsync(package.Id, composite, targetUtc, targetEnd, expiresAt, items, ct);
 
             logger.LogInformation(
@@ -204,12 +312,62 @@ public sealed class NewsPackageProductionService(
                 targetUtc,
                 items.Count,
                 composite.Id);
+            return await LoadPackageAsync(package.Id, CancellationToken.None);
+        }
+        catch (Exception ex) when (IsCancellationLikeFailure(ex, stoppingToken, ct))
+        {
+            if (stoppingToken.IsCancellationRequested)
+            {
+                logger.LogInformation(
+                    "Top-of-hour package production cancelled during shutdown for {Target:u}",
+                    targetUtc);
+                return await LoadPackageAsync(package.Id, CancellationToken.None);
+            }
+
+            await MarkPackageFailedAsync(
+                package.Id,
+                IsAbortedIoFailure(ex)
+                    ? $"Production was aborted during {step}: {FailureDetail(ex)}"
+                    : $"Production timed out or was cancelled during {step}: {FailureDetail(ex)}",
+                items,
+                CancellationToken.None);
+            if (IsAbortedIoFailure(ex))
+            {
+                logger.LogWarning(
+                    ex,
+                    "Top-of-hour package production aborted during {Step} for {Target:u}: {Message}",
+                    step,
+                    targetUtc,
+                    ex.GetBaseException().Message);
+            }
+            else
+            {
+                logger.LogWarning(
+                    ex,
+                    "Top-of-hour package production timed out during {Step} for {Target:u}",
+                    step,
+                    targetUtc);
+            }
+
+            return await LoadPackageAsync(package.Id, CancellationToken.None);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            await MarkPackageFailedAsync(package.Id, ex.GetBaseException().Message, items, ct);
-            logger.LogWarning(ex, "Top-of-hour package production failed for {Target:u}", targetUtc);
+            await MarkPackageFailedAsync(package.Id, $"Production failed during {step}: {FailureDetail(ex)}", items, ct);
+            logger.LogWarning(
+                ex,
+                "Top-of-hour package production failed during {Step} for {Target:u}: {Message}",
+                step,
+                targetUtc,
+                ex.GetBaseException().Message);
+            return await LoadPackageAsync(package.Id, CancellationToken.None);
         }
+    }
+
+    private async Task<NewsPackage?> LoadPackageAsync(Guid packageId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        return await db.NewsPackages.AsNoTracking().FirstOrDefaultAsync(package => package.Id == packageId, ct);
     }
 
     private async Task EnrichItemsAsync(
@@ -224,9 +382,26 @@ public sealed class NewsPackageProductionService(
         }
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var skipped = 0;
         foreach (var item in items.Where(item => string.IsNullOrWhiteSpace(item.ExtractedSummary)))
         {
-            var extracted = await extractor.ExtractAsync(item.Url, ct);
+            string? extracted;
+            try
+            {
+                extracted = await extractor.ExtractAsync(item.Url, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                skipped++;
+                logger.LogDebug(
+                    ex,
+                    "News article extraction skipped for {Title} ({Url}): {Message}",
+                    item.Title,
+                    item.Url,
+                    ex.GetBaseException().Message);
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(extracted))
             {
                 continue;
@@ -239,26 +414,55 @@ public sealed class NewsPackageProductionService(
                     extracted.Length <= 2000 ? extracted : extracted[..2000]), ct);
             item.ExtractedSummary = extracted.Length <= 2000 ? extracted : extracted[..2000];
         }
+
+        if (skipped > 0)
+        {
+            logger.LogInformation(
+                "News article extraction skipped {Count} external page(s); using feed summaries for those items",
+                skipped);
+        }
     }
 
     private async Task<Moderator> ResolveNewsModeratorAsync(
         StationSettings settings,
-        Moderator fallback,
+        SpecialistHostCreationService specialistHosts,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
-        return ProductionSpecialistPolicy.ResolveNewsModerator(settings, moderators, fallback);
+        var resolved = ProductionSpecialistPolicy.ResolveNewsModerator(settings, moderators);
+        if (resolved is not null)
+        {
+            return resolved;
+        }
+
+        logger.LogInformation("No active news specialist found; program director will create one for this package");
+        return await specialistHosts.CreateAsync(
+            SpecialistHostRole.News,
+            "Create a top-of-hour news anchor because no active news specialist is available for this station.",
+            ct);
     }
 
-    private async Task<Moderator?> ResolveWeatherModeratorAsync(
+    private async Task<Moderator> ResolveWeatherModeratorAsync(
         StationSettings settings,
         Moderator newsModerator,
+        SpecialistHostCreationService specialistHosts,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
-        return ProductionSpecialistPolicy.ResolveWeatherModerator(settings, moderators, newsModerator);
+        var resolved = ProductionSpecialistPolicy.ResolveWeatherModerator(settings, moderators, newsModerator);
+        if (resolved is not null)
+        {
+            return resolved;
+        }
+
+        logger.LogInformation(
+            "No distinct active weather specialist found; program director will create one for this package");
+        return await specialistHosts.CreateAsync(
+            SpecialistHostRole.Weather,
+            "Create a weather specialist for top-of-hour forecasts because no distinct active weather specialist is available.",
+            ct);
     }
 
     private async Task MarkScheduledAsync(
@@ -367,13 +571,16 @@ public sealed class NewsPackageProductionService(
         await productionUpdates.PublishNewsChangedAsync(ct);
     }
 
-    private static string BuildIntroText(Moderator currentHost, Moderator newsModerator)
-        => currentHost.Id == newsModerator.Id
-            ? "Top of the hour. Here is the news."
-            : $"Top of the hour. {newsModerator.Name} has the news.";
+    internal static string BuildIntroText(Moderator currentHost, Moderator newsModerator, DateTimeOffset localNow)
+    {
+        var timeText = localNow.ToString("HH:mm");
+        return currentHost.Id == newsModerator.Id
+            ? $"It's {timeText}. Here is the news."
+            : $"It's {timeText}. {newsModerator.Name} has the news.";
+    }
 
-    private static string BuildNewsFacts(IEnumerable<NewsItem> items)
-        => string.Join(
+    internal static string BuildNewsFacts(IEnumerable<NewsItem> items, DateTimeOffset localNow)
+        => $"Bulletin time: {localNow:yyyy-MM-dd HH:mm} local.\n\n" + string.Join(
             "\n\n",
             items.Select((item, index) =>
                 $"{index + 1}. Source: {item.Feed?.Label ?? "Unknown"}\n"
@@ -385,4 +592,44 @@ public sealed class NewsPackageProductionService(
 
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+
+    private static bool IsCancellationLikeFailure(
+        Exception ex,
+        CancellationToken stoppingToken,
+        CancellationToken productionToken)
+    {
+        if (IsAbortedIoFailure(ex))
+        {
+            return true;
+        }
+
+        if (!stoppingToken.IsCancellationRequested && !productionToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        var root = ex.GetBaseException();
+        return ex is OperationCanceledException or TaskCanceledException or IOException or HttpRequestException
+            || root is OperationCanceledException or TaskCanceledException or IOException or HttpRequestException;
+    }
+
+    private static bool IsAbortedIoFailure(Exception ex)
+    {
+        var root = ex.GetBaseException();
+        return root is IOException
+            && (root.Message.Contains("operation has been aborted", StringComparison.OrdinalIgnoreCase)
+                || root.Message.Contains("E/A-Vorgang wurde", StringComparison.OrdinalIgnoreCase)
+                || root.Message.Contains("Threadendes", StringComparison.OrdinalIgnoreCase)
+                || root.Message.Contains("Anwendungsanforderung", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string FailureDetail(Exception ex)
+    {
+        var root = ex.GetBaseException();
+        var message = string.IsNullOrWhiteSpace(root.Message) ? ex.Message : root.Message;
+        var detail = root.GetType() == ex.GetType()
+            ? $"{root.GetType().Name}: {message}"
+            : $"{ex.GetType().Name}/{root.GetType().Name}: {message}";
+        return detail.Length <= 800 ? detail : detail[..800];
+    }
 }

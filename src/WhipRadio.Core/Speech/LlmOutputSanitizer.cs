@@ -150,7 +150,24 @@ public static partial class LlmOutputSanitizer
     private static bool LooksLikeJson(string text)
     {
         var trimmed = text.TrimStart();
-        return trimmed.StartsWith('{') || trimmed.StartsWith('[');
+        if (trimmed.StartsWith('{'))
+        {
+            return true;
+        }
+
+        if (!trimmed.StartsWith('['))
+        {
+            return false;
+        }
+
+        var nextValueIndex = 1;
+        while (nextValueIndex < trimmed.Length && char.IsWhiteSpace(trimmed[nextValueIndex]))
+        {
+            nextValueIndex++;
+        }
+
+        return nextValueIndex < trimmed.Length
+            && (trimmed[nextValueIndex] == '{' || trimmed[nextValueIndex] == '[');
     }
 
     private static JsonElement SelectToolObject(JsonElement root)

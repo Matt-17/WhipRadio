@@ -6,7 +6,8 @@ public sealed record TimedPlayoutInterrupt(
     PlayoutItem Item,
     DateTime TargetUtc,
     double FadeOutSeconds,
-    int GraceSeconds);
+    int GraceSeconds,
+    int LateWindowSeconds);
 
 public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptService> logger)
 {
@@ -28,11 +29,12 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
         }
 
         logger.LogInformation(
-            "Timed playout interrupt scheduled for {Target:u}: {Title} (fade {Fade:F1}s, grace {Grace}s)",
+            "Timed playout interrupt scheduled for {Target:u}: {Title} (fade {Fade:F1}s, grace {Grace}s, late window {LateWindow}s)",
             interrupt.TargetUtc,
             interrupt.Item.Title,
             interrupt.FadeOutSeconds,
-            interrupt.GraceSeconds);
+            interrupt.GraceSeconds,
+            interrupt.LateWindowSeconds);
     }
 
     public TimedPlayoutInterrupt? TryConsume(DateTime utcNow)
@@ -44,11 +46,11 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
                 return null;
             }
 
-            var latest = _pending.TargetUtc.AddSeconds(_pending.GraceSeconds);
+            var latest = _pending.TargetUtc.AddSeconds(_pending.LateWindowSeconds);
             if (utcNow > latest)
             {
                 logger.LogWarning(
-                    "Timed playout interrupt missed its grace window: {Title} target {Target:u}",
+                    "Timed playout interrupt missed its late window: {Title} target {Target:u}",
                     _pending.Item.Title,
                     _pending.TargetUtc);
                 _pending = null;

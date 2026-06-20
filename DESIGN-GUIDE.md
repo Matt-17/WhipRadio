@@ -25,6 +25,33 @@ Avoid adding new decorative themes, pastel palettes, marketing hero sections,
 large empty landing-page layouts, floating cards inside cards, or unrelated
 gradient/orb decoration.
 
+## Typography
+
+Use the three existing font tokens only:
+
+- `--font-body`: default reading text, descriptions, explanatory copy, bios,
+  personas, and longer prose.
+- `--font-mono`: operator controls, labels, buttons, inputs, selects, tables,
+  logs, timestamps, status tags, meters, technical values, URLs, transcripts,
+  and compact readouts.
+- `--font-display`: station identity, page titles, VFD titles, host names,
+  artist names, history/detail titles, and large stat values.
+
+Rules:
+
+- Do not introduce page-local font families or raw font-family stacks. Add or
+  reuse named CSS classes that reference the font tokens.
+- Do not use display font for dense controls, tables, forms, or paragraph copy.
+- Do not use mono font for long prose unless the content is a transcript, log,
+  prompt, code-like value, URL, or technical readout.
+- Keep font size tied to component class, not inline styles. If a view needs a
+  smaller note, larger value, or compact row, create a named class for that
+  pattern.
+- Preserve tabular numeric alignment for counts, durations, timestamps, meters,
+  and table numeric columns.
+- Letter spacing belongs on short uppercase labels and display/radio readouts;
+  avoid adding it to body copy or long text.
+
 ## Page Inventory
 
 All current pages should stay within one of these patterns:
@@ -92,11 +119,15 @@ Behavior and accessibility:
 
 - Switches always save immediately. If a page needs an Apply/Save button, the
   switch does not belong in that staged form flow.
+- Switches support two sizes through an explicit `SwitchSize` choice: normal
+  is the default, and big is allowed for prominent control-room rows.
+- Switches may have an optional tone. Default on-state is amber; the On Air
+  playout switch uses a red tone to match broadcast/live semantics.
 - Switches should expose state with `role="switch"` and `aria-checked`.
 - They need a useful `title` or visible label describing the target.
 - Keyboard support should be preserved or added when unifying switch markup.
-- Amber/on means enabled. Muted/off means disabled. Red is not the normal off
-  state; reserve red for failure, destructive action, live recording, or danger.
+- Amber/on means enabled. Red/on is reserved for On Air/broadcast-live state and
+  other explicitly live-dangerous controls. Muted/off means disabled.
 
 Use a select when the value has more than two options. Boolean settings that
 currently use `enabled/disabled`, `on/off`, or `true/false` selects should move
@@ -146,12 +177,40 @@ backend enablement.
 ### Tables, Lists, And Dashboards
 
 - Use `console-table` for tabular operational data and history.
-- Use `tag` for compact status, category, kind, or state metadata.
+- Use `StatusBadge` for compact status/state metadata such as `Active`,
+  `Pending`, `Queued`, `REC`, `Recording`, `Off`, `Failed`, `On air`, and
+  `Checking`.
+- Plain non-state metadata such as category, kind, genre, language, provider, or
+  voice labels may keep using passive tag styling.
 - Numeric columns should use `num` and tabular alignment.
 - Use custom named grids for high-density non-table content such as library
   tracks, schedule blocks, host rosters, and history panes.
 - Empty/loading states should use `empty-state`; add a blinking glyph only when
   it fits the console/radio language.
+
+### Status Badges
+
+Status/state badges must be rendered through a shared component, not hand-coded
+page-local spans. Use a `StatusBadge` component for any state that can change or
+drive operator decisions.
+
+`StatusBadge` should own:
+
+- Text normalization and no-wrap sizing.
+- Tone mapping: active/ready/succeeded/on-air as green; queued/pending/checking
+  as amber; recording/REC/busy/failed/error as red; off/inactive/unknown as the
+  muted default.
+- Optional live/recording dot or pulse for `REC`, `Recording`, and busy studio
+  work.
+- Tooltip/title pass-through for detail such as failure reason or runtime
+  explanation.
+- In Rec status panels/controls (including REC buttons), use a larger bull marker
+  than standard status bullets to make recording state visually dominant. Use
+  the normal `&bull;` style for all non-REC status bullets.
+
+Pages should not create new status colors, raw `tag green`/`tag amber`/`tag red`
+state spans, or custom REC badges. If a page needs a new state label, add it to
+`StatusBadge` instead.
 
 ### Modals
 
@@ -162,12 +221,17 @@ backend enablement.
 - Keep modal footers right-aligned except for destructive delete actions, which
   may sit left to separate them from save/cancel.
 - Modal footers use one button size across the whole footer.
-- Actions launched from a modal must not leave the user waiting in the modal
-  while long-running work completes. Close the modal after the action is
-  accepted, create a visible queue/pending item in the owning page, and surface
-  progress, success, or failure inline with that item.
-- Keep the modal open only for quick validation errors or failed acceptance
-  where no background work was queued.
+- Repeatable long-running actions launched from a modal should close after the
+  request is accepted, create a visible queue/pending item in the owning page,
+  and surface progress, success, or failure inline with that item. Examples:
+  artist creation, song creation, and general host creation.
+- One-time setup actions may keep the modal open while work runs when the user
+  normally needs only one result. Examples: creating a Weather Host or News Host.
+  During that wait, disable the create button, keep the label on one line, add a
+  yellow/amber border, and change the button text to a working state such as
+  `Creating...`.
+- Keep the modal open for quick validation errors or failed acceptance where no
+  background work was queued.
 
 ## Status Semantics
 
@@ -188,6 +252,8 @@ state should reflect actual reachability/status, not just saved settings.
   operator purpose.
 - Labels should be short and concrete.
 - Avoid instructional text that explains obvious UI mechanics.
+- When using bullet glyphs in UI copy or compact labels, use `&bull;` / `•`
+  (Windows `Alt+0149`), not smaller dot variants.
 - Keep status messages compact: `queued`, `recording`, `offline`, `checking`,
   `applied`, `failed`.
 
@@ -209,8 +275,8 @@ the next design cleanup:
 - Immediate service switches: Admin playout, music production, greetings, Mixer
   enablement, and row-level studio/feed/format toggles save immediately.
 - Staged service switches: News and Weather package enablement use the same big
-  switch visual but are saved by an Apply button. These should become immediate
-  switches.
+  switch visual but are saved by an Apply button. These should become standard
+  immediate switches.
 - Boolean selects: Settings and some production forms use `off/on` or
   `disabled/enabled` selects for boolean settings. These should become
   switches.
@@ -218,11 +284,17 @@ the next design cleanup:
   pause/order, and some row expanders use button active state instead of a
   switch. Jingle active/off should become a switch. Footer transcript may stay
   as-is for now. Pause/resume and sort/order controls remain toggle buttons.
+- Status badge drift: active, pending, queued, REC/recording, failed, and
+  offline states are hand-coded with raw `tag` spans across pages. These should
+  be consolidated into `StatusBadge`.
 - Button sizing drift: some rows mix normal and small buttons, especially form
   and modal action rows. These should use one size per row.
 - Blocking modal drift: any modal action that starts slow generation,
-  production, import, analysis, or remote work should close after accepting the
-  request and represent the work as a queue/pending item outside the modal.
+  production, import, analysis, or remote work should follow the repeatable vs.
+  one-time modal rule above instead of leaving the user without clear state.
+- Font sizing drift: pages contain inline `font-size` and occasional inline
+  font-family styles for notes or textareas. These should become named CSS
+  classes using the existing font tokens.
 - Accessibility drift: News feed switches include `role="switch"` and
   `aria-checked`; several other visual switches do not yet expose the same
   semantics.
@@ -235,14 +307,17 @@ These are guidance points for a later unification pass, not changes to make
 while only updating this guide:
 
 - Normalize all switch markup to the same accessible pattern used by the News
-  feed switches.
+  feed switches, with explicit `SwitchSize` and optional tone.
 - Remove page-local inline styles when a reusable CSS class would preserve the
   same layout.
 - Convert staged service switches and boolean selects to immediate switches.
 - Convert jingle active/off from an active button to a switch.
+- Introduce `StatusBadge` and replace page-local status/state tag spans with it.
 - Normalize action rows to one button size per row.
-- Convert slow modal submit flows to close-on-accept plus visible queued/pending
-  items.
+- Convert repeatable slow modal submit flows to close-on-accept plus visible
+  queued/pending items. Convert one-time specialist creation modals to disabled,
+  no-wrap, amber-bordered working buttons while the modal stays open.
+- Replace inline font styles with named typography classes.
 - Prefer shared `Icon.razor` icons for action buttons instead of adding new
   inline SVGs or mixed symbols.
 - Keep row-level queued/deferred state inline with the affected row rather than

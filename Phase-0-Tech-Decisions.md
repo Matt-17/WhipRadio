@@ -199,6 +199,13 @@ available, host creation fails with an explicit operator error instead of fallin
 back to a preset Kokoro voice. Existing host rows keep their stored engine and voice
 ids until deliberately redesigned.
 
+**Implemented in Phase 3c:** news and weather specialist hosts are planned by the
+program director from structured JSON, using station name, slogan, vision, mission,
+active format/audience context, and the optional operator hint. The UI does not
+collect name or gender for specialist hiring; if no suitable specialist exists when
+production needs one, the director creates and assigns one instead of skipping the
+desk by default.
+
 ## Standing Constraints
 
 - Never break the live stream; risky subsystems ship behind flags or queues.

@@ -49,8 +49,9 @@ public sealed class TopOfHourPackageDispatcher(
 
         var changed = await MarkPlayedPackagesAsync(db, ct);
 
-        var grace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
-        var oldestValidTarget = now.AddSeconds(-grace);
+        var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
+        var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
+        var oldestValidTarget = now.AddSeconds(-lateWindow);
         var overdue = await db.NewsPackages
             .Where(package => package.Status == NewsPackageStatus.Ready
                 && package.TargetUtc < oldestValidTarget)
@@ -58,7 +59,7 @@ public sealed class TopOfHourPackageDispatcher(
         foreach (var package in overdue)
         {
             package.Status = NewsPackageStatus.Failed;
-            package.FailureReason = "Missed top-of-hour grace window.";
+            package.FailureReason = "Missed top-of-hour late window.";
             changed = true;
         }
 
@@ -105,7 +106,8 @@ public sealed class TopOfHourPackageDispatcher(
                 item,
                 next.TargetUtc,
                 TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds),
-                grace));
+                introGrace,
+                lateWindow));
         }
         else
         {
