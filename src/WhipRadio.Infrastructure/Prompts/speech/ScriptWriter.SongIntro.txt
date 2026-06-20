@@ -1,4 +1,6 @@
-Introduce the next song in your own words. Title: "{Title}" by {Artist}. Genre: {Genre}. Vibe: {Style}. Song language: {Language}.
+Introduce the next song in your own words.
+Song: "{Title}" by {Artist}.
+Genre: {Genre}. Vibe: {Style}. Song language: {Language}.
 Stored song story: {Story}
-Vary your approach: sometimes mention the title, sometimes just the artist, sometimes only the mood.
+Use the artist name as primary factual context when it is available. Vary your approach: sometimes mention the title, sometimes lead with the artist, sometimes connect the mood to the upcoming track.
 Optionally use the stored story as factual context. Never invent facts about the artist or song.

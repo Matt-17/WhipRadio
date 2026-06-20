@@ -33,9 +33,17 @@ public class ScriptWriterAndVoiceDirectorTests
     {
         var llm = new CapturingLlm();
         var writer = new ScriptWriter(llm);
+        var artistId = Guid.NewGuid();
+        var artist = new Artist
+        {
+            Id = artistId,
+            Name = "Static Velvet",
+        };
         var track = new Track
         {
             Title = "Neon Llama",
+            Artist = artist,
+            ArtistId = artistId,
             Genre = "indie rock",
             Style = "driving drums",
             Language = "en",
@@ -48,11 +56,41 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("WhipRadio", llm.SystemPrompt);
         Assert.Contains("language: en", llm.SystemPrompt);
         Assert.Contains("Neon Llama", llm.UserPrompt);
+        Assert.Contains("Static Velvet", llm.UserPrompt);
         Assert.Contains("indie rock", llm.UserPrompt);
         Assert.Contains("driving drums", llm.UserPrompt);
         Assert.Contains("rooftop rehearsal", llm.UserPrompt);
         Assert.Contains("Song language: en", llm.UserPrompt);
         Assert.DoesNotContain("{Title}", llm.UserPrompt);
+        Assert.DoesNotContain("{Artist}", llm.UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task ScriptWriter_SongOutro_FillsArtistAndTrackContext()
+    {
+        var llm = new CapturingLlm();
+        var writer = new ScriptWriter(llm);
+        var track = new Track
+        {
+            Title = "Afterimage Arcade",
+            Artist = new Artist { Name = "Glass Harbor" },
+            Genre = "synth pop",
+            Subgenre = "night drive",
+            Style = "warm arpeggios and late-night drums",
+            Language = "de",
+            SongStory = "Glass Harbor wrote it while testing a broken tape echo.",
+        };
+
+        await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.SongOutro, "WhipRadio", "en", track), CancellationToken.None);
+
+        Assert.Contains("Afterimage Arcade", llm.UserPrompt);
+        Assert.Contains("Glass Harbor", llm.UserPrompt);
+        Assert.Contains("night drive", llm.UserPrompt);
+        Assert.Contains("warm arpeggios and late-night drums", llm.UserPrompt);
+        Assert.Contains("Song language: de", llm.UserPrompt);
+        Assert.Contains("broken tape echo", llm.UserPrompt);
+        Assert.DoesNotContain("{Artist}", llm.UserPrompt);
     }
 
     [TestMethod]

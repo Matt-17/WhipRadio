@@ -1,4 +1,5 @@
-The song that just ended was "{Title}" by {Artist} ({Genre}). Song language: {Language}. Stored song story: {Story}
-Write a very short back-announce -
-e.g. "That was ..." style - as if the listeners are only
-now told what they heard. You may use the stored story as factual context, but do not invent new facts. One or two sentences, leading smoothly onward.
+The song that just ended was "{Title}" by {Artist}.
+Genre: {Genre}. Vibe: {Style}. Song language: {Language}.
+Stored song story: {Story}
+Write a very short back-announce - e.g. "That was ..." style - as if the listeners are only now told what they heard.
+Use the artist name as primary factual context when it is available. You may use the stored story as factual context, but do not invent new facts. One or two sentences, leading smoothly onward.
