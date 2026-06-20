@@ -680,7 +680,7 @@ table.console-table {
 .tag.category-tech { color: var(--amber); border-color: var(--amber-dim); }
 .tag.category-sports { color: #9ee56d; border-color: #4f7c32; }
 .tag.category-regional { color: #80b8ff; border-color: #2d5c8f; }
-.tag.category-business { color: #e7a36f; border-color: #7b4a2b; }
+.tag.category-business { color: #ff8fb3; border-color: #8a3d57; }
 .tag.category-culture { color: #d9a2ff; border-color: #68417c; }
 
 .production-warning {
