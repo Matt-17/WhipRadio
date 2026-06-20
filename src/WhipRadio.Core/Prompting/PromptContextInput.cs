@@ -12,7 +12,8 @@ public sealed record PromptContextInput(
     string? LengthHint = null,
     string? Purpose = null,
     PromptPriority Priority = PromptPriority.Normal,
-    int? TargetSeconds = null);
+    int? TargetSeconds = null,
+    string? AlreadySpokenContext = null);
 
 public static class PromptWordBudget
 {

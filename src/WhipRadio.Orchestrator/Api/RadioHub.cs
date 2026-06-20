@@ -7,6 +7,6 @@ namespace WhipRadio.Orchestrator.Api;
 /// "NowPlayingChanged" (NowPlayingDto?), "VotesChanged" (VoteResultDto),
 /// "QueueChanged" (List&lt;QueueItemDto&gt;), "JinglesChanged",
 /// "ConsoleLineAdded" (ConsoleLineDto), "StudiosChanged",
-/// "MixerChanged" (MixerOverviewDto).
+/// "NewsProductionChanged", "WeatherProductionChanged", and "MixerChanged" (MixerOverviewDto).
 /// </summary>
 public class RadioHub : Hub;

@@ -10,6 +10,7 @@ public sealed class NewsFeedPollingService(
     IServiceScopeFactory scopeFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
     TimeProvider timeProvider,
+    IProductionUpdatePublisher productionUpdates,
     ILogger<NewsFeedPollingService> logger)
 {
     public async Task PollEnabledFeedsAsync(CancellationToken ct)
@@ -30,6 +31,7 @@ public sealed class NewsFeedPollingService(
 
         using var scope = scopeFactory.CreateScope();
         var reader = scope.ServiceProvider.GetRequiredService<INewsFeedReader>();
+        var changed = false;
 
         foreach (var feed in feeds)
         {
@@ -67,6 +69,7 @@ public sealed class NewsFeedPollingService(
                 feed.LastPolledAtUtc = now;
                 feed.LastError = null;
                 await db.SaveChangesAsync(ct);
+                changed = true;
                 if (inserted > 0)
                 {
                     logger.LogInformation("News feed {Feed} produced {Count} new item(s)", feed.Label, inserted);
@@ -77,8 +80,14 @@ public sealed class NewsFeedPollingService(
                 feed.LastPolledAtUtc = now;
                 feed.LastError = Trim(ex.GetBaseException().Message, 500);
                 await db.SaveChangesAsync(ct);
+                changed = true;
                 logger.LogWarning(ex, "News feed {Feed} failed", feed.Label);
             }
+        }
+
+        if (changed)
+        {
+            await productionUpdates.PublishNewsChangedAsync(ct);
         }
     }
 

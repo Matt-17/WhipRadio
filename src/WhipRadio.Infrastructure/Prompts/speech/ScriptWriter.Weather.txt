@@ -1,1 +1,7 @@
-Turn these raw weather facts into a casual radio weather report: {WeatherFacts}
+Turn these raw weather facts into a concise specialist forecast: {WeatherFacts}
+
+Rules:
+- Sound like a weather desk, not casual banter.
+- Do not introduce yourself or repeat any handoff/context already aired.
+- Lead with current conditions, then the near-term outlook.
+- Do not invent alerts, temperatures, wind, or timing.

@@ -1,7 +1,9 @@
 @page "/production/weather"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
+@implements IAsyncDisposable
 @inject RadioApiClient Api
+@inject ProductionLiveClient Live
 
 <PageTitle>WhipRadio - Weather</PageTitle>
 
@@ -35,6 +37,10 @@ else
                 </select>
             </div>
             <div class="field">
+                <label>Specialist desk</label>
+                <button class="btn" @onclick="() => _specialistModalOpen = true">Create weather host</button>
+            </div>
+            <div class="field">
                 <label>Cadence</label>
                 <select @bind="_cadence">
                     <option value="30">every 30 minutes</option>
@@ -51,6 +57,10 @@ else
                 </select>
             </div>
         </div>
+        @if (!string.IsNullOrWhiteSpace(_weather.WarningText))
+        {
+            <div class="production-warning">@_weather.WarningText</div>
+        }
     </div>
 
     <div class="panel reveal">
@@ -74,6 +84,11 @@ else
     </div>
 }
 
+<SpecialistHostModal Visible="@_specialistModalOpen"
+                     Role="Weather"
+                     OnClose="() => _specialistModalOpen = false"
+                     HostCreated="OnSpecialistCreatedAsync" />
+
 @code {
     private WeatherProductionDto? _weather;
     private List<ModeratorDto> _moderators = [];
@@ -86,12 +101,16 @@ else
     private double _longitude = -74.0060;
     private bool _saved;
     private string? _error;
+    private bool _specialistModalOpen;
 
     private IEnumerable<ModeratorDto> WeatherHosts
         => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true }).OrderBy(host => host.Name);
 
     protected override async Task OnInitializedAsync()
     {
+        Live.NewsChanged += OnWeatherChanged;
+        Live.WeatherChanged += OnWeatherChanged;
+        await Live.EnsureStartedAsync();
         _moderators = await Api.GetModeratorsAsync();
         await LoadAsync();
     }
@@ -130,5 +149,27 @@ else
         {
             await LoadAsync();
         }
+    }
+
+    private async Task OnSpecialistCreatedAsync(ModeratorDto host)
+    {
+        _moderators = await Api.GetModeratorsAsync();
+        _hostId = host.Id.ToString();
+        await SaveAsync();
+    }
+
+    private void OnWeatherChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            _moderators = await Api.GetModeratorsAsync();
+            await LoadAsync();
+            StateHasChanged();
+        });
+
+    public ValueTask DisposeAsync()
+    {
+        Live.NewsChanged -= OnWeatherChanged;
+        Live.WeatherChanged -= OnWeatherChanged;
+        return ValueTask.CompletedTask;
     }
 }

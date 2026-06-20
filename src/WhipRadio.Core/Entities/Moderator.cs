@@ -70,6 +70,8 @@ public class Moderator
     /// <summary>CSV genre list, e.g. "rock,indie".</summary>
     public string PreferredGenres { get; set; } = string.Empty;
 
+    public bool IsNewsSpecialist { get; set; }
+
     public bool IsWeatherSpecialist { get; set; }
 
     /// <summary>URL or app-relative path of the host's portrait; null = skeleton placeholder.</summary>

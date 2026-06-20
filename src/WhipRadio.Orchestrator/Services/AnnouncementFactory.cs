@@ -32,7 +32,8 @@ public class AnnouncementFactory(
         string? facts,
         string stationName,
         CancellationToken ct,
-        string? lengthHint = null)
+        string? lengthHint = null,
+        string? alreadySpokenContext = null)
     {
         var allowBreath = await GetAllowBreathAsync(moderator, ct);
 
@@ -50,7 +51,8 @@ public class AnnouncementFactory(
                 RelatedTrack: relatedTrack,
                 Facts: facts,
                 LengthHint: lengthHint,
-                Purpose: kind.ToString()),
+                Purpose: kind.ToString(),
+                AlreadySpokenContext: alreadySpokenContext),
             ct);
 
         var request = new AnnouncementRequest(
@@ -71,7 +73,8 @@ public class AnnouncementFactory(
                 RelatedTrack: relatedTrack,
                 Facts: facts,
                 LengthHint: lengthHint,
-                Purpose: kind.ToString()),
+                Purpose: kind.ToString(),
+                AlreadySpokenContext: alreadySpokenContext),
             ct);
 
         var voiced = await voiceDirector.DirectAsync(script, moderator, ct, voiceContext);

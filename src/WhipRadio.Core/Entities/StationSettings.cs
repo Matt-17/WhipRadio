@@ -107,6 +107,8 @@ public class StationSettings
 
     public bool NewsSeedFeedsCreated { get; set; }
 
+    public string NewsCategoryOrder { get; set; } = "general,business,technology,culture,regional";
+
     public double TopOfHourFadeOutSeconds { get; set; } = 1.0;
 
     public int TopOfHourIntroGraceSeconds { get; set; } = 10;

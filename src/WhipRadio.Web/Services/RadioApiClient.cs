@@ -145,12 +145,21 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<List<ModeratorDto>> GetModeratorsAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ModeratorDto>>("/api/moderators", ct) ?? [];
 
-    public async Task<ModeratorDto?> CreateModeratorAsync(CreateModeratorDto request, CancellationToken ct = default)
+    public async Task<(ModeratorDto? Moderator, string? Error)> CreateModeratorAsync(
+        CreateModeratorDto request,
+        CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("/api/moderators", request, ct);
-        return response.IsSuccessStatusCode
-            ? await response.Content.ReadFromJsonAsync<ModeratorDto>(ct)
-            : null;
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/moderators", request, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<ModeratorDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Host voice design timed out or the voice booth is unreachable.");
+        }
     }
 
     public async Task ToggleModeratorAsync(int id, CancellationToken ct = default)

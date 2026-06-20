@@ -67,6 +67,7 @@ public sealed class PromptContextBuilder(
             CurrentTraits = currentTraits,
             TalkProfile = moderator is null ? null : HostTalkProfile.FromModerator(moderator),
             RelatedTrack = FormatTrack(input.RelatedTrack),
+            AlreadySpokenContext = input.AlreadySpokenContext,
             SpeechRate = speechRate,
             WordsPerSecond = wordsPerSecond,
             AvailableSeconds = availableSeconds,
@@ -90,6 +91,11 @@ public sealed class PromptContextBuilder(
         if (input.AnnouncementKind == AnnouncementKind.Weather)
         {
             return CharacterRole.WeatherSpecialist;
+        }
+
+        if (input.AnnouncementKind == AnnouncementKind.News)
+        {
+            return CharacterRole.NewsSpecialist;
         }
 
         return moderator is null ? CharacterRole.System : CharacterRole.Host;

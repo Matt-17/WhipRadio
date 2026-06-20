@@ -31,6 +31,7 @@ public enum CharacterRole
     Guest,
     Artist,
     User,
+    NewsSpecialist,
     WeatherSpecialist,
     System,
 }
@@ -80,6 +81,8 @@ public sealed class PromptContext
     public HostTalkProfile? TalkProfile { get; init; }
 
     public string? RelatedTrack { get; init; }
+
+    public string? AlreadySpokenContext { get; init; }
 
     public double SpeechRate { get; init; } = 1.0;
 
@@ -189,6 +192,13 @@ public sealed class PromptContext
         if (!string.IsNullOrWhiteSpace(RelatedTrack))
         {
             builder.AppendLine($"- Related track: {RelatedTrack}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(AlreadySpokenContext))
+        {
+            builder.AppendLine(
+                "- Already aired immediately before this segment: " +
+                $"{AlreadySpokenContext.Trim()} Do not repeat or reintroduce that information.");
         }
 
         builder.AppendLine($"- Language: {Language}");

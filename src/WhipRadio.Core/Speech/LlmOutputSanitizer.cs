@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace WhipRadio.Core.Speech;
@@ -30,29 +31,71 @@ public static partial class LlmOutputSanitizer
     private static partial Regex MultiSpaceRegex();
 
     public static string Sanitize(string text)
+        => NormalizePlainText(text);
+
+    public static bool TrySanitizeSpokenText(string text, out string sanitized, out string? error)
+    {
+        sanitized = string.Empty;
+        error = null;
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return true;
+        }
+
+        var candidate = StripCodeFence(text).Trim();
+        if (!LooksLikeJson(candidate))
+        {
+            sanitized = NormalizePlainText(candidate);
+            return true;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(candidate);
+            var root = SelectToolObject(doc.RootElement);
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                error = "The model returned JSON that is not a character tool object.";
+                return false;
+            }
+
+            var toolName = ReadString(root, "tool") ?? ReadString(root, "name");
+            if (!string.Equals(toolName, "Announce", StringComparison.OrdinalIgnoreCase))
+            {
+                error = string.IsNullOrWhiteSpace(toolName)
+                    ? "The model returned JSON without an Announce tool name."
+                    : $"The model returned unsupported tool JSON '{toolName}'.";
+                return false;
+            }
+
+            if (!root.TryGetProperty("arguments", out var arguments)
+                || arguments.ValueKind != JsonValueKind.Object
+                || !arguments.TryGetProperty("text", out var textArgument)
+                || textArgument.ValueKind != JsonValueKind.String
+                || string.IsNullOrWhiteSpace(textArgument.GetString()))
+            {
+                error = "The Announce tool JSON is missing required arguments.text.";
+                return false;
+            }
+
+            sanitized = NormalizePlainText(textArgument.GetString()!);
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            error = $"The model returned invalid JSON instead of spoken text: {ex.Message}";
+            return false;
+        }
+    }
+
+    private static string NormalizePlainText(string text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
             return string.Empty;
         }
 
-        var result = text.Trim();
-
-        // Strip markdown code fences (``` or ```lang ... ```).
-        if (result.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNewline = result.IndexOf('\n');
-            if (firstNewline >= 0)
-            {
-                result = result[(firstNewline + 1)..];
-            }
-            var fenceEnd = result.LastIndexOf("```", StringComparison.Ordinal);
-            if (fenceEnd >= 0)
-            {
-                result = result[..fenceEnd];
-            }
-            result = result.Trim();
-        }
+        var result = StripCodeFence(text).Trim();
 
         // Markdown leftovers have no spoken form.
         result = result.Replace("`", string.Empty).Replace("*", string.Empty).Replace("#", string.Empty);
@@ -80,6 +123,58 @@ public static partial class LlmOutputSanitizer
 
         return result.Trim();
     }
+
+    private static string StripCodeFence(string raw)
+    {
+        var result = raw.Trim();
+        if (!result.StartsWith("```", StringComparison.Ordinal))
+        {
+            return result;
+        }
+
+        var firstNewline = result.IndexOf('\n');
+        if (firstNewline >= 0)
+        {
+            result = result[(firstNewline + 1)..];
+        }
+
+        var fenceEnd = result.LastIndexOf("```", StringComparison.Ordinal);
+        if (fenceEnd >= 0)
+        {
+            result = result[..fenceEnd];
+        }
+
+        return result.Trim();
+    }
+
+    private static bool LooksLikeJson(string text)
+    {
+        var trimmed = text.TrimStart();
+        return trimmed.StartsWith('{') || trimmed.StartsWith('[');
+    }
+
+    private static JsonElement SelectToolObject(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("tool_calls", out var calls)
+            && calls.ValueKind == JsonValueKind.Array
+            && calls.GetArrayLength() > 0)
+        {
+            return calls[0];
+        }
+
+        if (root.ValueKind == JsonValueKind.Array && root.GetArrayLength() > 0)
+        {
+            return root[0];
+        }
+
+        return root;
+    }
+
+    private static string? ReadString(JsonElement root, string propertyName)
+        => root.TryGetProperty(propertyName, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
 
     /// <summary>Drops a first line that is clearly the model talking about its task,
     /// but only when real copy remains afterwards.</summary>

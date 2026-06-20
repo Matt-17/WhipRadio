@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
@@ -539,7 +540,7 @@ public static class RadioApiEndpoints
         });
 
         api.MapPost("/moderators", async (CreateModeratorDto request, RadioDbContext db,
-            VoiceCatalogService voices, TimeProvider time, CancellationToken ct) =>
+            IVoiceDesignClient voiceDesigner, IProductionUpdatePublisher productionUpdates, TimeProvider time, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -556,31 +557,66 @@ public static class RadioApiEndpoints
                 Name = request.Name.Trim(),
                 Language = stationLanguage,
                 Gender = request.Gender == ModeratorGenders.Male ? ModeratorGenders.Male : ModeratorGenders.Female,
-                TtsEngine = string.IsNullOrWhiteSpace(request.TtsEngine) ? TtsEngines.Kokoro : request.TtsEngine,
+                TtsEngine = TtsEngines.Qwen,
                 Style = request.Style,
                 PersonaPrompt = request.PersonaPrompt,
                 PrefersVocals = request.PrefersVocals,
                 PreferredGenres = request.PreferredGenres,
                 Talkativeness = Math.Clamp(request.Talkativeness, 0, 1),
                 IsWeatherSpecialist = request.IsWeatherSpecialist,
+                IsNewsSpecialist = request.IsNewsSpecialist,
                 BaselineEnergy = baselineTraits.Energy,
                 BaselineFormality = baselineTraits.Formality,
                 BaselineHumorLevel = baselineTraits.HumorLevel,
                 BaselineTalkativeness = baselineTraits.Talkativeness,
                 BaselineWarmth = baselineTraits.Warmth,
                 PhotoUrl = string.IsNullOrWhiteSpace(request.PhotoUrl) ? null : request.PhotoUrl.Trim(),
+                VoiceDescription = SanitizeOptional(
+                    request.VoiceDescription,
+                    BuildModeratorVoiceDescription(request.Name, request.Gender, request.Style, request.PersonaPrompt)),
                 IsActive = true,
                 SpeechRate = 1.0,
             };
             ApplyTalkProfile(moderator, request.TalkProfile);
-            moderator.VoiceId = await voices.PickVoiceAsync(moderator, ct);
+
+            try
+            {
+                var voice = await voiceDesigner.DesignVoiceAsync(
+                    moderator.VoiceDescription,
+                    moderator.Gender,
+                    moderator.Language,
+                    BuildVoiceIntroSample(moderator.Name, moderator.Language),
+                    ct);
+                moderator.VoiceId = voice.Handle;
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Problem(ex.Message, statusCode: 503);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                return Results.Problem(
+                    "Voice design booth is unreachable. Check the active Voice Booth on the Studios page.",
+                    statusCode: 503);
+            }
 
             db.Moderators.Add(moderator);
             await db.SaveChangesAsync(ct);
+            if (moderator.IsNewsSpecialist)
+            {
+                await productionUpdates.PublishNewsChangedAsync(ct);
+            }
+
+            if (moderator.IsWeatherSpecialist)
+            {
+                await productionUpdates.PublishWeatherChangedAsync(ct);
+            }
+
             return Results.Ok(ToDto(moderator, time.GetLocalNow()));
         });
 
-        api.MapPost("/moderators/{id:int}/toggle", async (int id, RadioDbContext db, CancellationToken ct) =>
+        api.MapPost("/moderators/{id:int}/toggle", async (int id, RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates, CancellationToken ct) =>
         {
             var moderator = await db.Moderators.FirstOrDefaultAsync(m => m.Id == id, ct);
             if (moderator is null)
@@ -590,6 +626,16 @@ public static class RadioApiEndpoints
 
             moderator.IsActive = !moderator.IsActive;
             await db.SaveChangesAsync(ct);
+            if (moderator.IsNewsSpecialist)
+            {
+                await productionUpdates.PublishNewsChangedAsync(ct);
+            }
+
+            if (moderator.IsWeatherSpecialist)
+            {
+                await productionUpdates.PublishWeatherChangedAsync(ct);
+            }
+
             return Results.Ok(new { moderator.Id, moderator.IsActive });
         });
 
@@ -698,13 +744,13 @@ public static class RadioApiEndpoints
         api.MapGet("/production/news", async (RadioDbContext db, CancellationToken ct) =>
         {
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
+            var categoryOrder = NewsCategoryOrdering.Parse(settings.NewsCategoryOrder);
             var itemCounts = await db.NewsItems.AsNoTracking()
                 .GroupBy(item => item.FeedId)
                 .Select(group => new { FeedId = group.Key, Count = group.Count() })
                 .ToDictionaryAsync(group => group.FeedId, group => group.Count, ct);
             var feeds = await db.NewsFeeds.AsNoTracking()
-                .OrderBy(feed => feed.Category)
-                .ThenBy(feed => feed.Label)
                 .ToListAsync(ct);
             var packages = await db.NewsPackages.AsNoTracking()
                 .OrderByDescending(package => package.TargetUtc)
@@ -719,13 +765,18 @@ public static class RadioApiEndpoints
                 settings.NewsPresenterModeratorId,
                 TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds),
                 TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds),
-                feeds.Select(feed => ToDto(feed, itemCounts.GetValueOrDefault(feed.Id))).ToList(),
+                categoryOrder,
+                BuildProductionWarning(settings, moderators),
+                NewsCategoryOrdering.SortFeeds(feeds, categoryOrder)
+                    .Select(feed => ToDto(feed, itemCounts.GetValueOrDefault(feed.Id)))
+                    .ToList(),
                 packages.Select(ToDto).ToList()));
         });
 
         api.MapPut("/production/news/settings", async (
             SaveNewsProductionSettingsDto request,
             RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates,
             CancellationToken ct) =>
         {
             var settings = await db.StationSettings.FindStationSettingsAsync(ct);
@@ -741,16 +792,21 @@ public static class RadioApiEndpoints
             settings.NewsPackageMaxDurationSeconds = Math.Clamp(request.NewsPackageMaxDurationSeconds, 60, 30 * 60);
             settings.TopOfHourFadeOutSeconds = TopOfHourScheduler.NormalizeFadeOutSeconds(request.TopOfHourFadeOutSeconds);
             settings.TopOfHourIntroGraceSeconds = TopOfHourScheduler.NormalizeIntroGraceSeconds(request.TopOfHourIntroGraceSeconds);
+            settings.NewsCategoryOrder = NewsCategoryOrdering.ToStorage(request.NewsCategoryOrder);
             settings.NewsPresenterModeratorId = request.NewsPresenterModeratorId is int presenterId
-                && await db.Moderators.AsNoTracking().AnyAsync(m => m.Id == presenterId && m.IsActive, ct)
+                && await db.Moderators.AsNoTracking()
+                    .AnyAsync(m => m.Id == presenterId && m.IsActive && m.IsNewsSpecialist, ct)
                     ? presenterId
                     : null;
 
             await db.SaveChangesAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
+            await productionUpdates.PublishWeatherChangedAsync(ct);
             return Results.NoContent();
         });
 
-        api.MapPost("/news/feeds", async (SaveNewsFeedDto request, RadioDbContext db, CancellationToken ct) =>
+        api.MapPost("/news/feeds", async (SaveNewsFeedDto request, RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates, CancellationToken ct) =>
         {
             if (!TryNormalizeFeed(request, out var normalized, out var error))
             {
@@ -770,6 +826,7 @@ public static class RadioApiEndpoints
             Apply(feed, normalized);
             db.NewsFeeds.Add(feed);
             await db.SaveChangesAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
             return Results.Ok(ToDto(feed, itemCount: 0));
         });
 
@@ -777,6 +834,7 @@ public static class RadioApiEndpoints
             Guid id,
             SaveNewsFeedDto request,
             RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates,
             CancellationToken ct) =>
         {
             if (!TryNormalizeFeed(request, out var normalized, out var error))
@@ -798,10 +856,12 @@ public static class RadioApiEndpoints
             Apply(feed, normalized);
             await db.SaveChangesAsync(ct);
             var itemCount = await db.NewsItems.CountAsync(item => item.FeedId == id, ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
             return Results.Ok(ToDto(feed, itemCount));
         });
 
-        api.MapPost("/news/feeds/{id:guid}/toggle", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        api.MapPost("/news/feeds/{id:guid}/toggle", async (Guid id, RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates, CancellationToken ct) =>
         {
             var feed = await db.NewsFeeds.FirstOrDefaultAsync(feed => feed.Id == id, ct);
             if (feed is null)
@@ -812,24 +872,33 @@ public static class RadioApiEndpoints
             feed.IsEnabled = !feed.IsEnabled;
             await db.SaveChangesAsync(ct);
             var itemCount = await db.NewsItems.CountAsync(item => item.FeedId == id, ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
             return Results.Ok(ToDto(feed, itemCount));
         });
 
-        api.MapDelete("/news/feeds/{id:guid}", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        api.MapDelete("/news/feeds/{id:guid}", async (Guid id, RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates, CancellationToken ct) =>
         {
             var deleted = await db.NewsFeeds.Where(feed => feed.Id == id).ExecuteDeleteAsync(ct);
+            if (deleted > 0)
+            {
+                await productionUpdates.PublishNewsChangedAsync(ct);
+            }
+
             return deleted > 0 ? Results.NoContent() : Results.NotFound();
         });
 
         api.MapGet("/production/weather", async (RadioDbContext db, CancellationToken ct) =>
         {
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-            return Results.Ok(ToWeatherProductionDto(settings));
+            var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
+            return Results.Ok(ToWeatherProductionDto(settings, moderators));
         });
 
         api.MapPut("/production/weather", async (
             SaveWeatherProductionSettingsDto request,
             RadioDbContext db,
+            IProductionUpdatePublisher productionUpdates,
             CancellationToken ct) =>
         {
             var settings = await db.StationSettings.FindStationSettingsAsync(ct);
@@ -852,7 +921,10 @@ public static class RadioApiEndpoints
                     : null;
 
             await db.SaveChangesAsync(ct);
-            return Results.Ok(ToWeatherProductionDto(settings));
+            var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
+            await productionUpdates.PublishWeatherChangedAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
+            return Results.Ok(ToWeatherProductionDto(settings, moderators));
         });
 
         static void Apply(NewsFeed feed, SaveNewsFeedDto request)
@@ -1248,6 +1320,17 @@ public static class RadioApiEndpoints
         => string.IsNullOrWhiteSpace(name)
             ? null
             : $"Hi, I'm {name.Trim()}! You're listening to WhipRadio — where every song is made just for you. Stay tuned!";
+
+    private static string BuildModeratorVoiceDescription(
+        string name,
+        string gender,
+        string style,
+        string persona)
+    {
+        var genderWord = gender == ModeratorGenders.Male ? "male" : "female";
+        var description = $"A {genderWord} English radio host voice. Style: {style}. {persona}";
+        return description.Length <= 500 ? description : description[..500];
+    }
 
     private static void MapMixer(RouteGroupBuilder api)
     {
@@ -1759,7 +1842,7 @@ public static class RadioApiEndpoints
     private static ModeratorDto ToDto(Moderator m, DateTimeOffset localNow) => new(
         m.Id, m.Name, m.Language, m.Gender, m.TtsEngine, m.VoiceId, m.SpeechRate, m.Style,
         m.PersonaPrompt, m.PrefersVocals, m.PreferredGenres, m.IsActive, m.IsAutoGenerated,
-        m.Talkativeness, m.IsWeatherSpecialist, m.PhotoUrl, ToDto(MoodEngine.Baseline(m)), ToDto(MoodEngine.Current(m, localNow)),
+        m.Talkativeness, m.IsWeatherSpecialist, m.IsNewsSpecialist, m.PhotoUrl, ToDto(MoodEngine.Baseline(m)), ToDto(MoodEngine.Current(m, localNow)),
         ToDto(HostTalkProfile.FromModerator(m)));
 
     private static HostTalkProfileDto ToDto(HostTalkProfile profile)
@@ -1889,14 +1972,22 @@ public static class RadioApiEndpoints
         package.FailureReason,
         package.SourceSummary);
 
-    private static WeatherProductionDto ToWeatherProductionDto(StationSettings settings) => new(
+    private static WeatherProductionDto ToWeatherProductionDto(
+        StationSettings settings,
+        IReadOnlyCollection<Moderator> moderators) => new(
         settings.WeatherEnabled,
         WeatherScheduler.NormalizeCadence(settings.WeatherCadenceMinutes),
         settings.WeatherSpecialistModeratorId,
         settings.WeatherFullHandoverEnabled,
         settings.WeatherLocationName,
         settings.WeatherLatitude,
-        settings.WeatherLongitude);
+        settings.WeatherLongitude,
+        BuildProductionWarning(settings, moderators));
+
+    private static string? BuildProductionWarning(
+        StationSettings settings,
+        IReadOnlyCollection<Moderator> moderators)
+        => ProductionSpecialistPolicy.BuildWarning(settings, moderators);
 
     private static bool TryNormalizeFeed(
         SaveNewsFeedDto request,

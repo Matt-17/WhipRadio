@@ -23,8 +23,32 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }
 
         var userPrompt = BuildUserPrompt(request);
-        var script = await llm.CompleteAsync(systemPrompt, userPrompt, ScriptJobLabel(request.Kind), ct);
-        return LlmOutputSanitizer.Sanitize(script);
+        var jobLabel = ScriptJobLabel(request.Kind);
+        var script = await llm.CompleteAsync(systemPrompt, userPrompt, jobLabel, ct);
+        return await SanitizeOrRetryAsync(script, systemPrompt, userPrompt, jobLabel, ct);
+    }
+
+    private async Task<string> SanitizeOrRetryAsync(
+        string raw,
+        string systemPrompt,
+        string userPrompt,
+        string jobLabel,
+        CancellationToken ct)
+    {
+        if (LlmOutputSanitizer.TrySanitizeSpokenText(raw, out var sanitized, out var error))
+        {
+            return sanitized;
+        }
+
+        var retryPrompt =
+            $"{userPrompt}\n\nPrevious reply rejected: {error} Return ONLY natural spoken radio copy. Do not return JSON.";
+        var retry = await llm.CompleteAsync(systemPrompt, retryPrompt, $"{jobLabel} retry", ct);
+        if (LlmOutputSanitizer.TrySanitizeSpokenText(retry, out sanitized, out error))
+        {
+            return sanitized;
+        }
+
+        throw new InvalidOperationException($"The script writer returned invalid spoken text twice: {error}");
     }
 
     private static string ScriptJobLabel(AnnouncementKind kind) => kind switch

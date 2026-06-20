@@ -9,17 +9,22 @@ namespace WhipRadio.Infrastructure.Tests;
 [TestClass]
 public class ScriptWriterAndVoiceDirectorTests
 {
-    private sealed class CapturingLlm(string reply = "Generated copy.") : ITextGenerationService
+    private sealed class CapturingLlm(params string[] replies) : ITextGenerationService
     {
+        private readonly Queue<string> _replies = new(replies.Length == 0 ? ["Generated copy."] : replies);
+
         public string? SystemPrompt { get; private set; }
 
         public string? UserPrompt { get; private set; }
+
+        public int CallCount { get; private set; }
 
         public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
         {
             SystemPrompt = systemPrompt;
             UserPrompt = userPrompt;
-            return Task.FromResult(reply);
+            CallCount++;
+            return Task.FromResult(_replies.Count == 0 ? "Generated copy." : _replies.Dequeue());
         }
     }
 
@@ -77,6 +82,37 @@ public class ScriptWriterAndVoiceDirectorTests
     }
 
     [TestMethod]
+    public async Task ScriptWriter_ExtractsAnnounceToolJson()
+    {
+        var llm = new CapturingLlm("""{"tool":"Announce","arguments":{"text":"Markets open lower."}}""");
+        var writer = new ScriptWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.News, "WhipRadio", "en", Facts: "market facts"),
+            CancellationToken.None);
+
+        Assert.Equal("Markets open lower.", result);
+        Assert.Equal(1, llm.CallCount);
+    }
+
+    [TestMethod]
+    public async Task ScriptWriter_RetriesInvalidToolJsonOnce()
+    {
+        var llm = new CapturingLlm(
+            """{"tool":"Announce","arguments":{}}""",
+            "Clean spoken copy.");
+        var writer = new ScriptWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.News, "WhipRadio", "en", Facts: "market facts"),
+            CancellationToken.None);
+
+        Assert.Equal("Clean spoken copy.", result);
+        Assert.Equal(2, llm.CallCount);
+        Assert.Contains("Previous reply rejected", llm.UserPrompt);
+    }
+
+    [TestMethod]
     public async Task ScriptWriter_WithPromptContext_AppendsSituationToSystemPrompt()
     {
         var llm = new CapturingLlm();
@@ -110,6 +146,7 @@ public class ScriptWriterAndVoiceDirectorTests
             RecentTalkTopics = ["metronome joke"],
             RecurringBits = ["drummer/metronome premise"],
             QueuedListenerMessages = ["Maya (greeting): hello from the late shift"],
+            AlreadySpokenContext = "Top of the hour. Maya has the news.",
             Tools =
             [
                 new CharacterToolDefinition(
@@ -131,6 +168,8 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("roughly 84 words", llm.SystemPrompt);
         Assert.Contains("Host baseline traits", llm.SystemPrompt);
         Assert.Contains("Current mood traits", llm.SystemPrompt);
+        Assert.Contains("Already aired immediately before this segment", llm.SystemPrompt);
+        Assert.Contains("Maya has the news", llm.SystemPrompt);
     }
 
     [TestMethod]
@@ -184,6 +223,27 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("[pause:NNNms]", llm.SystemPrompt);
         Assert.Equal("Original script.", llm.UserPrompt);
         Assert.Equal("Adapted [pause:300ms] text.", result);
+    }
+
+    [TestMethod]
+    public async Task VoiceDirector_RetriesInvalidToolJsonOnce()
+    {
+        var llm = new CapturingLlm(
+            """{"tool":"Announce","arguments":{}}""",
+            "Adapted copy.");
+        var director = new VoiceDirector(llm);
+        var moderator = new Moderator
+        {
+            Name = "Lena",
+            PersonaPrompt = "Clear host.",
+            Style = "steady",
+        };
+
+        var result = await director.DirectAsync("Original script.", moderator, CancellationToken.None);
+
+        Assert.Equal("Adapted copy.", result);
+        Assert.Equal(2, llm.CallCount);
+        Assert.Contains("Previous reply rejected", llm.UserPrompt);
     }
 
     private static PromptContext ContextWithTalkDepth(TalkDepth talkDepth)

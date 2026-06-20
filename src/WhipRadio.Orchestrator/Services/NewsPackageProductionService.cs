@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.News;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -12,6 +13,7 @@ public sealed class NewsPackageProductionService(
     ScheduleService schedule,
     NewsFeedPollingService feedPolling,
     TimeProvider timeProvider,
+    IProductionUpdatePublisher productionUpdates,
     ILogger<NewsPackageProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
@@ -79,15 +81,16 @@ public sealed class NewsPackageProductionService(
         NewsPackage package;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            items = await db.NewsItems
+            var candidates = await db.NewsItems
                 .Include(item => item.Feed)
                 .Where(item => item.Status == NewsItemStatus.New
                     && item.Feed != null
                     && item.Feed.IsEnabled)
-                .OrderByDescending(item => item.Feed!.Category == "technology")
-                .ThenByDescending(item => item.PublishedAtUtc ?? item.FirstSeenAtUtc)
-                .Take(5)
                 .ToListAsync(ct);
+            items = NewsCategoryOrdering
+                .SortItems(candidates, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
+                .Take(5)
+                .ToList();
             if (items.Count == 0)
             {
                 return;
@@ -111,6 +114,7 @@ public sealed class NewsPackageProductionService(
 
             await db.SaveChangesAsync(ct);
         }
+        await productionUpdates.PublishNewsChangedAsync(ct);
 
         try
         {
@@ -126,6 +130,7 @@ public sealed class NewsPackageProductionService(
             var facts = BuildNewsFacts(items);
             var expiresAt = targetUtc.AddMinutes(15);
             var targetEnd = targetUtc.AddSeconds(TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds));
+            var newsHandoff = BuildIntroText(context.Moderator, newsModerator);
 
             var parts = new List<Announcement>
             {
@@ -134,7 +139,7 @@ public sealed class NewsPackageProductionService(
                     TalkPartKind.StationId,
                     TalkBreakPriority.Scheduled,
                     context.Moderator,
-                    BuildIntroText(context.Moderator, newsModerator),
+                    newsHandoff,
                     "TopOfHourHandoff",
                     ct,
                     title: "Top of hour",
@@ -148,37 +153,46 @@ public sealed class NewsPackageProductionService(
                     facts,
                     settings.StationName,
                     ct,
-                    lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly."),
+                    lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
+                    alreadySpokenContext: newsHandoff),
             };
 
             if (settings.WeatherEnabled)
             {
                 var weatherModerator = await ResolveWeatherModeratorAsync(settings, newsModerator, ct);
-                if (weatherModerator.Id != newsModerator.Id)
+                if (weatherModerator is null)
                 {
+                    logger.LogWarning(
+                        "Weather skipped for top-of-hour package {PackageId}: no distinct active weather specialist",
+                        package.Id);
+                }
+                else
+                {
+                    var weatherHandoff = $"{weatherModerator.Name} has the weather.";
                     parts.Add(await factory.ProduceDirectAsync(
                         AnnouncementKind.StationId,
                         TalkPartKind.WeatherHandoff,
                         TalkBreakPriority.Scheduled,
                         newsModerator,
-                        $"And now {weatherModerator.Name} has the weather.",
+                        weatherHandoff,
                         "WeatherHandoff",
                         ct,
                         title: "Weather handoff",
                         expiresAtUtc: expiresAt,
                         desiredDurationSeconds: 5,
                         wordBudget: 14));
-                }
 
-                var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
-                parts.Add(await factory.ProduceAsync(
-                    AnnouncementKind.Weather,
-                    weatherModerator,
-                    null,
-                    report.ToFacts(),
-                    settings.StationName,
-                    ct,
-                    lengthHint: "A concise weather report, about 45 seconds."));
+                    var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
+                    parts.Add(await factory.ProduceAsync(
+                        AnnouncementKind.Weather,
+                        weatherModerator,
+                        null,
+                        report.ToFacts(),
+                        settings.StationName,
+                        ct,
+                        lengthHint: "A concise weather report, about 45 seconds.",
+                        alreadySpokenContext: weatherHandoff));
+                }
             }
 
             await MarkScheduledAsync(parts.Select(part => part.Id).ToList(), targetUtc, targetEnd, expiresAt, ct);
@@ -233,43 +247,18 @@ public sealed class NewsPackageProductionService(
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (settings.NewsPresenterModeratorId is int configuredId)
-        {
-            var configured = await db.Moderators.AsNoTracking()
-                .FirstOrDefaultAsync(m => m.Id == configuredId && m.IsActive, ct);
-            if (configured is not null)
-            {
-                return configured;
-            }
-        }
-
-        return await db.Moderators.AsNoTracking()
-            .Where(m => m.IsActive && m.Name == "Maya Current")
-            .FirstOrDefaultAsync(ct)
-            ?? fallback;
+        var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
+        return ProductionSpecialistPolicy.ResolveNewsModerator(settings, moderators, fallback);
     }
 
-    private async Task<Moderator> ResolveWeatherModeratorAsync(
+    private async Task<Moderator?> ResolveWeatherModeratorAsync(
         StationSettings settings,
-        Moderator fallback,
+        Moderator newsModerator,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
-        if (settings.WeatherSpecialistModeratorId is int specialistId)
-        {
-            var configured = await db.Moderators.AsNoTracking()
-                .FirstOrDefaultAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct);
-            if (configured is not null)
-            {
-                return configured;
-            }
-        }
-
-        return await db.Moderators.AsNoTracking()
-            .Where(m => m.IsActive && m.IsWeatherSpecialist)
-            .OrderBy(m => m.Id)
-            .FirstOrDefaultAsync(ct)
-            ?? fallback;
+        var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
+        return ProductionSpecialistPolicy.ResolveWeatherModerator(settings, moderators, newsModerator);
     }
 
     private async Task MarkScheduledAsync(
@@ -301,6 +290,7 @@ public sealed class NewsPackageProductionService(
         }
 
         await db.SaveChangesAsync(ct);
+        await productionUpdates.PublishNewsChangedAsync(ct);
     }
 
     private async Task FinalizePackageAsync(
@@ -347,6 +337,7 @@ public sealed class NewsPackageProductionService(
         }
 
         await db.SaveChangesAsync(ct);
+        await productionUpdates.PublishNewsChangedAsync(ct);
     }
 
     private async Task MarkPackageFailedAsync(
@@ -373,12 +364,13 @@ public sealed class NewsPackageProductionService(
         }
 
         await db.SaveChangesAsync(ct);
+        await productionUpdates.PublishNewsChangedAsync(ct);
     }
 
     private static string BuildIntroText(Moderator currentHost, Moderator newsModerator)
         => currentHost.Id == newsModerator.Id
-            ? "Top of the hour. Here is the news, followed by weather."
-            : $"Top of the hour. {newsModerator.Name} is here with the news, followed by weather.";
+            ? "Top of the hour. Here is the news."
+            : $"Top of the hour. {newsModerator.Name} has the news.";
 
     private static string BuildNewsFacts(IEnumerable<NewsItem> items)
         => string.Join(

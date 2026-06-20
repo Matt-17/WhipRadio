@@ -35,6 +35,28 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
         }
 
         var voiced = await llm.CompleteAsync(systemPrompt, script, "Directing voice delivery", ct);
-        return LlmOutputSanitizer.Sanitize(voiced);
+        return await SanitizeOrRetryAsync(voiced, systemPrompt, script, ct);
+    }
+
+    private async Task<string> SanitizeOrRetryAsync(
+        string raw,
+        string systemPrompt,
+        string script,
+        CancellationToken ct)
+    {
+        if (LlmOutputSanitizer.TrySanitizeSpokenText(raw, out var sanitized, out var error))
+        {
+            return sanitized;
+        }
+
+        var retryPrompt =
+            $"{script}\n\nPrevious reply rejected: {error} Return ONLY the adapted spoken text with allowed speech markers. Do not return JSON.";
+        var retry = await llm.CompleteAsync(systemPrompt, retryPrompt, "Directing voice delivery retry", ct);
+        if (LlmOutputSanitizer.TrySanitizeSpokenText(retry, out sanitized, out error))
+        {
+            return sanitized;
+        }
+
+        throw new InvalidOperationException($"The voice director returned invalid spoken text twice: {error}");
     }
 }

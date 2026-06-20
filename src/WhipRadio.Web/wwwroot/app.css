@@ -570,6 +570,18 @@ table.console-table {
 .tag.category-business { color: #e7a36f; border-color: #7b4a2b; }
 .tag.category-culture { color: #d9a2ff; border-color: #68417c; }
 
+.production-warning {
+    margin: 0 0 16px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--amber-hot);
+    background: rgba(255, 180, 84, 0.08);
+    border: 1px solid var(--amber-dim);
+    border-radius: 6px;
+}
+
 .news-feed-head {
     display: flex;
     align-items: center;

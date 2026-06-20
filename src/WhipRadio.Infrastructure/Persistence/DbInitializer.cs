@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
 
 namespace WhipRadio.Infrastructure.Persistence;
@@ -178,6 +179,12 @@ public static class DbInitializer
             patched = true;
         }
 
+        if (string.IsNullOrWhiteSpace(settings.NewsCategoryOrder))
+        {
+            settings.NewsCategoryOrder = NewsCategoryOrdering.ToStorage(NewsCategoryOrdering.DefaultOrder);
+            patched = true;
+        }
+
         if (settings.TopOfHourFadeOutSeconds <= 0)
         {
             settings.TopOfHourFadeOutSeconds = defaults.TopOfHourFadeOutSeconds;
@@ -233,6 +240,7 @@ public static class DbInitializer
         settings.NewsExtractionEnabled = defaults.NewsExtractionEnabled;
         settings.NewsPackageCadenceMinutes = defaults.NewsPackageCadenceMinutes;
         settings.NewsPackageMaxDurationSeconds = defaults.NewsPackageMaxDurationSeconds;
+        settings.NewsCategoryOrder = defaults.NewsCategoryOrder;
         settings.TopOfHourFadeOutSeconds = defaults.TopOfHourFadeOutSeconds;
         settings.TopOfHourIntroGraceSeconds = defaults.TopOfHourIntroGraceSeconds;
         settings.WeatherLocationName = defaults.WeatherLocationName;
@@ -278,6 +286,14 @@ public static class DbInitializer
                 moderator.BaselineHumorLevel = seed.BaselineHumorLevel;
                 moderator.BaselineTalkativeness = seed.BaselineTalkativeness;
                 moderator.BaselineWarmth = seed.BaselineWarmth;
+                patched = true;
+            }
+
+            if (seeds.TryGetValue(moderator.Name, out seed)
+                && seed.IsNewsSpecialist
+                && !moderator.IsNewsSpecialist)
+            {
+                moderator.IsNewsSpecialist = true;
                 patched = true;
             }
 
@@ -466,9 +482,10 @@ public static class DbInitializer
             "You are Maya Current, WhipRadio's news presenter. You sound calm, precise, " +
             "international, and editorially careful. You separate confirmed facts from context " +
             "and never sensationalize.",
-        PreferredGenres = "news,technology",
-        IsActive = true,
-    };
+            PreferredGenres = "news,technology",
+            IsNewsSpecialist = true,
+            IsActive = true,
+        };
 
     private static NewsFeed[] SeedNewsFeeds() =>
     [

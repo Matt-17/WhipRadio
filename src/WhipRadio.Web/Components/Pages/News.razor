@@ -1,7 +1,9 @@
 @page "/production/news"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
+@implements IAsyncDisposable
 @inject RadioApiClient Api
+@inject ProductionLiveClient Live
 
 <PageTitle>WhipRadio - News</PageTitle>
 
@@ -35,6 +37,10 @@ else
                 </select>
             </div>
             <div class="field">
+                <label>Specialist desk</label>
+                <button class="btn" @onclick="() => _specialistModalOpen = true">Create news host</button>
+            </div>
+            <div class="field">
                 <label>Cadence</label>
                 <select @bind="_cadence">
                     <option value="30">every 30 minutes</option>
@@ -53,7 +59,15 @@ else
                     <option value="false">disabled</option>
                 </select>
             </div>
+            <div class="field">
+                <label>Category order</label>
+                <input @bind="_categoryOrderText" placeholder="general,business,technology,culture,regional" />
+            </div>
         </div>
+        @if (!string.IsNullOrWhiteSpace(_news.WarningText))
+        {
+            <div class="production-warning">@_news.WarningText</div>
+        }
         <div class="btn-row">
             <button class="btn primary" @onclick="SaveSettingsAsync">Apply</button>
             @if (_settingsSaved)
@@ -166,11 +180,10 @@ else
             <div class="field">
                 <label>Category</label>
                 <select @bind="_feedCategory">
-                    <option value="general">general</option>
-                    <option value="technology">technology</option>
-                    <option value="regional">regional</option>
-                    <option value="business">business</option>
-                    <option value="culture">culture</option>
+                    @foreach (var category in CategoryOptions)
+                    {
+                        <option value="@category">@CategoryLabel(category)</option>
+                    }
                 </select>
             </div>
             <div class="field"><label>Region</label><input @bind="_feedRegion" placeholder="us or global" /></div>
@@ -201,6 +214,11 @@ else
     </Footer>
 </Modal>
 
+<SpecialistHostModal Visible="@_specialistModalOpen"
+                     Role="News"
+                     OnClose="() => _specialistModalOpen = false"
+                     HostCreated="OnSpecialistCreatedAsync" />
+
 <ConfirmDialog Visible="@(_deleteTarget is not null)"
                Title="Delete news feed"
                ConfirmText="Delete"
@@ -223,6 +241,7 @@ else
     private string? _feedError;
     private bool _settingsSaved;
     private bool _feedModalOpen;
+    private bool _specialistModalOpen;
 
     private bool _newsEnabled = true;
     private string _extract = "true";
@@ -231,6 +250,7 @@ else
     private string _presenterId = "";
     private double _fadeOut = 1.0;
     private int _introGrace = 10;
+    private string _categoryOrderText = "general,business,technology,culture,regional";
 
     private string _feedLabel = "";
     private string _feedUrl = "";
@@ -240,10 +260,18 @@ else
     private bool _feedEnabled = true;
 
     private IEnumerable<ModeratorDto> ActiveHosts
-        => _moderators.Where(host => host.IsActive).OrderBy(host => host.Name);
+        => _moderators.Where(host => host is { IsActive: true, IsNewsSpecialist: true }).OrderBy(host => host.Name);
+
+    private IReadOnlyList<string> CategoryOptions
+        => ParseCategoryOrder(_categoryOrderText).Concat(["general", "business", "technology", "culture", "regional"])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     protected override async Task OnInitializedAsync()
     {
+        Live.NewsChanged += OnNewsChanged;
+        Live.WeatherChanged += OnNewsChanged;
+        await Live.EnsureStartedAsync();
         _moderators = await Api.GetModeratorsAsync();
         await LoadAsync();
     }
@@ -263,10 +291,12 @@ else
         _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";
         _fadeOut = _news.TopOfHourFadeOutSeconds;
         _introGrace = _news.TopOfHourIntroGraceSeconds;
+        _categoryOrderText = string.Join(",", _news.NewsCategoryOrder);
     }
 
     private async Task SaveSettingsAsync()
     {
+        _error = null;
         _error = await Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
             _newsEnabled,
             _extract == "true",
@@ -274,7 +304,8 @@ else
             _maxDuration,
             int.TryParse(_presenterId, out var presenterId) ? presenterId : null,
             _fadeOut,
-            _introGrace));
+            _introGrace,
+            ParseCategoryOrder(_categoryOrderText)));
         _settingsSaved = _error is null;
         await LoadAsync();
     }
@@ -351,6 +382,21 @@ else
         await LoadAsync();
     }
 
+    private async Task OnSpecialistCreatedAsync(ModeratorDto host)
+    {
+        _moderators = await Api.GetModeratorsAsync();
+        _presenterId = host.Id.ToString();
+        await SaveSettingsAsync();
+    }
+
+    private void OnNewsChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            _moderators = await Api.GetModeratorsAsync();
+            await LoadAsync();
+            StateHasChanged();
+        });
+
     private async Task DeleteFeedConfirmedAsync()
     {
         if (_deleteTarget is not { } feed)
@@ -408,4 +454,23 @@ else
         => string.IsNullOrWhiteSpace(value)
             ? "-"
             : value.Length <= max ? value : $"{value[..Math.Max(0, max - 3)]}...";
+
+    private static IReadOnlyList<string> ParseCategoryOrder(string value)
+    {
+        var parsed = value
+            .Split([',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(category => category.Trim().ToLowerInvariant())
+            .Where(category => category.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return parsed.Count == 0 ? ["general", "business", "technology", "culture", "regional"] : parsed;
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Live.NewsChanged -= OnNewsChanged;
+        Live.WeatherChanged -= OnNewsChanged;
+        return ValueTask.CompletedTask;
+    }
 }

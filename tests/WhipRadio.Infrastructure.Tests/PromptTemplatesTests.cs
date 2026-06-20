@@ -28,4 +28,33 @@ public class PromptTemplatesTests
         Assert.Contains("Optional only when Vocals", prompt);
         Assert.DoesNotContain("{ArtistName}", prompt);
     }
+
+    [TestMethod]
+    public void Render_NewsPrompt_UsesFactualAnchorRules()
+    {
+        var prompt = PromptTemplates.Render("ScriptWriter.News", new Dictionary<string, string>
+        {
+            ["NewsFacts"] = "Source: Test Wire\nTitle: Markets move",
+        });
+
+        Assert.Contains("Do not say the station slogan", prompt);
+        Assert.Contains("Do not frame this like a DJ break", prompt);
+        Assert.Contains("Do not introduce yourself", prompt);
+        Assert.Contains("Avoid geography-tour transitions", prompt);
+        Assert.DoesNotContain("{NewsFacts}", prompt);
+    }
+
+    [TestMethod]
+    public void Render_WeatherPrompt_UsesSpecialistForecastRules()
+    {
+        var prompt = PromptTemplates.Render("ScriptWriter.Weather", new Dictionary<string, string>
+        {
+            ["WeatherFacts"] = "Currently 14 C, light rain.",
+        });
+
+        Assert.Contains("concise specialist forecast", prompt);
+        Assert.Contains("weather desk", prompt);
+        Assert.Contains("Do not introduce yourself", prompt);
+        Assert.DoesNotContain("{WeatherFacts}", prompt);
+    }
 }

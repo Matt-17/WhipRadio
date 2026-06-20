@@ -89,4 +89,47 @@ public class LlmOutputSanitizerTests
         Assert.Equal("Welcome to the show tonight!",
             LlmOutputSanitizer.Sanitize("*Welcome* to the **show** tonight!"));
     }
+
+    [TestMethod]
+    public void TrySanitizeSpokenText_ExtractsAnnounceToolJson()
+    {
+        var ok = LlmOutputSanitizer.TrySanitizeSpokenText(
+            """{"tool":"Announce","arguments":{"text":"Good evening."}}""",
+            out var result,
+            out var error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.Equal("Good evening.", result);
+    }
+
+    [TestMethod]
+    public void TrySanitizeSpokenText_ExtractsFencedAnnounceToolJson()
+    {
+        var ok = LlmOutputSanitizer.TrySanitizeSpokenText(
+            """
+            ```json
+            {"tool":"Announce","arguments":{"text":"Weather next."}}
+            ```
+            """,
+            out var result,
+            out var error);
+
+        Assert.True(ok);
+        Assert.Null(error);
+        Assert.Equal("Weather next.", result);
+    }
+
+    [TestMethod]
+    public void TrySanitizeSpokenText_RejectsMissingAnnounceText()
+    {
+        var ok = LlmOutputSanitizer.TrySanitizeSpokenText(
+            """{"tool":"Announce","arguments":{}}""",
+            out var result,
+            out var error);
+
+        Assert.False(ok);
+        Assert.Equal(string.Empty, result);
+        Assert.Contains("arguments.text", error);
+    }
 }

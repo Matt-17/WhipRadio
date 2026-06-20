@@ -3,6 +3,10 @@ Write an original radio news bulletin from these sourced facts: {NewsFacts}
 Rules:
 - Rewrite in your own words. Do not copy article phrasing.
 - Attribute claims to source names when useful.
-- Keep it calm, factual, and international.
+- Keep it calm, factual, concise, and editorial.
 - Do not invent quotes, numbers, causes, or outcomes.
 - Move topic by topic; one presenter only.
+- Do not say the station slogan.
+- Do not frame this like a DJ break, music show, or casual chat.
+- Do not introduce yourself or repeat any handoff/context already aired.
+- Avoid geography-tour transitions such as "starting our report in Asia" or "over in Europe."

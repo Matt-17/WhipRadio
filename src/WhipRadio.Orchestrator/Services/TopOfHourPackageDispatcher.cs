@@ -11,6 +11,7 @@ public sealed class TopOfHourPackageDispatcher(
     IPlayoutQueue playoutQueue,
     TimedPlayoutInterruptService interrupts,
     TimeProvider timeProvider,
+    IProductionUpdatePublisher productionUpdates,
     ILogger<TopOfHourPackageDispatcher> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(1);
@@ -46,7 +47,7 @@ public sealed class TopOfHourPackageDispatcher(
             return;
         }
 
-        await MarkPlayedPackagesAsync(db, ct);
+        var changed = await MarkPlayedPackagesAsync(db, ct);
 
         var grace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
         var oldestValidTarget = now.AddSeconds(-grace);
@@ -58,6 +59,7 @@ public sealed class TopOfHourPackageDispatcher(
         {
             package.Status = NewsPackageStatus.Failed;
             package.FailureReason = "Missed top-of-hour grace window.";
+            changed = true;
         }
 
         var next = await db.NewsPackages
@@ -70,6 +72,11 @@ public sealed class TopOfHourPackageDispatcher(
         if (next is null)
         {
             await db.SaveChangesAsync(ct);
+            if (changed)
+            {
+                await productionUpdates.PublishNewsChangedAsync(ct);
+            }
+
             return;
         }
 
@@ -80,6 +87,7 @@ public sealed class TopOfHourPackageDispatcher(
             next.Status = NewsPackageStatus.Failed;
             next.FailureReason = "Package announcement is missing.";
             await db.SaveChangesAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
             return;
         }
 
@@ -108,16 +116,17 @@ public sealed class TopOfHourPackageDispatcher(
         next.Status = NewsPackageStatus.Queued;
         next.QueuedAtUtc = now;
         await db.SaveChangesAsync(ct);
+        await productionUpdates.PublishNewsChangedAsync(ct);
     }
 
-    private static async Task MarkPlayedPackagesAsync(RadioDbContext db, CancellationToken ct)
+    private static async Task<bool> MarkPlayedPackagesAsync(RadioDbContext db, CancellationToken ct)
     {
         var queued = await db.NewsPackages
             .Where(package => package.Status == NewsPackageStatus.Queued && package.AnnouncementId != null)
             .ToListAsync(ct);
         if (queued.Count == 0)
         {
-            return;
+            return false;
         }
 
         var ids = queued.Select(package => package.AnnouncementId!.Value).ToList();
@@ -125,13 +134,17 @@ public sealed class TopOfHourPackageDispatcher(
             .Where(announcement => ids.Contains(announcement.Id) && announcement.WasPlayed)
             .ToDictionaryAsync(announcement => announcement.Id, ct);
 
+        var changed = false;
         foreach (var package in queued)
         {
             if (package.AnnouncementId is { } announcementId && played.ContainsKey(announcementId))
             {
                 package.Status = NewsPackageStatus.Played;
                 package.PlayedAtUtc = DateTime.UtcNow;
+                changed = true;
             }
         }
+
+        return changed;
     }
 }
