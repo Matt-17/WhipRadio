@@ -16,7 +16,7 @@ public class LlmOutputSanitizerTests
     public void Sanitize_StripsSurroundingQuotes()
     {
         Assert.Equal("Up next on WhipRadio!", LlmOutputSanitizer.Sanitize("\"Up next on WhipRadio!\""));
-        Assert.Equal("Gleich geht's weiter!", LlmOutputSanitizer.Sanitize("„Gleich geht's weiter!“"));
+        Assert.Equal("The show keeps moving!", LlmOutputSanitizer.Sanitize("\"The show keeps moving!\""));
     }
 
     [TestMethod]
@@ -29,7 +29,7 @@ public class LlmOutputSanitizerTests
     [TestMethod]
     public void Sanitize_PlainTextPassesThrough()
     {
-        var input = "Und jetzt: drei Minuten Lofi zum Runterkommen.";
+        var input = "Up next: three minutes of late-night lo-fi.";
         Assert.Equal(input, LlmOutputSanitizer.Sanitize(input));
     }
 
@@ -65,8 +65,8 @@ public class LlmOutputSanitizerTests
     {
         Assert.Equal("Up next, a real gem.",
             LlmOutputSanitizer.Sanitize("I created a text for a song intro\nUp next, a real gem."));
-        Assert.Equal("Und jetzt wird es ruhig.",
-            LlmOutputSanitizer.Sanitize("Hier ist dein Moderationstext:\nUnd jetzt wird es ruhig."));
+        Assert.Equal("Now the room gets quiet.",
+            LlmOutputSanitizer.Sanitize("Here is your moderation text:\nNow the room gets quiet."));
     }
 
     [TestMethod]

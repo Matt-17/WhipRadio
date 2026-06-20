@@ -3,7 +3,7 @@
 > *"It really gets whipped by llamas."*
 > A self-hosted internet radio station with an LLM program director. Fully local
 > except declared external data sources. Currently in beta, fast-built with heavy
-> AI assistance, German developer (Code-iX, Dresden), .NET/C# stack, target hardware
+> AI assistance, Code-iX developer, .NET/C# stack, target hardware
 > a 12 GB consumer GPU (RTX 4070 class).
 >
 > This document is the map of everything discussed and planned so far. It does not
@@ -65,7 +65,7 @@ generation semaphore prevents simultaneous spikes. Full detail: `Phase-0-Tech-De
 | Role | Model | Why |
 |---|---|---|
 | Text/reasoning | **Gemma 4 E4B** via Ollama | multilingual, Apache 2.0, fits 12 GB with TTS+music |
-| Speech | **Qwen3-TTS 0.6B** | voice *design* from text description, 10 languages incl. German, best-in-class speaker similarity |
+| Speech | **Qwen3-TTS 0.6B** | voice *design* from text description, multilingual engine, best-in-class speaker similarity |
 | Music | **ACE-Step** (vocal) + MusicGen (instrumental) | local, structure-aware |
 | Images (later) | **FLUX.2 Klein 4B** | photorealistic, multi-reference identity, Apache 2.0 |
 | Internal actions | **self-built `Aktion()` protocol** | MCP explicitly rejected as overkill for an internal loop both ends of which we own |

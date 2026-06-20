@@ -11,16 +11,16 @@ namespace WhipRadio.Core.Speech;
 /// </summary>
 public static partial class LlmOutputSanitizer
 {
-    [GeneratedRegex(@"^(sure|certainly|of course|okay|ok|alright|here('|’)s|here is|here we go|hier ist|hier kommt|gerne|klar|natürlich|also gut|na gut|los geht('|’)s|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|ich habe|ich schreibe|let me)\b.{0,100}?:\s*", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(sure|certainly|of course|okay|ok|alright|here('|’)s|here is|here we go|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|let me)\b.{0,100}?:\s*", RegexOptions.IgnoreCase)]
     private static partial Regex LeadInWithColonRegex();
 
-    [GeneratedRegex(@"^(okay|ok|alright|sure|here('|’)s|here is|here we go|hier ist|hier kommt|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|ich habe|ich schreibe|let me)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(okay|ok|alright|sure|here('|’)s|here is|here we go|i('|’)ve|i have|i('|’)ll|i will|i create[d]?|i wrote|let me)\b", RegexOptions.IgnoreCase)]
     private static partial Regex MetaOpenerRegex();
 
-    [GeneratedRegex(@"\b(text|script|skript|intro|outro|announcement|ansage|moderation|version|copy|for you|für dich)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(text|script|intro|outro|announcement|moderation|version|copy|for you)\b", RegexOptions.IgnoreCase)]
     private static partial Regex MetaVocabularyRegex();
 
-    [GeneratedRegex(@"\b(let me know|hope (this|that|you)|feel free|lass es mich wissen|ich hoffe|sag bescheid|viel spaß damit)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(let me know|hope (this|that|you)|feel free)\b", RegexOptions.IgnoreCase)]
     private static partial Regex TrailingMetaRegex();
 
     [GeneratedRegex(@"\([^()]*\)")]

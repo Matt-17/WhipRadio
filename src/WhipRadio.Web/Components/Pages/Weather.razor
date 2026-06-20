@@ -1,0 +1,134 @@
+@page "/production/weather"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio - Weather</PageTitle>
+
+<h1 class="stage-title">Weather</h1>
+<div class="stage-sub">forecast package settings and host assignment</div>
+
+@if (_weather is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading weather production...</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Weather Package</div>
+        <div class="admin-row">
+            <div>
+                <strong>Weather reports</strong>
+                <div class="dim">When news is enabled, weather is appended to the top-of-hour package.</div>
+            </div>
+            <div class="switch big @(_enabled ? "on" : null)" @onclick="() => _enabled = !_enabled"></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">
+                <label>Weather host</label>
+                <select @bind="_hostId">
+                    <option value="">automatic</option>
+                    @foreach (var host in WeatherHosts)
+                    {
+                        <option value="@host.Id">@host.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Cadence</label>
+                <select @bind="_cadence">
+                    <option value="30">every 30 minutes</option>
+                    <option value="60">hourly</option>
+                    <option value="120">every 2 hours</option>
+                    <option value="180">every 3 hours</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Full handover</label>
+                <select @bind="_fullHandover">
+                    <option value="false">off</option>
+                    <option value="true">on</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Forecast Location</div>
+        <div class="form-grid">
+            <div class="field"><label>Location label</label><input @bind="_locationName" /></div>
+            <div class="field"><label>Latitude</label><input type="number" step="0.0001" min="-90" max="90" @bind="_latitude" /></div>
+            <div class="field"><label>Longitude</label><input type="number" step="0.0001" min="-180" max="180" @bind="_longitude" /></div>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveAsync">Apply</button>
+            @if (_saved)
+            {
+                <span class="flash">applied</span>
+            }
+            @if (_error is not null)
+            {
+                <span class="dim">@_error</span>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private WeatherProductionDto? _weather;
+    private List<ModeratorDto> _moderators = [];
+    private bool _enabled = true;
+    private int _cadence = 60;
+    private string _hostId = "";
+    private string _fullHandover = "false";
+    private string _locationName = "New York, US";
+    private double _latitude = 40.7128;
+    private double _longitude = -74.0060;
+    private bool _saved;
+    private string? _error;
+
+    private IEnumerable<ModeratorDto> WeatherHosts
+        => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true }).OrderBy(host => host.Name);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _moderators = await Api.GetModeratorsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _weather = await Api.GetWeatherProductionAsync();
+        if (_weather is null)
+        {
+            return;
+        }
+
+        _enabled = _weather.WeatherEnabled;
+        _cadence = _weather.WeatherCadenceMinutes;
+        _hostId = _weather.WeatherSpecialistModeratorId?.ToString() ?? "";
+        _fullHandover = _weather.WeatherFullHandoverEnabled.ToString().ToLowerInvariant();
+        _locationName = _weather.WeatherLocationName;
+        _latitude = _weather.WeatherLatitude;
+        _longitude = _weather.WeatherLongitude;
+    }
+
+    private async Task SaveAsync()
+    {
+        var (weather, error) = await Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
+            _enabled,
+            _cadence,
+            int.TryParse(_hostId, out var hostId) ? hostId : null,
+            _fullHandover == "true",
+            _locationName,
+            _latitude,
+            _longitude));
+        _weather = weather ?? _weather;
+        _error = error;
+        _saved = error is null;
+        if (weather is not null)
+        {
+            await LoadAsync();
+        }
+    }
+}

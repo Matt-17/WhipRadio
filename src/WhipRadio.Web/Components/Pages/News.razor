@@ -1,0 +1,411 @@
+@page "/production/news"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio - News</PageTitle>
+
+<h1 class="stage-title">News</h1>
+<div class="stage-sub">top-of-hour packages and editable RSS sources</div>
+
+@if (_news is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading news production...</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Package Settings</div>
+        <div class="admin-row">
+            <div>
+                <strong>Top-of-hour news</strong>
+                <div class="dim">One rewritten presenter bulletin from configured sources. Weather is appended when enabled.</div>
+            </div>
+            <div class="switch big @(_newsEnabled ? "on" : null)" @onclick="() => _newsEnabled = !_newsEnabled"></div>
+        </div>
+        <div class="form-grid">
+            <div class="field">
+                <label>News presenter</label>
+                <select @bind="_presenterId">
+                    <option value="">automatic</option>
+                    @foreach (var host in ActiveHosts)
+                    {
+                        <option value="@host.Id">@host.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Cadence</label>
+                <select @bind="_cadence">
+                    <option value="30">every 30 minutes</option>
+                    <option value="60">hourly</option>
+                    <option value="120">every 2 hours</option>
+                    <option value="180">every 3 hours</option>
+                </select>
+            </div>
+            <div class="field"><label>Max package length (s)</label><input type="number" min="60" max="1800" @bind="_maxDuration" /></div>
+            <div class="field"><label>Fade out before package (s)</label><input type="number" step="0.25" min="0.25" max="10" @bind="_fadeOut" /></div>
+            <div class="field"><label>Intro grace (s)</label><input type="number" min="0" max="60" @bind="_introGrace" /></div>
+            <div class="field">
+                <label>Article extraction</label>
+                <select @bind="_extract">
+                    <option value="true">enabled</option>
+                    <option value="false">disabled</option>
+                </select>
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveSettingsAsync">Apply</button>
+            @if (_settingsSaved)
+            {
+                <span class="flash">applied</span>
+            }
+            @if (_error is not null)
+            {
+                <span class="dim">@_error</span>
+            }
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="news-feed-head">
+            <div class="panel-label">Feeds</div>
+            <button class="btn small primary" @onclick="OpenAddFeed">+ Add Feed</button>
+        </div>
+        @if (_news.Feeds.Count == 0)
+        {
+            <div class="empty-state">no feeds configured</div>
+        }
+        else
+        {
+            <table class="console-table news-feeds-table">
+                <thead>
+                    <tr>
+                        <th>Feed</th>
+                        <th style="width:50px"></th>
+                        <th style="width:72px">Active</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var feed in _news.Feeds)
+                    {
+                        <tr>
+                            <td class="feed-name-cell">
+                                <div class="feed-title-line">
+                                    <strong class="feed-title">@feed.Label</strong>
+                                    <span class="feed-title-separator">&bull;</span>
+                                    <span class="dim feed-url-inline" title="@feed.Url">@feed.Url</span>
+                                </div>
+                                <div class="feed-meta-line">
+                                    <span class="tag category-badge @CategoryTagClass(feed.Category)">@CategoryLabel(feed.Category)</span>
+                                    <span title="@feed.LastError">last polled <TimeAgo Date="@AsUtc(feed.LastPolledAtUtc)" Placeholder="not yet" /></span>
+                                    <span class="feed-title-separator">&bull;</span>
+                                    <span>@feed.ItemCount item@(feed.ItemCount == 1 ? "" : "s")</span>
+                                </div>
+                            </td>
+                            <td class="feed-action-cell">
+                                <button class="btn small icon-only" title="edit feed" @onclick="() => OpenEditFeed(feed)">
+                                    <Icon Name="edit" />
+                                </button>
+                            </td>
+                            <td>
+                                <div class="switch @(feed.IsEnabled ? "on" : null)"
+                                     role="switch"
+                                     aria-checked="@feed.IsEnabled"
+                                     title="@(feed.IsEnabled ? "active" : "inactive")"
+                                     @onclick="() => ToggleFeedAsync(feed.Id)"></div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Recent Packages</div>
+        @if (_news.RecentPackages.Count == 0)
+        {
+            <div class="empty-state">no packages produced yet</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <thead>
+                    <tr>
+                        <th style="width:155px">Target</th>
+                        <th style="width:95px">Status</th>
+                        <th>Sources</th>
+                        <th style="width:120px">Announcement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var package in _news.RecentPackages)
+                    {
+                        <tr title="@package.FailureReason">
+                            <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
+                            <td><span class="tag @PackageTag(package.Status)">@package.Status</span></td>
+                            <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
+                            <td class="dim">@Short(package.AnnouncementId?.ToString() ?? "-", 12)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+<Modal Visible="@_feedModalOpen"
+       Title="@(_editFeedId is null ? "Add Feed" : "Edit Feed")"
+       Class="modal-wide"
+       OnClose="CloseFeedModal">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field"><label>Name</label><input @bind="_feedLabel" placeholder="Source name" /></div>
+            <div class="field"><label>URL</label><input @bind="_feedUrl" placeholder="https://example.com/rss.xml" /></div>
+            <div class="field">
+                <label>Category</label>
+                <select @bind="_feedCategory">
+                    <option value="general">general</option>
+                    <option value="technology">technology</option>
+                    <option value="regional">regional</option>
+                    <option value="business">business</option>
+                    <option value="culture">culture</option>
+                </select>
+            </div>
+            <div class="field"><label>Region</label><input @bind="_feedRegion" placeholder="us or global" /></div>
+            <div class="field"><label>Max items per pull</label><input type="number" min="1" max="100" @bind="_feedMaxItems" /></div>
+        </div>
+        <div class="admin-row feed-modal-switch">
+            <div>
+                <strong>Active feed</strong>
+                <div class="dim">Included when the next news package pulls fresh stories.</div>
+            </div>
+            <div class="switch big @(_feedEnabled ? "on" : null)"
+                 role="switch"
+                 aria-checked="@_feedEnabled"
+                 @onclick="() => _feedEnabled = !_feedEnabled"></div>
+        </div>
+        @if (_feedError is not null)
+        {
+            <div class="dim">@_feedError</div>
+        }
+    </ChildContent>
+    <Footer>
+        @if (_editFeedId is not null)
+        {
+            <button class="btn small danger feed-delete-action" @onclick="AskDeleteCurrentFeed">Delete</button>
+        }
+        <button class="btn small" @onclick="CloseFeedModal">Cancel</button>
+        <button class="btn primary" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete news feed"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteFeedConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } feed)
+    {
+        <text>Delete <strong>@feed.Label</strong> and its collected items?</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private NewsProductionDto? _news;
+    private List<ModeratorDto> _moderators = [];
+    private NewsFeedDto? _deleteTarget;
+    private Guid? _editFeedId;
+    private string? _error;
+    private string? _feedError;
+    private bool _settingsSaved;
+    private bool _feedModalOpen;
+
+    private bool _newsEnabled = true;
+    private string _extract = "true";
+    private int _cadence = 60;
+    private int _maxDuration = 300;
+    private string _presenterId = "";
+    private double _fadeOut = 1.0;
+    private int _introGrace = 10;
+
+    private string _feedLabel = "";
+    private string _feedUrl = "";
+    private string _feedCategory = "technology";
+    private string _feedRegion = "us";
+    private int _feedMaxItems = 20;
+    private bool _feedEnabled = true;
+
+    private IEnumerable<ModeratorDto> ActiveHosts
+        => _moderators.Where(host => host.IsActive).OrderBy(host => host.Name);
+
+    protected override async Task OnInitializedAsync()
+    {
+        _moderators = await Api.GetModeratorsAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _news = await Api.GetNewsProductionAsync();
+        if (_news is null)
+        {
+            return;
+        }
+
+        _newsEnabled = _news.NewsEnabled;
+        _extract = _news.NewsExtractionEnabled.ToString().ToLowerInvariant();
+        _cadence = _news.NewsPackageCadenceMinutes;
+        _maxDuration = _news.NewsPackageMaxDurationSeconds;
+        _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";
+        _fadeOut = _news.TopOfHourFadeOutSeconds;
+        _introGrace = _news.TopOfHourIntroGraceSeconds;
+    }
+
+    private async Task SaveSettingsAsync()
+    {
+        _error = await Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
+            _newsEnabled,
+            _extract == "true",
+            _cadence,
+            _maxDuration,
+            int.TryParse(_presenterId, out var presenterId) ? presenterId : null,
+            _fadeOut,
+            _introGrace));
+        _settingsSaved = _error is null;
+        await LoadAsync();
+    }
+
+    private async Task SaveFeedAsync()
+    {
+        var request = new SaveNewsFeedDto(
+            _feedLabel,
+            _feedUrl,
+            Language: "en",
+            Region: _feedRegion,
+            Category: _feedCategory,
+            IsEnabled: _feedEnabled,
+            MaxItemsPerPoll: _feedMaxItems);
+        var (feed, error) = _editFeedId is { } id
+            ? await Api.UpdateNewsFeedAsync(id, request)
+            : await Api.CreateNewsFeedAsync(request);
+        _feedError = error;
+        if (feed is not null)
+        {
+            CloseFeedModal();
+            await LoadAsync();
+        }
+    }
+
+    private void OpenAddFeed()
+    {
+        ClearFeedForm();
+        _feedModalOpen = true;
+    }
+
+    private void OpenEditFeed(NewsFeedDto feed)
+    {
+        _editFeedId = feed.Id;
+        _feedLabel = feed.Label;
+        _feedUrl = feed.Url;
+        _feedCategory = feed.Category;
+        _feedRegion = feed.Region;
+        _feedMaxItems = feed.MaxItemsPerPoll;
+        _feedEnabled = feed.IsEnabled;
+        _feedError = null;
+        _feedModalOpen = true;
+    }
+
+    private void CloseFeedModal()
+    {
+        _feedModalOpen = false;
+        ClearFeedForm();
+    }
+
+    private void ClearFeedForm()
+    {
+        _editFeedId = null;
+        _feedLabel = "";
+        _feedUrl = "";
+        _feedCategory = "technology";
+        _feedRegion = "us";
+        _feedMaxItems = 20;
+        _feedEnabled = true;
+        _feedError = null;
+    }
+
+    private void AskDeleteCurrentFeed()
+    {
+        if (_editFeedId is { } id)
+        {
+            _deleteTarget = _news?.Feeds.FirstOrDefault(feed => feed.Id == id);
+        }
+    }
+
+    private async Task ToggleFeedAsync(Guid id)
+    {
+        await Api.ToggleNewsFeedAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteFeedConfirmedAsync()
+    {
+        if (_deleteTarget is not { } feed)
+        {
+            return;
+        }
+
+        _feedError = await Api.DeleteNewsFeedAsync(feed.Id);
+        _deleteTarget = null;
+        if (_feedError is null)
+        {
+            CloseFeedModal();
+        }
+
+        await LoadAsync();
+    }
+
+    private static string? PackageTag(string status)
+        => status switch
+        {
+            "Ready" or "Queued" => "amber",
+            "Played" => "green",
+            "Failed" => "red",
+            _ => null,
+        };
+
+    private static DateTime? AsUtc(DateTime? value)
+        => value is null
+            ? null
+            : value.Value.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
+                : value;
+
+    private static string CategoryLabel(string category)
+        => category switch
+        {
+            "technology" => "tech",
+            "regional" => "regional",
+            "business" => "business",
+            "culture" => "culture",
+            _ => "general",
+        };
+
+    private static string CategoryTagClass(string category)
+        => category switch
+        {
+            "technology" => "category-tech",
+            "regional" => "category-regional",
+            "business" => "category-business",
+            "culture" => "category-culture",
+            _ => "category-general",
+        };
+
+    private static string Short(string value, int max)
+        => string.IsNullOrWhiteSpace(value)
+            ? "-"
+            : value.Length <= max ? value : $"{value[..Math.Max(0, max - 3)]}...";
+}

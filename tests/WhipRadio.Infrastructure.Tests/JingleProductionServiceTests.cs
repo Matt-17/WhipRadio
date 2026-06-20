@@ -35,7 +35,7 @@ public class JingleProductionServiceTests
                 StationName = "Night Lab FM",
                 StationSlogan = "Made after dark.",
                 StationMission = "Keep original AI radio moving.",
-                DefaultLanguage = "de",
+                DefaultLanguage = "en",
             });
             await db.SaveChangesAsync();
         }
@@ -58,7 +58,7 @@ public class JingleProductionServiceTests
         Assert.Equal("Night Lab FM\nMade after dark.", generator.LastRequest?.Lyrics);
         Assert.Equal(MusicBackends.AceStep, generator.LastRequest?.Provider);
         Assert.False(generator.LastRequest?.AllowProviderFallback ?? true);
-        Assert.Equal("de", generator.LastRequest?.Language);
+        Assert.Equal("en", generator.LastRequest?.Language);
         Assert.InRange(generator.LastRequest?.DurationSeconds ?? 0, 5, 20);
 
         await using var verify = fixture.CreateDbContext();

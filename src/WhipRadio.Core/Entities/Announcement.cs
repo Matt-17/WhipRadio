@@ -29,6 +29,9 @@ public enum AnnouncementKind
 
     /// <summary>Urgent direct text that must jump the regular talk/music planning flow.</summary>
     EmergencyMessage,
+
+    /// <summary>Original rewritten news copy sourced from configured news feeds.</summary>
+    News,
 }
 
 /// <summary>A produced spoken segment (two-stage LLM pipeline + TTS).</summary>

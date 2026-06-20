@@ -5,6 +5,7 @@ using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
+using WhipRadio.Infrastructure.News;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Prompting;
 using WhipRadio.Infrastructure.Studios;
@@ -86,6 +87,14 @@ public static class HttpClientsServiceCollectionExtensions
         });
         services.AddScoped<IAnnouncementDataSource>(sp => sp.GetRequiredService<OpenMeteoWeatherSource>());
         services.AddScoped<IWeatherReportSource>(sp => sp.GetRequiredService<OpenMeteoWeatherSource>());
+
+        services.AddHttpClient(RssNewsFeedReader.ClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("WhipRadio/1.0 (+https://localhost)");
+        }).RemoveAllResilienceHandlers();
+        services.AddScoped<INewsFeedReader, RssNewsFeedReader>();
+        services.AddScoped<INewsArticleExtractor, HtmlArticleExtractor>();
 
         // Mixer audio analysis sidecar (CPU-only; started by start-studios.ps1).
         services.AddHttpClient<IAudioAnalysisClient, HttpAudioAnalysisClient>(client =>

@@ -9,8 +9,8 @@ namespace WhipRadio.Orchestrator.Services;
 /// <summary>
 /// The conductor: resolves the current show context (format → host → genre),
 /// picks the next track and a fitting talk segment, and feeds the playout queue
-/// strictly sequentially. Talks vary: intros, back-announces ("das war …"),
-/// weather, personal notes — and a proper handover when the host changes.
+/// strictly sequentially. Talks vary: intros, back-announces, weather,
+/// personal notes, and a proper handover when the host changes.
 /// </summary>
 public class ShowRunnerService(
     IServiceScopeFactory scopeFactory,
@@ -437,10 +437,7 @@ public class ShowRunnerService(
         string stationName,
         CancellationToken ct)
     {
-        var isGerman = mainHost.Language.StartsWith("de", StringComparison.OrdinalIgnoreCase);
-        var text = isGerman
-            ? $"Hier ist {weatherHost.Name} mit dem Wetter."
-            : $"Here is {weatherHost.Name} with the weather.";
+        var text = $"Here is {weatherHost.Name} with the weather.";
 
         return await factory.ProduceDirectAsync(
             AnnouncementKind.StationId,

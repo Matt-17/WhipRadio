@@ -39,15 +39,13 @@ ATTN_IMPL = os.environ.get("QWEN_TTS_ATTN", "sdpa")
 # ITtsEngine speaks ISO codes; Qwen wants language names.
 LANGUAGE_NAMES = {
     "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
-    "de": "German", "fr": "French", "ru": "Russian", "pt": "Portuguese",
+    "fr": "French", "ru": "Russian", "pt": "Portuguese",
     "es": "Spanish", "it": "Italian",
 }
 
 DESIGN_SAMPLE_TEXTS = {
     "en": "Welcome back to the show — you are listening to WhipRadio, "
           "where every song is made just for you. Stay tuned!",
-    "de": "Willkommen zurück in der Sendung — ihr hört WhipRadio, "
-          "wo jeder Song nur für euch gemacht wird. Bleibt dran!",
 }
 
 

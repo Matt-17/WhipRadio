@@ -71,6 +71,7 @@ builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
 builder.Services.AddSingleton<MixerDiagnostics>();
 builder.Services.AddSingleton<MixerOverviewService>();
 builder.Services.AddSingleton<MixerUpdatePublisher>();
+builder.Services.AddSingleton<TimedPlayoutInterruptService>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
@@ -86,6 +87,9 @@ builder.Services.AddHostedService<PlayoutService>();
 builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
+builder.Services.AddSingleton<NewsFeedPollingService>();
+builder.Services.AddHostedService<NewsPackageProductionService>();
+builder.Services.AddHostedService<TopOfHourPackageDispatcher>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();
 builder.Services.AddHostedService<NightlyModeratorMemoryDistillationService>();

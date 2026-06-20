@@ -24,6 +24,7 @@ public sealed class AudioMixerEngine(
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
     MixerUpdatePublisher mixerUpdates,
+    TimedPlayoutInterruptService timedInterrupts,
     FfmpegProcessRegistry ffmpegRegistry,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
@@ -96,6 +97,14 @@ public sealed class AudioMixerEngine(
                     }
 
                     PublishLive(masterPos, actives);
+                }
+
+                if (!stopScheduling && timedInterrupts.TryConsume(DateTime.UtcNow) is { } interrupt)
+                {
+                    settings = await LoadSettingsAsync(ct);
+                    await ApplyTimedInterruptAsync(interrupt, masterPos, actives, settings, ct);
+                    PublishLive(masterPos, actives);
+                    transitionPlanned = true;
                 }
 
                 if (actives.Count == 0)
@@ -463,6 +472,44 @@ public sealed class AudioMixerEngine(
         });
 
         logger.LogInformation("Mixer transition: {Trace}", plan.ReasonTrace);
+    }
+
+    private async Task ApplyTimedInterruptAsync(
+        TimedPlayoutInterrupt interrupt,
+        long masterPos,
+        List<ActiveSource> actives,
+        MixerSettings settings,
+        CancellationToken ct)
+    {
+        var fadeSamples = Format.SecondsToSamples(interrupt.FadeOutSeconds);
+        var startAt = masterPos;
+        if (actives.Count > 0)
+        {
+            var fadeEnd = masterPos + Math.Max(1, fadeSamples);
+            foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+            {
+                var currentGain = active.Slot.Envelope.GainAt(masterPos);
+                active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
+                active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
+                active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
+                active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+            }
+
+            startAt = fadeEnd;
+        }
+
+        var info = await BuildItemInfoAsync(interrupt.Item, ct);
+        AddActiveSource(actives, CreateSource(
+            interrupt.Item,
+            info,
+            startAt,
+            settings,
+            EnvelopeKind.Full,
+            reportAt: startAt));
+        logger.LogInformation(
+            "Mixer timed package: faded current audio over {Fade:F1}s and started {Title}",
+            interrupt.FadeOutSeconds,
+            interrupt.Item.Title);
     }
 
     // --- helpers --------------------------------------------------------------------

@@ -30,7 +30,7 @@ Never use these overused title words:
 Constraints:
 - Target duration must be between {MinDurationSeconds} and {MaxDurationSeconds} seconds.
 - Default station language is {DefaultLanguage}; the artist's canonical song language is {ArtistLanguage}. Use the artist language unless the previous catalog clearly established another supported song language.
-- Never infer German from Nordic, Scandinavian, European, Svalbard, member names, mood, genre, or place references alone. If unsure, use {DefaultLanguage}.
+- Never infer a non-default language from Nordic, Scandinavian, European, Svalbard, member names, mood, genre, or place references alone. If unsure, use {DefaultLanguage}.
 - When vocals are used, the vocal character must fit the singer/member roles and voice prompts above, including sex/gender, age impression, accent, and timbre.
 - {VocalCapability}
 - The style must be specific enough for a music model: instrumentation, tempo feel, arrangement arc, production texture, mood, and vocal character when relevant.

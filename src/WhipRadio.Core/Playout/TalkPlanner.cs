@@ -23,6 +23,7 @@ public sealed record HostTalkProfile(
         AnnouncementKind.RequestDedication,
         AnnouncementKind.StationId,
         AnnouncementKind.Weather,
+        AnnouncementKind.News,
         AnnouncementKind.HostChange,
     ];
 

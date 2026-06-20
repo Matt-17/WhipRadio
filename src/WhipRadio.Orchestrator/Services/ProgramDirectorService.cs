@@ -435,7 +435,7 @@ public partial class ProgramDirectorService(
             Language = language,
             Style = style,
             PersonaPrompt = persona,
-            TtsEngine = language.StartsWith("de") ? TtsEngines.Piper : TtsEngines.Kokoro,
+            TtsEngine = TtsEngines.Kokoro,
             SpeechRate = 1.0,
             Talkativeness = talkativeness,
             BaselineEnergy = baselineTraits.Energy,

@@ -1,5 +1,11 @@
 using System.Net;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Abstractions;
+using WhipRadio.Infrastructure;
+using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Weather;
 
 namespace WhipRadio.Infrastructure.Tests;
@@ -29,6 +35,21 @@ public class OpenMeteoWeatherSourceTests
         => new(handler.CreateClient("https://api.open-meteo.com"), Options.Create(new WeatherOptions()));
 
     [TestMethod]
+    public void AddRadioHttpClients_ResolvesWeatherReportSourceWithSettingsCacheAvailable()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<IDbContextFactory<RadioDbContext>, ThrowingDbContextFactory>();
+        services.AddRadioHttpClients(new ConfigurationBuilder().Build());
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        using var scope = provider.CreateScope();
+
+        var source = scope.ServiceProvider.GetRequiredService<IWeatherReportSource>();
+
+        Assert.True(source is OpenMeteoWeatherSource);
+    }
+
+    [TestMethod]
     public async Task GetSummaryAsync_RequestsConfiguredCoordinatesAndFields()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(
@@ -38,8 +59,8 @@ public class OpenMeteoWeatherSourceTests
         await source.GetSummaryAsync("en", CancellationToken.None);
 
         var query = handler.LastRequest!.RequestUri!.Query;
-        Assert.Contains("latitude=51.05", query);
-        Assert.Contains("longitude=13.74", query);
+        Assert.Contains("latitude=40.7128", query);
+        Assert.Contains("longitude=-74.006", query);
         Assert.Contains("current=temperature_2m,weather_code,wind_speed_10m", query);
         Assert.Contains("hourly=temperature_2m,weather_code", query);
         Assert.Contains("daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max", query);
@@ -61,17 +82,17 @@ public class OpenMeteoWeatherSourceTests
     }
 
     [TestMethod]
-    public async Task GetSummaryAsync_BuildsGermanSummary()
+    public async Task GetSummaryAsync_UsesEnglishSummaryForUnsupportedLanguageCode()
     {
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK, new StringContent(SampleJson, System.Text.Encoding.UTF8, "application/json"));
         var source = CreateSource(handler);
 
-        var summary = await source.GetSummaryAsync("de", CancellationToken.None);
+        var summary = await source.GetSummaryAsync("es", CancellationToken.None);
 
-        Assert.Contains("Aktuell 14.3 C", summary);
-        Assert.Contains("leichter Regen", summary);
-        Assert.Contains("60% Regenwahrscheinlichkeit", summary);
+        Assert.Contains("Currently 14.3 C", summary);
+        Assert.Contains("light rain", summary);
+        Assert.Contains("60% rain chance", summary);
     }
 
     [TestMethod]
@@ -88,12 +109,18 @@ public class OpenMeteoWeatherSourceTests
     }
 
     [TestMethod]
-    [DataRow(0, false, "clear sky")]
-    [DataRow(3, true, "bedeckt")]
-    [DataRow(95, false, "thunderstorm")]
-    [DataRow(424242, false, "mixed weather")]
-    public void WmoWeatherCodes_MapsKnownAndUnknownCodes(int code, bool german, string expected)
+    [DataRow(0, "clear sky")]
+    [DataRow(3, "overcast")]
+    [DataRow(95, "thunderstorm")]
+    [DataRow(424242, "mixed weather")]
+    public void WmoWeatherCodes_MapsKnownAndUnknownCodes(int code, string expected)
     {
-        Assert.Equal(expected, WmoWeatherCodes.Describe(code, german));
+        Assert.Equal(expected, WmoWeatherCodes.Describe(code));
+    }
+
+    private sealed class ThrowingDbContextFactory : IDbContextFactory<RadioDbContext>
+    {
+        public RadioDbContext CreateDbContext()
+            => throw new InvalidOperationException("The weather source should not query settings during construction.");
     }
 }

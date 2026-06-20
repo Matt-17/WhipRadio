@@ -20,7 +20,7 @@ public class Track
     /// <summary>Free-form prompt descriptor used at generation time.</summary>
     public string Style { get; set; } = string.Empty;
 
-    /// <summary>Language the artist chose for this song, e.g. "en" or "de".</summary>
+    /// <summary>Language the artist chose for this song, e.g. "en" or "es".</summary>
     public string Language { get; set; } = "en";
 
     /// <summary>musicgen ⇒ false, ace-step ⇒ true.</summary>

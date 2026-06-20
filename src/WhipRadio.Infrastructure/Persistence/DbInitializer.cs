@@ -15,6 +15,9 @@ public static class DbInitializer
     private const string PreJingleAllowedTalkPartKinds =
         "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
 
+    private const string PreNewsAllowedTalkPartKinds =
+        "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
+
     private const string AccidentalPhase3bSlogan = "Every song made for this moment.";
     private const string PreviousLlamaSlogan = "Llamas whipped that radio's mix.";
     private const int PreviousDefaultMinTrackDurationSeconds = 180;
@@ -54,6 +57,8 @@ public static class DbInitializer
         {
             await PatchSettingsAsync(db, ct);
         }
+
+        await EnsureNewsSeedsAsync(db, ct);
 
         // Default studios matching start-studios.ps1 — the station produces out
         // of the box; users manage the list on the Studios page.
@@ -162,6 +167,38 @@ public static class DbInitializer
             patched = true;
         }
 
+        if (settings.NewsPackageCadenceMinutes <= 0 || settings.NewsPackageMaxDurationSeconds <= 0)
+        {
+            settings.NewsEnabled = defaults.NewsEnabled;
+            settings.NewsExtractionEnabled = defaults.NewsExtractionEnabled;
+            settings.NewsPackageCadenceMinutes = defaults.NewsPackageCadenceMinutes;
+            settings.NewsPackageMaxDurationSeconds = defaults.NewsPackageMaxDurationSeconds;
+            settings.TopOfHourFadeOutSeconds = defaults.TopOfHourFadeOutSeconds;
+            settings.TopOfHourIntroGraceSeconds = defaults.TopOfHourIntroGraceSeconds;
+            patched = true;
+        }
+
+        if (settings.TopOfHourFadeOutSeconds <= 0)
+        {
+            settings.TopOfHourFadeOutSeconds = defaults.TopOfHourFadeOutSeconds;
+            patched = true;
+        }
+
+        if (settings.TopOfHourIntroGraceSeconds <= 0)
+        {
+            settings.TopOfHourIntroGraceSeconds = defaults.TopOfHourIntroGraceSeconds;
+            patched = true;
+        }
+
+        if (string.IsNullOrWhiteSpace(settings.WeatherLocationName)
+            || (settings.WeatherLatitude == 0 && settings.WeatherLongitude == 0))
+        {
+            settings.WeatherLocationName = defaults.WeatherLocationName;
+            settings.WeatherLatitude = defaults.WeatherLatitude;
+            settings.WeatherLongitude = defaults.WeatherLongitude;
+            patched = true;
+        }
+
         if (settings.MaxLibrarySize > 0)
         {
             if (patched)
@@ -192,6 +229,15 @@ public static class DbInitializer
         settings.StationMission = defaults.StationMission;
         settings.GreetingsEnabled = defaults.GreetingsEnabled;
         settings.MaxPendingGreetings = defaults.MaxPendingGreetings;
+        settings.NewsEnabled = defaults.NewsEnabled;
+        settings.NewsExtractionEnabled = defaults.NewsExtractionEnabled;
+        settings.NewsPackageCadenceMinutes = defaults.NewsPackageCadenceMinutes;
+        settings.NewsPackageMaxDurationSeconds = defaults.NewsPackageMaxDurationSeconds;
+        settings.TopOfHourFadeOutSeconds = defaults.TopOfHourFadeOutSeconds;
+        settings.TopOfHourIntroGraceSeconds = defaults.TopOfHourIntroGraceSeconds;
+        settings.WeatherLocationName = defaults.WeatherLocationName;
+        settings.WeatherLatitude = defaults.WeatherLatitude;
+        settings.WeatherLongitude = defaults.WeatherLongitude;
         settings.DefaultMusicProvider = defaults.DefaultMusicProvider;
         await db.SaveChangesAsync(ct);
     }
@@ -272,7 +318,60 @@ public static class DbInitializer
             || string.Equals(
                 moderator.AllowedTalkPartKinds,
                 PreJingleAllowedTalkPartKinds,
+                StringComparison.OrdinalIgnoreCase)
+            || string.Equals(
+                moderator.AllowedTalkPartKinds,
+                PreNewsAllowedTalkPartKinds,
                 StringComparison.OrdinalIgnoreCase);
+
+    private static async Task EnsureNewsSeedsAsync(RadioDbContext db, CancellationToken ct)
+    {
+        var newsPresenter = await db.Moderators
+            .FirstOrDefaultAsync(m => m.Name == "Maya Current", ct);
+        if (newsPresenter is null)
+        {
+            newsPresenter = SeedNewsPresenter();
+            db.Moderators.Add(newsPresenter);
+            await db.SaveChangesAsync(ct);
+        }
+
+        var settings = await db.StationSettings
+            .FirstOrDefaultAsync(s => s.Id == StationSettings.SingletonId, ct);
+        if (settings is null)
+        {
+            return;
+        }
+
+        if (!settings.NewsSeedFeedsCreated)
+        {
+            var seeds = SeedNewsFeeds();
+            var existingUrlList = await db.NewsFeeds
+                .Select(feed => feed.Url)
+                .ToListAsync(ct);
+            var existingUrls = existingUrlList.ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var now = DateTime.UtcNow;
+
+            foreach (var seed in seeds)
+            {
+                if (existingUrls.Contains(seed.Url))
+                {
+                    continue;
+                }
+
+                seed.CreatedAtUtc = now;
+                db.NewsFeeds.Add(seed);
+            }
+
+            settings.NewsSeedFeedsCreated = true;
+        }
+
+        if (settings.NewsPresenterModeratorId is null)
+        {
+            settings.NewsPresenterModeratorId = newsPresenter.Id;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
 
     private static Moderator[] SeedModerators() =>
     [
@@ -345,6 +444,93 @@ public static class DbInitializer
             PrefersVocals = null,
             PreferredGenres = "electronic,indie rock",
             IsActive = true,
+        },
+    ];
+
+    private static Moderator SeedNewsPresenter() => new()
+    {
+        Name = "Maya Current",
+        Language = "en",
+        Gender = ModeratorGenders.Female,
+        TtsEngine = TtsEngines.Kokoro,
+        VoiceId = "af_bella",
+        SpeechRate = 1.02,
+        Style = "clear-editorial",
+        Talkativeness = 0.45,
+        BaselineEnergy = Energy.Medium,
+        BaselineFormality = Formality.Formal,
+        BaselineHumorLevel = HumorLevel.Low,
+        BaselineTalkativeness = Talkativeness.Medium,
+        BaselineWarmth = Warmth.Medium,
+        PersonaPrompt =
+            "You are Maya Current, WhipRadio's news presenter. You sound calm, precise, " +
+            "international, and editorially careful. You separate confirmed facts from context " +
+            "and never sensationalize.",
+        PreferredGenres = "news,technology",
+        IsActive = true,
+    };
+
+    private static NewsFeed[] SeedNewsFeeds() =>
+    [
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "Ars Technica",
+            Url = "https://feeds.arstechnica.com/arstechnica/index",
+            Language = "en",
+            Region = "us",
+            Category = "technology",
+            IsSeeded = true,
+        },
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "The Verge",
+            Url = "https://www.theverge.com/rss/index.xml",
+            Language = "en",
+            Region = "us",
+            Category = "technology",
+            IsSeeded = true,
+        },
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "TechCrunch",
+            Url = "https://techcrunch.com/feed/",
+            Language = "en",
+            Region = "us",
+            Category = "technology",
+            IsSeeded = true,
+        },
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "NPR Technology",
+            Url = "https://feeds.npr.org/1019/rss.xml",
+            Language = "en",
+            Region = "us",
+            Category = "technology",
+            IsSeeded = true,
+        },
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "NPR News",
+            Url = "https://feeds.npr.org/1001/rss.xml",
+            Language = "en",
+            Region = "us",
+            Category = "general",
+            IsSeeded = true,
+        },
+        new()
+        {
+            Id = Guid.NewGuid(),
+            Label = "BBC World",
+            Url = "https://feeds.bbci.co.uk/news/world/rss.xml",
+            Language = "en",
+            Region = "global",
+            Category = "general",
+            IsSeeded = true,
         },
     ];
 }

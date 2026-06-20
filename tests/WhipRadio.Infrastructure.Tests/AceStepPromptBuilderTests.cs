@@ -75,24 +75,24 @@ public class AceStepPromptBuilderTests
     [TestMethod]
     public void SongPlanContextIsIncluded()
     {
-        var prompt = builder.Build(new MusicRequest("krautrock with motorik drums", "rock", true, "words", 180)
+        var prompt = builder.Build(new MusicRequest("motorik art rock with bright synths", "rock", true, "words", 180)
         {
             LyricsMode = LyricsMode.Provided,
-            ArtistName = "Die Kurvenlichter",
-            ArtistBackstory = "A German band formed after night shifts in Essen.",
+            ArtistName = "Las Curvas",
+            ArtistBackstory = "A Spanish band formed after night shifts in Madrid.",
             ArtistStyleDescription = "Motorik drums and bright analog synths.",
-            SongTitle = "Morgens am Gleis",
+            SongTitle = "Manana al Anden",
             SongStory = "The band wrote it after a delayed train turned into a sunrise rehearsal.",
-            ArtistSongHistory = "- Alte Funken (vocal, de, target 180s, likes 4, dislikes 1).",
-            Language = "de",
+            ArtistSongHistory = "- Luces Viejas (vocal, es, target 180s, likes 4, dislikes 1).",
+            Language = "es",
         });
 
-        Assert.Contains("Song title: Morgens am Gleis.", prompt);
+        Assert.Contains("Song title: Manana al Anden.", prompt);
         Assert.Contains("Song origin story:", prompt);
         Assert.Contains("delayed train", prompt);
         Assert.Contains("Artist catalog context:", prompt);
-        Assert.Contains("Alte Funken", prompt);
-        Assert.Contains("Language: de.", prompt);
+        Assert.Contains("Luces Viejas", prompt);
+        Assert.Contains("Language: es.", prompt);
     }
 
     [TestMethod]

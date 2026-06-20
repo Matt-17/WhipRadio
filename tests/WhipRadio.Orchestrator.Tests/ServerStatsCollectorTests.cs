@@ -35,8 +35,8 @@ public class ServerStatsCollectorTests
         const string TypePerfOutput = """
             "(PDH-CSV 4.0)","\\MACHINE\GPU Adapter Memory(luid_0x00000000_0x0001832C_phys_0)\Dedicated Usage","\\MACHINE\GPU Adapter Memory(luid_0x00000000_0x0001A390_phys_0)\Dedicated Usage"
             "06/19/2026 02:14:35.762","8589934592.000000","0.000000"
-            Vorgang wird beendet...
-            Der Befehl wurde erfolgreich ausgeführt.
+            Exiting, please wait...
+            The command completed successfully.
             """;
 
         var usedMb = ServerStatsCollector.ParseWindowsDedicatedGpuMemoryUsedMb(TypePerfOutput, 12282);

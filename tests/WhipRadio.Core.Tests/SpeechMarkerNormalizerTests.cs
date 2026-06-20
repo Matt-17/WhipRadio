@@ -70,7 +70,7 @@ public class SpeechMarkerNormalizerTests
     [TestMethod]
     public void Normalize_FillerWordsStayLiteral()
     {
-        var input = "Äh, das war, hm, wirklich gut [pause:300ms] oder?";
+        var input = "Um, that was, hm, really good [pause:300ms] right?";
         Assert.Equal(input, SpeechMarkerNormalizer.Normalize(input));
     }
 }

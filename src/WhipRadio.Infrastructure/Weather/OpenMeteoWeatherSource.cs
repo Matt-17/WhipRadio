@@ -1,9 +1,11 @@
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Weather;
+using WhipRadio.Infrastructure.Persistence;
 
 namespace WhipRadio.Infrastructure.Weather;
 
@@ -11,16 +13,35 @@ public class WeatherOptions
 {
     public const string SectionName = "Weather";
 
-    /// <summary>Default: Dresden.</summary>
-    public double Latitude { get; set; } = 51.05;
+    /// <summary>Fallback when station settings are unavailable. Default: New York, US.</summary>
+    public double Latitude { get; set; } = 40.7128;
 
-    public double Longitude { get; set; } = 13.74;
+    public double Longitude { get; set; } = -74.0060;
 }
 
 /// <summary>Key-free weather facts from Open-Meteo for the ScriptWriter.</summary>
-public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> options)
-    : IAnnouncementDataSource, IWeatherReportSource
+public class OpenMeteoWeatherSource : IAnnouncementDataSource, IWeatherReportSource
 {
+    private readonly HttpClient _http;
+    private readonly IOptions<WeatherOptions> _options;
+    private readonly StationSettingsCache? _settingsCache;
+
+    public OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> options)
+        : this(http, options, null)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public OpenMeteoWeatherSource(
+        HttpClient http,
+        IOptions<WeatherOptions> options,
+        StationSettingsCache? settingsCache)
+    {
+        _http = http;
+        _options = options;
+        _settingsCache = settingsCache;
+    }
+
     public string Kind => "weather";
 
     public async Task<string> GetSummaryAsync(string language, CancellationToken ct)
@@ -28,15 +49,18 @@ public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> op
 
     public async Task<WeatherReport> GetReportAsync(string language, CancellationToken ct)
     {
-        var lat = options.Value.Latitude.ToString(CultureInfo.InvariantCulture);
-        var lon = options.Value.Longitude.ToString(CultureInfo.InvariantCulture);
+        var settings = _settingsCache is null ? null : await _settingsCache.GetAsync(ct);
+        var latitude = settings?.WeatherLatitude ?? _options.Value.Latitude;
+        var longitude = settings?.WeatherLongitude ?? _options.Value.Longitude;
+        var lat = latitude.ToString(CultureInfo.InvariantCulture);
+        var lon = longitude.ToString(CultureInfo.InvariantCulture);
         var url = $"/v1/forecast?latitude={lat}&longitude={lon}" +
                   "&current=temperature_2m,weather_code,wind_speed_10m" +
                   "&hourly=temperature_2m,weather_code" +
                   "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
                   "&timezone=auto";
 
-        var forecast = await http.GetFromJsonAsync<ForecastResponse>(url, ct)
+        var forecast = await _http.GetFromJsonAsync<ForecastResponse>(url, ct)
                        ?? throw new InvalidOperationException("Empty response from Open-Meteo.");
 
         return BuildReport(forecast, language);
@@ -48,16 +72,15 @@ public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> op
     internal static WeatherReport BuildReport(ForecastResponse forecast, string language)
     {
         var current = forecast.Current ?? throw new InvalidOperationException("Missing current weather data.");
-        var isGerman = language.StartsWith("de", StringComparison.OrdinalIgnoreCase);
         var observedAt = ParseDateTime(current.Time);
         var currentHour = SelectCurrentHour(forecast.Hourly, observedAt);
         var weatherCode = currentHour?.WeatherCode ?? current.WeatherCode;
         var currentTemperature = currentHour?.Temperature ?? current.Temperature;
-        var days = BuildDays(forecast.Daily, isGerman);
+        var days = BuildDays(forecast.Daily);
         var today = days.FirstOrDefault()
             ?? new WeatherDay(
                 DateOnly.FromDateTime(observedAt ?? DateTime.UtcNow),
-                WmoWeatherCodes.Describe(weatherCode, isGerman),
+                WmoWeatherCodes.Describe(weatherCode),
                 null,
                 null,
                 null);
@@ -68,7 +91,7 @@ public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> op
             new WeatherNow(
                 observedAt,
                 currentTemperature,
-                WmoWeatherCodes.Describe(weatherCode, isGerman),
+                WmoWeatherCodes.Describe(weatherCode),
                 current.WindSpeed),
             today,
             SelectTonightLow(forecast.Hourly, observedAt) ?? days.Skip(1).FirstOrDefault()?.MinTemperatureC ?? today.MinTemperatureC,
@@ -76,7 +99,7 @@ public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> op
             days.Skip(1).Take(3).ToList());
     }
 
-    private static IReadOnlyList<WeatherDay> BuildDays(DailyWeather? daily, bool isGerman)
+    private static IReadOnlyList<WeatherDay> BuildDays(DailyWeather? daily)
     {
         if (daily is null)
         {
@@ -101,7 +124,7 @@ public class OpenMeteoWeatherSource(HttpClient http, IOptions<WeatherOptions> op
             var code = i < daily.WeatherCode.Count ? daily.WeatherCode[i] : 424242;
             days.Add(new WeatherDay(
                 date,
-                WmoWeatherCodes.Describe(code, isGerman),
+                WmoWeatherCodes.Describe(code),
                 i < daily.TemperatureMax.Count ? daily.TemperatureMax[i] : null,
                 i < daily.TemperatureMin.Count ? daily.TemperatureMin[i] : null,
                 i < daily.PrecipitationProbabilityMax.Count ? daily.PrecipitationProbabilityMax[i] : null));

@@ -9,10 +9,9 @@ namespace WhipRadio.Orchestrator.Services;
 
 /// <summary>
 /// The station language is the main language: every host speaks it. Runs at
-/// startup and whenever DefaultLanguage changes — hosts in another language are
-/// switched over, get a voice that supports the new language (German requires
-/// Piper; Kokoro is English-only) and their persona prompt is translated too:
-/// a German persona drags the LLM into German output regardless of instructions.
+/// startup and whenever DefaultLanguage changes. Hosts in another language are
+/// switched over, assigned a compatible voice, and their persona prompt is
+/// translated to the station language too.
 /// </summary>
 public class HostLanguageAligner(
     IDbContextFactory<RadioDbContext> dbFactory,
@@ -38,10 +37,8 @@ public class HostLanguageAligner(
         {
             host.Language = language;
 
-            // ElevenLabs voices are multilingual; local engines are not.
             if (host.TtsEngine != TtsEngines.ElevenLabs)
             {
-                host.TtsEngine = language == "de" ? TtsEngines.Piper : host.TtsEngine;
                 host.VoiceId = await voices.PickVoiceAsync(host, ct);
             }
 
@@ -74,9 +71,8 @@ public class HostLanguageAligner(
                     Purpose: "Translate host persona to station language"),
                 ct);
 
-            var languageName = language == "de" ? "German" : "English";
             var translated = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
-                $"You translate radio host persona descriptions to {languageName}. " +
+                "You translate radio host persona descriptions to English. " +
                 "Keep the character, tone and second-person form. Output ONLY the translated persona.\n\n" +
                 promptContext.RenderSituation(),
                 persona,

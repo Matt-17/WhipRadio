@@ -72,6 +72,7 @@ public class AnnouncementProductionService(
         // minutes of the hour so it's ready to air right after the top.
         var localNow = timeProvider.GetLocalNow();
         if (settings.WeatherEnabled
+            && !settings.NewsEnabled
             && WeatherScheduler.ShouldPrepare(localNow, settings.WeatherCadenceMinutes)
             && !await HasFreshUnplayedWeatherAsync(settings.WeatherCadenceMinutes, ct))
         {

@@ -213,6 +213,7 @@ public sealed class SegmentRenderer(
             AnnouncementKind.SongIntro => TalkPartKind.NextSongIntro,
             AnnouncementKind.SongOutro => TalkPartKind.PreviousSongComment,
             AnnouncementKind.Weather => TalkPartKind.Weather,
+            AnnouncementKind.News => TalkPartKind.News,
             AnnouncementKind.ListenerGreeting => TalkPartKind.ListenerGreeting,
             AnnouncementKind.RequestDedication => TalkPartKind.RequestDedication,
             AnnouncementKind.Banter => TalkPartKind.Banter,

@@ -329,6 +329,65 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         return await response.Content.ReadFromJsonAsync<StationSettingsDto>(ct);
     }
 
+    public async Task<NewsProductionDto?> GetNewsProductionAsync(CancellationToken ct = default)
+        => await SafeGetAsync<NewsProductionDto>("/api/production/news", ct);
+
+    public async Task<string?> SaveNewsProductionSettingsAsync(
+        SaveNewsProductionSettingsDto settings,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync("/api/production/news/settings", settings, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<(NewsFeedDto? Feed, string? Error)> CreateNewsFeedAsync(
+        SaveNewsFeedDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/news/feeds", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<NewsFeedDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<(NewsFeedDto? Feed, string? Error)> UpdateNewsFeedAsync(
+        Guid id,
+        SaveNewsFeedDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync($"/api/news/feeds/{id}", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<NewsFeedDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<NewsFeedDto?> ToggleNewsFeedAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/news/feeds/{id}/toggle", null, ct);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<NewsFeedDto>(ct)
+            : null;
+    }
+
+    public async Task<string?> DeleteNewsFeedAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/news/feeds/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<WeatherProductionDto?> GetWeatherProductionAsync(CancellationToken ct = default)
+        => await SafeGetAsync<WeatherProductionDto>("/api/production/weather", ct);
+
+    public async Task<(WeatherProductionDto? Weather, string? Error)> SaveWeatherProductionAsync(
+        SaveWeatherProductionSettingsDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync("/api/production/weather", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<WeatherProductionDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
     public async Task<VoteResultDto?> VoteAsync(Guid trackId, int direction, CancellationToken ct = default)
     {
         using var response = await http.PostAsJsonAsync("/api/votes", new VoteRequestDto(trackId, direction), ct);

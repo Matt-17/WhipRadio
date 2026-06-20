@@ -336,7 +336,7 @@ public class AnnouncementFactory(
         {
             AnnouncementKind.ListenerGreeting or AnnouncementKind.RequestDedication => TalkBreakPriority.High,
             AnnouncementKind.EmergencyMessage => TalkBreakPriority.Emergency,
-            AnnouncementKind.Weather => TalkBreakPriority.Scheduled,
+            AnnouncementKind.Weather or AnnouncementKind.News => TalkBreakPriority.Scheduled,
             AnnouncementKind.StationId => TalkBreakPriority.Low,
             _ => TalkBreakPriority.Normal,
         };
@@ -345,6 +345,7 @@ public class AnnouncementFactory(
         => kind switch
         {
             AnnouncementKind.Weather => now.AddMinutes(30),
+            AnnouncementKind.News => now.AddHours(1),
             AnnouncementKind.SongIntro or AnnouncementKind.SongOutro or AnnouncementKind.HostChange => now.AddHours(2),
             AnnouncementKind.EmergencyMessage => now.AddHours(1),
             AnnouncementKind.ListenerGreeting or AnnouncementKind.RequestDedication => now.AddHours(24),
@@ -352,7 +353,12 @@ public class AnnouncementFactory(
         };
 
     private static string PurposeFor(AnnouncementKind kind)
-        => kind == AnnouncementKind.Weather ? "WeatherReport" : kind.ToString();
+        => kind switch
+        {
+            AnnouncementKind.Weather => "WeatherReport",
+            AnnouncementKind.News => "NewsReport",
+            _ => kind.ToString(),
+        };
 
     private static TalkPartKind PartKindFor(AnnouncementKind kind)
         => kind switch
@@ -360,6 +366,7 @@ public class AnnouncementFactory(
             AnnouncementKind.SongIntro => TalkPartKind.NextSongIntro,
             AnnouncementKind.SongOutro => TalkPartKind.PreviousSongComment,
             AnnouncementKind.Weather => TalkPartKind.Weather,
+            AnnouncementKind.News => TalkPartKind.News,
             AnnouncementKind.ListenerGreeting => TalkPartKind.ListenerGreeting,
             AnnouncementKind.RequestDedication => TalkPartKind.RequestDedication,
             AnnouncementKind.Banter => TalkPartKind.Banter,

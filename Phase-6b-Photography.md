@@ -66,7 +66,7 @@ This is where the real design work is, and the user flagged it correctly as tric
   host photo uses `Gender, Age, Origin, Style/Persona`; a band photo uses member count,
   each member's `Gender/Age/Role/Interests`, the band's `Genre/SubGenre/Origin/Backstory`.
 - Reuse the Phase 3b `PromptContextBuilder` philosophy: one `PhotoPromptBuilder` assembles
-  a DSLR-style prompt from structured biography, so a "32 y/o German indie host" never
+  a DSLR-style prompt from structured biography, so a "32 y/o indie host from Seattle" never
   comes out as a generic stock face. Style descriptors lean photographic: lens/bokeh,
   lighting (golden hour, studio softbox), film grain, documentary/candid framing.
 

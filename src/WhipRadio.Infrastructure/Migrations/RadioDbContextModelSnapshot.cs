@@ -542,6 +542,171 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.ToTable("ModeratorMemories");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsFeed", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsSeeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Language")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastPolledAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MaxItemsPerPoll")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PollCadenceMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Region")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Url")
+                        .IsUnique();
+
+                    b.HasIndex("IsEnabled", "LastPolledAtUtc");
+
+                    b.ToTable("NewsFeeds");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExtractedSummary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("FeedId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("FirstSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ProducedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PublishedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SelectionReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ContentHash");
+
+                    b.HasIndex("FeedId", "Url")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "PublishedAtUtc", "FirstSeenAtUtc");
+
+                    b.ToTable("NewsItems");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsPackage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("AnnouncementId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("PlayedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ProducedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("QueuedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceSummary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TargetDurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("TargetUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AnnouncementId");
+
+                    b.HasIndex("Kind", "TargetUtc")
+                        .IsUnique();
+
+                    b.HasIndex("Status", "TargetUtc");
+
+                    b.ToTable("NewsPackages");
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.PlayLogEntry", b =>
                 {
                     b.Property<int>("Id")
@@ -683,6 +848,24 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<bool>("MusicProductionEnabled")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("NewsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("NewsExtractionEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("NewsPackageCadenceMinutes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("NewsPackageMaxDurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("NewsPresenterModeratorId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("NewsSeedFeedsCreated")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("OpenAiApiKey")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -727,6 +910,12 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<double>("TopOfHourFadeOutSeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<int>("TopOfHourIntroGraceSeconds")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("WeatherCadenceMinutes")
                         .HasColumnType("INTEGER");
 
@@ -735,6 +924,16 @@ namespace WhipRadio.Infrastructure.Migrations
 
                     b.Property<bool>("WeatherFullHandoverEnabled")
                         .HasColumnType("INTEGER");
+
+                    b.Property<double>("WeatherLatitude")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("WeatherLocationName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double>("WeatherLongitude")
+                        .HasColumnType("REAL");
 
                     b.Property<int?>("WeatherSpecialistModeratorId")
                         .HasColumnType("INTEGER");
@@ -1255,6 +1454,25 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Navigation("Moderator");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsItem", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.NewsFeed", "Feed")
+                        .WithMany("Items")
+                        .HasForeignKey("FeedId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Feed");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsPackage", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.Announcement", null)
+                        .WithMany()
+                        .HasForeignKey("AnnouncementId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.ProgramSlot", b =>
                 {
                     b.HasOne("WhipRadio.Core.Entities.Format", "Format")
@@ -1319,6 +1537,11 @@ namespace WhipRadio.Infrastructure.Migrations
             modelBuilder.Entity("WhipRadio.Core.Entities.Artist", b =>
                 {
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.NewsFeed", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.TalkBit", b =>

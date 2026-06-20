@@ -51,9 +51,9 @@ public class Phase2RegressionTests
         var writer = new ScriptWriter(llm);
 
         await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "de"), CancellationToken.None);
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), CancellationToken.None);
 
-        Assert.Contains("STRICTLY in this language: de", llm.SystemPrompt);
+        Assert.Contains("STRICTLY in this language: en", llm.SystemPrompt);
         Assert.Contains("Never switch", llm.SystemPrompt);
     }
 
@@ -62,18 +62,18 @@ public class Phase2RegressionTests
     {
         var llm = new CapturingLlm();
         var director = new VoiceDirector(llm);
-        var herbert = new Moderator
+        var host = new Moderator
         {
-            Name = "Herbert",
-            Language = "de",
+            Name = "Jordan",
+            Language = "en",
             Gender = ModeratorGenders.Male,
-            PersonaPrompt = "Bedächtiger Moderator.",
+            PersonaPrompt = "Measured late-night host.",
             Style = "slow-thoughtful",
         };
 
-        await director.DirectAsync("Skript.", herbert, CancellationToken.None);
+        await director.DirectAsync("Script.", host, CancellationToken.None);
 
-        Assert.Contains("language: de", llm.SystemPrompt);
+        Assert.Contains("language: en", llm.SystemPrompt);
         Assert.Contains("male", llm.SystemPrompt);
     }
 

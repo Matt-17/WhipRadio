@@ -32,6 +32,7 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         AnnouncementKind.SongIntro => "Writing song intro",
         AnnouncementKind.SongOutro => "Writing song outro",
         AnnouncementKind.Weather => "Writing weather report",
+        AnnouncementKind.News => "Writing news bulletin",
         AnnouncementKind.Joke => "Writing joke",
         AnnouncementKind.Banter => "Writing banter",
         AnnouncementKind.PersonalNote => "Writing personal note",
@@ -55,6 +56,10 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         AnnouncementKind.Weather => PromptTemplates.Render("ScriptWriter.Weather", new Dictionary<string, string>
         {
             ["WeatherFacts"] = request.Facts ?? string.Empty,
+        }),
+        AnnouncementKind.News => PromptTemplates.Render("ScriptWriter.News", new Dictionary<string, string>
+        {
+            ["NewsFacts"] = request.Facts ?? string.Empty,
         }),
         AnnouncementKind.Joke => PromptTemplates.Render("ScriptWriter.Joke", new Dictionary<string, string>()),
         AnnouncementKind.Banter => PromptTemplates.Render("ScriptWriter.Banter", new Dictionary<string, string>

@@ -172,8 +172,8 @@ dotnet test WhipRadio.slnx
   generation take time.
 - Stream stalls in the browser: the PlayoutService reconnects to Icecast within
   a few seconds if the mount drops.
-- German moderators speak English voices: Kokoro has no German voices; use Piper
-  for local German TTS.
+- Local host voices sound wrong: check the host's configured TTS engine and voice
+  on the Hosts page.
 - `acestep` is unavailable: check the `acestep` resource logs and model download
   progress.
 - `ffmpeg` not found on Windows: install it and restart the terminal, or set

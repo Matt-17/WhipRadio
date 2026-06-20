@@ -560,6 +560,86 @@ table.console-table {
 .tag.green { color: var(--green); border-color: #2e6b4c; }
 .tag.red { color: var(--red); border-color: #6b2e2a; }
 
+.tag.category-badge {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.tag.category-general { color: var(--green); border-color: #2e6b4c; }
+.tag.category-tech { color: var(--amber); border-color: var(--amber-dim); }
+.tag.category-regional { color: #80b8ff; border-color: #2d5c8f; }
+.tag.category-business { color: #e7a36f; border-color: #7b4a2b; }
+.tag.category-culture { color: #d9a2ff; border-color: #68417c; }
+
+.news-feed-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.news-feed-head .panel-label { margin-bottom: 0; }
+
+.news-feeds-table {
+    table-layout: fixed;
+}
+
+.news-feeds-table th:nth-child(1) { width: auto; }
+.news-feeds-table th:nth-child(2) { width: 50px; }
+.news-feeds-table th:nth-child(3) { width: 72px; }
+
+.feed-name-cell {
+    min-width: 0;
+}
+
+.feed-title-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.feed-title {
+    flex: 0 0 auto;
+    color: var(--text);
+}
+
+.feed-title-separator {
+    flex: 0 0 auto;
+    color: var(--muted);
+}
+
+.feed-url-inline {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: clip;
+}
+
+.feed-meta-line {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+}
+
+.feed-action-cell {
+    text-align: right;
+}
+
+.feed-modal-switch {
+    padding: 0 0 16px;
+    margin-bottom: 14px;
+}
+
+.feed-delete-action {
+    margin-right: auto;
+}
+
 .btn.icon-only {
     width: 34px;
     height: 30px;

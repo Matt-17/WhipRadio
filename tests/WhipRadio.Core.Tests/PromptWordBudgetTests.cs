@@ -8,9 +8,8 @@ public class PromptWordBudgetTests
     [TestMethod]
     public void WordsPerSecond_UsesLanguageDefaultsAndSpeechRate()
     {
-        Assert.Equal(2.5, PromptWordBudget.WordsPerSecond("de", 1.0), precision: 10);
         Assert.Equal(2.8, PromptWordBudget.WordsPerSecond("en", 1.0), precision: 10);
-        Assert.Equal(3.0, PromptWordBudget.WordsPerSecond("de-DE", 1.2), precision: 10);
+        Assert.Equal(3.36, PromptWordBudget.WordsPerSecond("en-US", 1.2), precision: 10);
     }
 
     [TestMethod]

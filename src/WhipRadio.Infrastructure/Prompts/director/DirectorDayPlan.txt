@@ -11,5 +11,5 @@ Rules:
 - Reuse existing formats and hosts where they fit; only invent something new when needed.
 - Answer with ONLY lines in exactly this format (24h clock), one block per line:
 HH:MM-HH:MM | Format Name | genre/subgenre | HOST=existing host name
-- To invent a new host, use instead: HOST=new:Name|m or f|de or en|short style
+- To invent a new host, use instead: HOST=new:Name|m or f|en|short style
 - Finish with exactly one line: REASON: <one sentence why this day plan works>

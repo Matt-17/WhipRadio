@@ -9,7 +9,7 @@ public class Moderator
 
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>BCP-47 language tag, e.g. "de", "en".</summary>
+    /// <summary>BCP-47 language tag, e.g. "en".</summary>
     public string Language { get; set; } = "en";
 
     /// <summary>"m" | "f" — must match the assigned TTS voice.</summary>
@@ -58,7 +58,7 @@ public class Moderator
 
     /// <summary>CSV of AnnouncementKind values allowed until TalkPart gets its own model.</summary>
     public string AllowedTalkPartKinds { get; set; }
-        = "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,HostChange";
+        = "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,News,HostChange";
 
     public int ExactReplayTolerance { get; set; } = 2;
 

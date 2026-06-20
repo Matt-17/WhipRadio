@@ -84,8 +84,32 @@ public class StationSettings
 
     public int? WeatherSpecialistModeratorId { get; set; }
 
+    public string WeatherLocationName { get; set; } = "New York, US";
+
+    public double WeatherLatitude { get; set; } = 40.7128;
+
+    public double WeatherLongitude { get; set; } = -74.0060;
+
     /// <summary>Reserved for a later full show handover; default flow is a quick cutaway.</summary>
     public bool WeatherFullHandoverEnabled { get; set; }
+
+    // --- News / top-of-hour production -------------------------------------------
+
+    public bool NewsEnabled { get; set; } = true;
+
+    public bool NewsExtractionEnabled { get; set; } = true;
+
+    public int NewsPackageCadenceMinutes { get; set; } = 60;
+
+    public int NewsPackageMaxDurationSeconds { get; set; } = 300;
+
+    public int? NewsPresenterModeratorId { get; set; }
+
+    public bool NewsSeedFeedsCreated { get; set; }
+
+    public double TopOfHourFadeOutSeconds { get; set; } = 1.0;
+
+    public int TopOfHourIntroGraceSeconds { get; set; } = 10;
 
     // --- Mixer (Phase 3a) — hot-reloadable, read once per transition -------------
 
@@ -140,7 +164,7 @@ public static class TextProviders
 /// </summary>
 public static class StationLanguages
 {
-    public static readonly IReadOnlyList<string> All = ["en", "de"];
+    public static readonly IReadOnlyList<string> All = ["en"];
 
     public static string Normalize(string? language)
         => All.FirstOrDefault(l => string.Equals(l, language, StringComparison.OrdinalIgnoreCase)) ?? "en";

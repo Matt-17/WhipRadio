@@ -1,0 +1,8 @@
+Write an original radio news bulletin from these sourced facts: {NewsFacts}
+
+Rules:
+- Rewrite in your own words. Do not copy article phrasing.
+- Attribute claims to source names when useful.
+- Keep it calm, factual, and international.
+- Do not invent quotes, numbers, causes, or outcomes.
+- Move topic by topic; one presenter only.

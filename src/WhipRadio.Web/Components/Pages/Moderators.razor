@@ -192,7 +192,7 @@ else
                 <select @bind="_newEngine">
                     <option value="qwen">qwen (local, designed voice — recommended)</option>
                     <option value="kokoro">kokoro (local, en)</option>
-                    <option value="piper">piper (local, de/en)</option>
+                    <option value="piper">piper (local fallback)</option>
                     <option value="elevenlabs">elevenlabs (cloud, needs key)</option>
                 </select>
             </div>
@@ -345,7 +345,7 @@ else
         _moderators = await Api.GetModeratorsAsync();
         _selectedId = _moderators.FirstOrDefault()?.Id;
         _photoUrlEdit = Selected?.PhotoUrl ?? "";
-        _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "de";
+        _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "en";
     }
 
     private static bool HasPhoto(ModeratorDto m) => !string.IsNullOrWhiteSpace(m.PhotoUrl);

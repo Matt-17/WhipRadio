@@ -47,6 +47,12 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<TransitionLogEntry> TransitionLog => Set<TransitionLogEntry>();
 
+    public DbSet<NewsFeed> NewsFeeds => Set<NewsFeed>();
+
+    public DbSet<NewsItem> NewsItems => Set<NewsItem>();
+
+    public DbSet<NewsPackage> NewsPackages => Set<NewsPackage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Track>(track =>
@@ -204,6 +210,36 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             entry.Property(e => e.OutgoingType).HasConversion<string>();
             entry.Property(e => e.IncomingType).HasConversion<string>();
             entry.HasIndex(e => e.OccurredAt);
+        });
+
+        modelBuilder.Entity<NewsFeed>(feed =>
+        {
+            feed.HasIndex(f => f.Url).IsUnique();
+            feed.HasIndex(f => new { f.IsEnabled, f.LastPolledAtUtc });
+            feed.HasMany(f => f.Items)
+                .WithOne(i => i.Feed)
+                .HasForeignKey(i => i.FeedId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<NewsItem>(item =>
+        {
+            item.Property(i => i.Status).HasConversion<string>();
+            item.HasIndex(i => new { i.FeedId, i.Url }).IsUnique();
+            item.HasIndex(i => i.ContentHash);
+            item.HasIndex(i => new { i.Status, i.PublishedAtUtc, i.FirstSeenAtUtc });
+        });
+
+        modelBuilder.Entity<NewsPackage>(package =>
+        {
+            package.Property(p => p.Kind).HasConversion<string>();
+            package.Property(p => p.Status).HasConversion<string>();
+            package.HasIndex(p => new { p.Kind, p.TargetUtc }).IsUnique();
+            package.HasIndex(p => new { p.Status, p.TargetUtc });
+            package.HasOne<Announcement>()
+                .WithMany()
+                .HasForeignKey(p => p.AnnouncementId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

@@ -34,6 +34,7 @@ public enum TalkPartKind
     TalkBit,
     Jingle,
     EmergencyMessage,
+    News,
 }
 
 public enum TalkPartStatus

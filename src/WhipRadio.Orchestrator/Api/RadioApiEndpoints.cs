@@ -35,6 +35,7 @@ public static class RadioApiEndpoints
         MapVotes(api);
         MapModerators(api);
         MapSettings(api);
+        MapProduction(api);
         MapBranding(api);
         MapFormatsAndSchedule(api);
         MapStats(api);
@@ -671,6 +672,9 @@ public static class RadioApiEndpoints
             settings.WeatherEnabled = request.WeatherEnabled;
             settings.WeatherCadenceMinutes = WeatherScheduler.NormalizeCadence(request.WeatherCadenceMinutes);
             settings.WeatherFullHandoverEnabled = request.WeatherFullHandoverEnabled;
+            settings.WeatherLocationName = SanitizeOptional(request.WeatherLocationName, settings.WeatherLocationName);
+            settings.WeatherLatitude = Math.Clamp(request.WeatherLatitude, -90, 90);
+            settings.WeatherLongitude = Math.Clamp(request.WeatherLongitude, -180, 180);
             settings.WeatherSpecialistModeratorId = request.WeatherSpecialistModeratorId is int specialistId
                 && await db.Moderators.AsNoTracking()
                     .AnyAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct)
@@ -687,6 +691,181 @@ public static class RadioApiEndpoints
 
             return Results.Ok(ToDto(settings));
         });
+    }
+
+    private static void MapProduction(RouteGroupBuilder api)
+    {
+        api.MapGet("/production/news", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var itemCounts = await db.NewsItems.AsNoTracking()
+                .GroupBy(item => item.FeedId)
+                .Select(group => new { FeedId = group.Key, Count = group.Count() })
+                .ToDictionaryAsync(group => group.FeedId, group => group.Count, ct);
+            var feeds = await db.NewsFeeds.AsNoTracking()
+                .OrderBy(feed => feed.Category)
+                .ThenBy(feed => feed.Label)
+                .ToListAsync(ct);
+            var packages = await db.NewsPackages.AsNoTracking()
+                .OrderByDescending(package => package.TargetUtc)
+                .Take(12)
+                .ToListAsync(ct);
+
+            return Results.Ok(new NewsProductionDto(
+                settings.NewsEnabled,
+                settings.NewsExtractionEnabled,
+                TopOfHourScheduler.NormalizeCadence(settings.NewsPackageCadenceMinutes),
+                Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60),
+                settings.NewsPresenterModeratorId,
+                TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds),
+                TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds),
+                feeds.Select(feed => ToDto(feed, itemCounts.GetValueOrDefault(feed.Id))).ToList(),
+                packages.Select(ToDto).ToList()));
+        });
+
+        api.MapPut("/production/news/settings", async (
+            SaveNewsProductionSettingsDto request,
+            RadioDbContext db,
+            CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
+            if (settings is null)
+            {
+                settings = new StationSettings { Id = StationSettings.SingletonId };
+                db.StationSettings.Add(settings);
+            }
+
+            settings.NewsEnabled = request.NewsEnabled;
+            settings.NewsExtractionEnabled = request.NewsExtractionEnabled;
+            settings.NewsPackageCadenceMinutes = TopOfHourScheduler.NormalizeCadence(request.NewsPackageCadenceMinutes);
+            settings.NewsPackageMaxDurationSeconds = Math.Clamp(request.NewsPackageMaxDurationSeconds, 60, 30 * 60);
+            settings.TopOfHourFadeOutSeconds = TopOfHourScheduler.NormalizeFadeOutSeconds(request.TopOfHourFadeOutSeconds);
+            settings.TopOfHourIntroGraceSeconds = TopOfHourScheduler.NormalizeIntroGraceSeconds(request.TopOfHourIntroGraceSeconds);
+            settings.NewsPresenterModeratorId = request.NewsPresenterModeratorId is int presenterId
+                && await db.Moderators.AsNoTracking().AnyAsync(m => m.Id == presenterId && m.IsActive, ct)
+                    ? presenterId
+                    : null;
+
+            await db.SaveChangesAsync(ct);
+            return Results.NoContent();
+        });
+
+        api.MapPost("/news/feeds", async (SaveNewsFeedDto request, RadioDbContext db, CancellationToken ct) =>
+        {
+            if (!TryNormalizeFeed(request, out var normalized, out var error))
+            {
+                return Results.BadRequest(error);
+            }
+
+            if (await db.NewsFeeds.AnyAsync(feed => feed.Url == normalized.Url, ct))
+            {
+                return Results.Conflict("A feed with this URL already exists.");
+            }
+
+            var feed = new NewsFeed
+            {
+                Id = Guid.NewGuid(),
+                CreatedAtUtc = DateTime.UtcNow,
+            };
+            Apply(feed, normalized);
+            db.NewsFeeds.Add(feed);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToDto(feed, itemCount: 0));
+        });
+
+        api.MapPut("/news/feeds/{id:guid}", async (
+            Guid id,
+            SaveNewsFeedDto request,
+            RadioDbContext db,
+            CancellationToken ct) =>
+        {
+            if (!TryNormalizeFeed(request, out var normalized, out var error))
+            {
+                return Results.BadRequest(error);
+            }
+
+            var feed = await db.NewsFeeds.FirstOrDefaultAsync(feed => feed.Id == id, ct);
+            if (feed is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (await db.NewsFeeds.AnyAsync(candidate => candidate.Id != id && candidate.Url == normalized.Url, ct))
+            {
+                return Results.Conflict("A feed with this URL already exists.");
+            }
+
+            Apply(feed, normalized);
+            await db.SaveChangesAsync(ct);
+            var itemCount = await db.NewsItems.CountAsync(item => item.FeedId == id, ct);
+            return Results.Ok(ToDto(feed, itemCount));
+        });
+
+        api.MapPost("/news/feeds/{id:guid}/toggle", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        {
+            var feed = await db.NewsFeeds.FirstOrDefaultAsync(feed => feed.Id == id, ct);
+            if (feed is null)
+            {
+                return Results.NotFound();
+            }
+
+            feed.IsEnabled = !feed.IsEnabled;
+            await db.SaveChangesAsync(ct);
+            var itemCount = await db.NewsItems.CountAsync(item => item.FeedId == id, ct);
+            return Results.Ok(ToDto(feed, itemCount));
+        });
+
+        api.MapDelete("/news/feeds/{id:guid}", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        {
+            var deleted = await db.NewsFeeds.Where(feed => feed.Id == id).ExecuteDeleteAsync(ct);
+            return deleted > 0 ? Results.NoContent() : Results.NotFound();
+        });
+
+        api.MapGet("/production/weather", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            return Results.Ok(ToWeatherProductionDto(settings));
+        });
+
+        api.MapPut("/production/weather", async (
+            SaveWeatherProductionSettingsDto request,
+            RadioDbContext db,
+            CancellationToken ct) =>
+        {
+            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
+            if (settings is null)
+            {
+                settings = new StationSettings { Id = StationSettings.SingletonId };
+                db.StationSettings.Add(settings);
+            }
+
+            settings.WeatherEnabled = request.WeatherEnabled;
+            settings.WeatherCadenceMinutes = WeatherScheduler.NormalizeCadence(request.WeatherCadenceMinutes);
+            settings.WeatherFullHandoverEnabled = request.WeatherFullHandoverEnabled;
+            settings.WeatherLocationName = SanitizeOptional(request.WeatherLocationName, settings.WeatherLocationName);
+            settings.WeatherLatitude = Math.Clamp(request.WeatherLatitude, -90, 90);
+            settings.WeatherLongitude = Math.Clamp(request.WeatherLongitude, -180, 180);
+            settings.WeatherSpecialistModeratorId = request.WeatherSpecialistModeratorId is int specialistId
+                && await db.Moderators.AsNoTracking()
+                    .AnyAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct)
+                    ? specialistId
+                    : null;
+
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(ToWeatherProductionDto(settings));
+        });
+
+        static void Apply(NewsFeed feed, SaveNewsFeedDto request)
+        {
+            feed.Label = request.Label.Trim();
+            feed.Url = request.Url.Trim();
+            feed.Language = StationLanguages.Normalize(request.Language);
+            feed.Region = string.IsNullOrWhiteSpace(request.Region) ? "global" : request.Region.Trim().ToLowerInvariant();
+            feed.Category = string.IsNullOrWhiteSpace(request.Category) ? "general" : request.Category.Trim().ToLowerInvariant();
+            feed.IsEnabled = request.IsEnabled;
+            feed.PollCadenceMinutes = Math.Clamp(request.PollCadenceMinutes, 5, 24 * 60);
+            feed.MaxItemsPerPoll = Math.Clamp(request.MaxItemsPerPoll, 1, 100);
+        }
     }
 
     private static void MapBranding(RouteGroupBuilder api)
@@ -1068,9 +1247,7 @@ public static class RadioApiEndpoints
     private static string? BuildVoiceIntroSample(string? name, string language)
         => string.IsNullOrWhiteSpace(name)
             ? null
-            : language.StartsWith("de", StringComparison.OrdinalIgnoreCase)
-                ? $"Hi, ich bin {name.Trim()}! Ihr hört WhipRadio — wo jeder Song nur für euch gemacht wird. Bleibt dran!"
-                : $"Hi, I'm {name.Trim()}! You're listening to WhipRadio — where every song is made just for you. Stay tuned!";
+            : $"Hi, I'm {name.Trim()}! You're listening to WhipRadio — where every song is made just for you. Stay tuned!";
 
     private static void MapMixer(RouteGroupBuilder api)
     {
@@ -1677,7 +1854,82 @@ public static class RadioApiEndpoints
         s.WeatherEnabled,
         WeatherScheduler.NormalizeCadence(s.WeatherCadenceMinutes),
         s.WeatherSpecialistModeratorId,
-        s.WeatherFullHandoverEnabled);
+        s.WeatherFullHandoverEnabled,
+        s.WeatherLocationName,
+        s.WeatherLatitude,
+        s.WeatherLongitude);
+
+    private static NewsFeedDto ToDto(NewsFeed feed, int itemCount) => new(
+        feed.Id,
+        feed.Label,
+        feed.Url,
+        feed.Language,
+        feed.Region,
+        feed.Category,
+        feed.IsEnabled,
+        feed.IsSeeded,
+        feed.PollCadenceMinutes,
+        feed.MaxItemsPerPoll,
+        feed.CreatedAtUtc,
+        feed.LastPolledAtUtc,
+        feed.LastError,
+        itemCount);
+
+    private static NewsPackageDto ToDto(NewsPackage package) => new(
+        package.Id,
+        package.Kind.ToString(),
+        package.Status.ToString(),
+        package.TargetUtc,
+        package.TargetDurationSeconds,
+        package.AnnouncementId,
+        package.CreatedAtUtc,
+        package.ProducedAtUtc,
+        package.QueuedAtUtc,
+        package.PlayedAtUtc,
+        package.FailureReason,
+        package.SourceSummary);
+
+    private static WeatherProductionDto ToWeatherProductionDto(StationSettings settings) => new(
+        settings.WeatherEnabled,
+        WeatherScheduler.NormalizeCadence(settings.WeatherCadenceMinutes),
+        settings.WeatherSpecialistModeratorId,
+        settings.WeatherFullHandoverEnabled,
+        settings.WeatherLocationName,
+        settings.WeatherLatitude,
+        settings.WeatherLongitude);
+
+    private static bool TryNormalizeFeed(
+        SaveNewsFeedDto request,
+        out SaveNewsFeedDto normalized,
+        out string? error)
+    {
+        normalized = request;
+        error = null;
+        if (string.IsNullOrWhiteSpace(request.Label))
+        {
+            error = "Feed label is required.";
+            return false;
+        }
+
+        if (!Uri.TryCreate(request.Url, UriKind.Absolute, out var uri)
+            || uri.Scheme is not ("http" or "https"))
+        {
+            error = "Feed URL must be an absolute HTTP or HTTPS URL.";
+            return false;
+        }
+
+        normalized = request with
+        {
+            Label = request.Label.Trim(),
+            Url = uri.ToString(),
+            Language = string.IsNullOrWhiteSpace(request.Language) ? "en" : request.Language.Trim().ToLowerInvariant(),
+            Region = string.IsNullOrWhiteSpace(request.Region) ? "global" : request.Region.Trim().ToLowerInvariant(),
+            Category = string.IsNullOrWhiteSpace(request.Category) ? "general" : request.Category.Trim().ToLowerInvariant(),
+            PollCadenceMinutes = Math.Clamp(request.PollCadenceMinutes, 5, 24 * 60),
+            MaxItemsPerPoll = Math.Clamp(request.MaxItemsPerPoll, 1, 100),
+        };
+        return true;
+    }
 
     private static string SanitizeOptional(string? value, string fallback)
         => string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();

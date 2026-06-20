@@ -42,9 +42,9 @@ A `PromptContext` carries, at minimum:
 - **Format facts:** active format name, its purpose, its required talk-depth, remaining
   minutes in the current slot, what comes after.
 - **Host facts:** persona summary, language, **speech rate**, and the derived
-  **word budget** — `wordsPerSecond = baseWordsPerSec × speechRate` (calibrate
-  `baseWordsPerSec` per language; ~2.5 wps German, ~2.8 wps English as starting points,
-  refine from measured TTS output durations stored in `Announcement.DurationSeconds`).
+  **word budget** — `wordsPerSecond = baseWordsPerSec × speechRate` (start from
+  the English baseline of ~2.8 wps and refine from measured TTS output durations
+  stored in `Announcement.DurationSeconds`).
 - **Time-on-air math:** "you have N seconds before the next scheduled item; that's
   roughly M words at your speaking rate." This single sentence is what lets a host
   decide between a one-liner and a five-minute ramble.
@@ -339,7 +339,7 @@ Resolved defaults:
 - `PromptContext` stays structured internally and renders to the current `systemPrompt`/`userPrompt` interface until provider contracts are widened.
 - Character tools use a provider-neutral JSON/text envelope first; provider-native tool calling can be an adapter later.
 - Memory extends the existing `ModeratorMemory` table with a `MemoryLayer`.
-- Initial word budgets use constants: German ~2.5 wps, English ~2.8 wps, with later calibration from real TTS durations.
+- Initial word budgets use the English baseline of ~2.8 wps, with later calibration from real TTS durations.
 - Mood drift is autonomous in Phase 3b. Overview/Admin shows baseline properties and current variable mood values, with constant properties visually distinct from changing ones.
 - Exact replay is allowed for station IDs, jingles, drops, and recurring jokes. Ordinary anecdotes should usually be freshly retold rather than replayed exactly.
 - Initial TalkBit defaults: 5-day cooldown, 2 exact replays before forced retelling, then eventual retirement by age/play count.

@@ -19,8 +19,9 @@
 - **Default model: `Qwen3-TTS-12Hz-0.6B`** on the 12 GB target (leaves headroom next to
   Gemma 4 E4B + music). **`1.7B` is selectable** for machines with more VRAM or when
   music is allowed to evict. Make the size a setting.
-- German is first-class (one of the 10 supported languages), which fixes the project's
-  long-standing weak-German-voice problem.
+- English remains the station default. Qwen's multilingual capability stays available
+  behind the engine, but onboarding and prompts should not steer toward a specific
+  non-English language.
 - **Keep Kokoro / Piper / ElevenLabs engines in place.** `ITtsEngine` already supports
   multiple engines; do not rip them out. Qwen3-TTS becomes the new default; others remain
   as fallback/options (Piper stays a useful low-resource fallback; ElevenLabs stays the
@@ -142,7 +143,7 @@ overlaps with the existing speech-marker system (`[pause]`, `[breath]`, `[rate:�
 
 ### M1 — Sidecar engine
 Add `qwen_engine.py`, `/synthesize` with `instruction`, model size via env, resample to
-44.1 kHz. Smoke test: German + English synth returns valid WAV; ffprobe duration sane.
+44.1 kHz. Smoke test: English synth returns valid WAV; ffprobe duration sane.
 
 ### M2 — Voice design & clone endpoints
 `/design-voice` + `/clone-voice` returning persistable handles + preview WAV. Determinism
@@ -161,7 +162,7 @@ hosts keep working until redesigned.
 
 ### M6 — Rollout
 Default new/onboarding hosts to Qwen 0.6B. Keep Kokoro/Piper/ElevenLabs selectable. Soak:
-30-min run, German + English hosts, no stream breakage, loudness consistent into the 3a
+30-min run with English hosts, no stream breakage, loudness consistent into the 3a
 mixer.
 
 ---
@@ -169,7 +170,7 @@ mixer.
 ## 9. Definition of Done
 - [ ] `dotnet build` + `dotnet test` green (≥ 8 new tests)
 - [ ] Qwen3-TTS engine works behind `ITtsEngine`; no orchestrator calling-code changes
-- [ ] German host sounds natural (the original weak-German problem is gone)
+- [ ] English host speech sounds natural across the main host styles
 - [ ] Voice-Design: a host's voice is minted from a text description and is reproducible
       across restarts (stored handle, not regenerated)
 - [ ] Two same-gender hosts get audibly distinct designed voices
@@ -186,7 +187,7 @@ mixer.
 |---|---|
 | 1.7B too heavy with LLM + music on 12 GB | default to 0.6B; serialize via semaphore; let music evict |
 | Voice-Design output not deterministic enough | pin seed + cache the produced voice artifact; treat the cached artifact as the source of truth, never re-design per call |
-| Qwen German prosody worse than hoped on some text | keep Piper-DE as a per-host fallback; A/B a few hosts before full migration |
+| Qwen prosody worse than hoped on some text | keep local fallback engines selectable; A/B a few hosts before full migration |
 | Sidecar model download large/slow on first run | reuse Phase-2 M6 model-download progress + readiness gating; don't start ShowRunner until TTS healthy |
 | Instruction channel inconsistent across engines | instruction is nullable and engine-optional; markers remain the portable baseline |
 | Existing hosts regress on migration | migration is opt-in per host and reversible; nothing auto-migrates |

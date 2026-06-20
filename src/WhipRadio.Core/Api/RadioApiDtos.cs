@@ -154,7 +154,7 @@ public sealed record HostTalkProfileDto(
     int BreakFrequencyTracks = 1,
     int MinPartsPerBreak = 1,
     int MaxPartsPerBreak = 3,
-    string AllowedTalkPartKinds = "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,HostChange",
+    string AllowedTalkPartKinds = "SongIntro,SongOutro,Banter,PersonalNote,Joke,TalkBit,Jingle,ListenerGreeting,RequestDedication,StationId,Weather,News,HostChange",
     int ExactReplayTolerance = 2,
     double EvergreenBitTolerance = 0.5);
 
@@ -186,7 +186,88 @@ public sealed record StationSettingsDto(
     bool WeatherEnabled = true,
     int WeatherCadenceMinutes = 60,
     int? WeatherSpecialistModeratorId = null,
-    bool WeatherFullHandoverEnabled = false);
+    bool WeatherFullHandoverEnabled = false,
+    string WeatherLocationName = "New York, US",
+    double WeatherLatitude = 40.7128,
+    double WeatherLongitude = -74.0060);
+
+public sealed record NewsFeedDto(
+    Guid Id,
+    string Label,
+    string Url,
+    string Language,
+    string Region,
+    string Category,
+    bool IsEnabled,
+    bool IsSeeded,
+    int PollCadenceMinutes,
+    int MaxItemsPerPoll,
+    DateTime CreatedAtUtc,
+    DateTime? LastPolledAtUtc,
+    string? LastError,
+    int ItemCount);
+
+public sealed record SaveNewsFeedDto(
+    string Label,
+    string Url,
+    string Language = "en",
+    string Region = "global",
+    string Category = "general",
+    bool IsEnabled = true,
+    int PollCadenceMinutes = 30,
+    int MaxItemsPerPoll = 20);
+
+public sealed record NewsPackageDto(
+    Guid Id,
+    string Kind,
+    string Status,
+    DateTime TargetUtc,
+    int TargetDurationSeconds,
+    Guid? AnnouncementId,
+    DateTime CreatedAtUtc,
+    DateTime? ProducedAtUtc,
+    DateTime? QueuedAtUtc,
+    DateTime? PlayedAtUtc,
+    string? FailureReason,
+    string? SourceSummary);
+
+public sealed record NewsProductionDto(
+    bool NewsEnabled,
+    bool NewsExtractionEnabled,
+    int NewsPackageCadenceMinutes,
+    int NewsPackageMaxDurationSeconds,
+    int? NewsPresenterModeratorId,
+    double TopOfHourFadeOutSeconds,
+    int TopOfHourIntroGraceSeconds,
+    IReadOnlyList<NewsFeedDto> Feeds,
+    IReadOnlyList<NewsPackageDto> RecentPackages);
+
+public sealed record SaveNewsProductionSettingsDto(
+    bool NewsEnabled,
+    bool NewsExtractionEnabled,
+    int NewsPackageCadenceMinutes,
+    int NewsPackageMaxDurationSeconds,
+    int? NewsPresenterModeratorId,
+    double TopOfHourFadeOutSeconds,
+    int TopOfHourIntroGraceSeconds);
+
+public sealed record WeatherProductionDto(
+    bool WeatherEnabled,
+    int WeatherCadenceMinutes,
+    int? WeatherSpecialistModeratorId,
+    bool WeatherFullHandoverEnabled,
+    string WeatherLocationName,
+    double WeatherLatitude,
+    double WeatherLongitude);
+
+public sealed record SaveWeatherProductionSettingsDto(
+    bool WeatherEnabled,
+    int WeatherCadenceMinutes,
+    int? WeatherSpecialistModeratorId,
+    bool WeatherFullHandoverEnabled,
+    string WeatherLocationName,
+    double WeatherLatitude,
+    double WeatherLongitude);
 
 public sealed record BrandingDto(
     string StationName,

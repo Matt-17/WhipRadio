@@ -327,12 +327,10 @@ public class MusicCopywriter(ITextGenerationService llm)
 
     private static string NormalizeSongLanguageCode(string? language)
     {
-        var value = (language ?? "en").Trim().ToLowerInvariant();
-        if (value.StartsWith("de", StringComparison.Ordinal)
-            || value.Contains("german", StringComparison.Ordinal)
-            || value.Contains("deutsch", StringComparison.Ordinal))
+        var value = (language ?? string.Empty).Trim().ToLowerInvariant();
+        if (value.Length == 0)
         {
-            return "de";
+            return "en";
         }
 
         if (value.StartsWith("en", StringComparison.Ordinal)
@@ -341,7 +339,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             return "en";
         }
 
-        return StationLanguages.Normalize(value);
+        return value.Length >= 2 && IsAsciiLetter(value[0]) && IsAsciiLetter(value[1])
+            ? value[..2]
+            : "en";
     }
 
     private static bool IsNonDefaultLanguageRequest(string requestedLanguage, string fallback)
@@ -359,14 +359,9 @@ public class MusicCopywriter(ITextGenerationService llm)
     private static bool IsDefaultLanguageName(string requestedLanguage, string fallback)
     {
         var value = requestedLanguage.Trim().ToLowerInvariant();
-        return fallback switch
-        {
-            "de" => value.StartsWith("de", StringComparison.Ordinal)
-                || value.Contains("german", StringComparison.Ordinal)
-                || value.Contains("deutsch", StringComparison.Ordinal),
-            _ => value.StartsWith("en", StringComparison.Ordinal)
-                || value.Contains("english", StringComparison.Ordinal),
-        };
+        return fallback == "en"
+            ? value.StartsWith("en", StringComparison.Ordinal) || value.Contains("english", StringComparison.Ordinal)
+            : value.StartsWith(fallback, StringComparison.Ordinal);
     }
 
     private static bool HasExplicitLanguageEvidence(
@@ -379,28 +374,11 @@ public class MusicCopywriter(ITextGenerationService llm)
             return true;
         }
 
-        var profile = string.Join(" ", new[]
-        {
-            artist.Name,
-            artist.Origin,
-            artist.CreationHint,
-            artist.Biography,
-            artist.DeepBackgroundBiography,
-            artist.StyleDescriptor,
-        }.Where(value => !string.IsNullOrWhiteSpace(value))).ToLowerInvariant();
-
-        return language switch
-        {
-            "de" => ContainsAny(profile,
-                "german", "deutsch", "germany", "deutschland", "austrian", "austria",
-                "swiss german", "berlin", "hamburg", "munich", "münchen", "cologne",
-                "köln", "essen hauptbahnhof"),
-            _ => false,
-        };
+        return false;
     }
 
-    private static bool ContainsAny(string value, params string[] needles)
-        => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+    private static bool IsAsciiLetter(char value)
+        => value is >= 'a' and <= 'z';
 
     private static string CleanStructuredOutput(string text)
     {

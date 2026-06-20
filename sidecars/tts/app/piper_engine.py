@@ -1,4 +1,4 @@
-"""Piper TTS engine — the local engine with German voices (thorsten, eva_k, …).
+"""Piper TTS engine for low-resource local fallback voices.
 
 Voice models download on first use from rhasspy/piper-voices into HF_HOME.
 """
@@ -16,14 +16,10 @@ logger = logging.getLogger(__name__)
 
 # voice id -> (hf path, language, gender)
 KNOWN_VOICES = {
-    "de_DE-thorsten-medium": ("de/de_DE/thorsten/medium/de_DE-thorsten-medium", "de", "m"),
-    "de_DE-eva_k-x_low": ("de/de_DE/eva_k/x_low/de_DE-eva_k-x_low", "de", "f"),
-    "de_DE-karlsson-low": ("de/de_DE/karlsson/low/de_DE-karlsson-low", "de", "m"),
     "en_US-ryan-medium": ("en/en_US/ryan/medium/en_US-ryan-medium", "en", "m"),
     "en_US-lessac-medium": ("en/en_US/lessac/medium/en_US-lessac-medium", "en", "f"),
 }
 
-DEFAULT_DE_VOICE = "de_DE-thorsten-medium"
 DEFAULT_EN_VOICE = "en_US-lessac-medium"
 
 
@@ -49,7 +45,7 @@ class PiperEngine(EngineBase):
     def resolve_voice(self, voice: str, language: str) -> str:
         if voice in KNOWN_VOICES:
             return voice
-        fallback = DEFAULT_DE_VOICE if language.startswith("de") else DEFAULT_EN_VOICE
+        fallback = DEFAULT_EN_VOICE
         logger.warning("Piper voice '%s' unknown; falling back to %s", voice, fallback)
         return fallback
 

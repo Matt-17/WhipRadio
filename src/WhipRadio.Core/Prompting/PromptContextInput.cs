@@ -17,7 +17,7 @@ public sealed record PromptContextInput(
 public static class PromptWordBudget
 {
     public static double BaseWordsPerSecond(string language)
-        => language.StartsWith("de", StringComparison.OrdinalIgnoreCase) ? 2.5 : 2.8;
+        => 2.8;
 
     public static double WordsPerSecond(string language, double speechRate)
         => BaseWordsPerSecond(language) * Math.Clamp(speechRate, 0.5, 2.0);

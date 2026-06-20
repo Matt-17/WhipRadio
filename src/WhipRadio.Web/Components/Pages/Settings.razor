@@ -21,7 +21,6 @@ else
                 <label>Station language</label>
                 <select @bind="_defaultLanguage">
                     <option value="en">English (en)</option>
-                    <option value="de">Deutsch (de)</option>
                 </select>
             </div>
             <div class="field"><label>Display frequency (MHz)</label><input type="number" step="0.1" min="76" max="108" @bind="_frequencyMhz" /></div>
@@ -84,46 +83,7 @@ else
         </div>
         <div class="dim" style="font-size:12.5px">
             With ElevenLabs enabled, new hosts created with the elevenlabs engine get a designed
-            voice; the local Piper engine provides German voices without any key.
-        </div>
-    </div>
-
-    <div class="panel reveal">
-        <div class="panel-label">Weather</div>
-        <div class="form-grid">
-            <div class="field">
-                <label>Weather reports</label>
-                <select @bind="_weatherEnabled">
-                    <option value="true">enabled</option>
-                    <option value="false">disabled</option>
-                </select>
-            </div>
-            <div class="field">
-                <label>Cadence</label>
-                <select @bind="_weatherCadence">
-                    <option value="30">every 30 minutes</option>
-                    <option value="60">hourly</option>
-                    <option value="120">every 2 hours</option>
-                    <option value="180">every 3 hours</option>
-                </select>
-            </div>
-            <div class="field">
-                <label>Weather specialist</label>
-                <select @bind="_weatherSpecialistId">
-                    <option value="">automatic</option>
-                    @foreach (var host in WeatherSpecialists)
-                    {
-                        <option value="@host.Id">@host.Name</option>
-                    }
-                </select>
-            </div>
-            <div class="field">
-                <label>Full weather handover</label>
-                <select @bind="_weatherFullHandover">
-                    <option value="false">off</option>
-                    <option value="true">on</option>
-                </select>
-            </div>
+            voice; local engines stay available for offline production.
         </div>
     </div>
 
@@ -138,7 +98,6 @@ else
 
 @code {
     private StationSettingsDto? _settings;
-    private List<ModeratorDto> _moderators = [];
     private bool _saved;
 
     private string _defaultLanguage = "en";
@@ -151,18 +110,10 @@ else
     private string _openAiModel = "gpt-4o-mini";
     private string _elevenLabs = "false";
     private string _elevenLabsKey = "";
-    private string _weatherEnabled = "true";
-    private int _weatherCadence = 60;
-    private string _weatherSpecialistId = "";
-    private string _weatherFullHandover = "false";
-
-    private IEnumerable<ModeratorDto> WeatherSpecialists
-        => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true });
 
     protected override async Task OnInitializedAsync()
     {
         _settings = await Api.GetSettingsAsync();
-        _moderators = await Api.GetModeratorsAsync();
         if (_settings is not null)
         {
             _defaultLanguage = _settings.DefaultLanguage;
@@ -175,10 +126,6 @@ else
             _openAiModel = _settings.OpenAiModel;
             _elevenLabs = _settings.ElevenLabsEnabled.ToString().ToLowerInvariant();
             _elevenLabsKey = _settings.ElevenLabsApiKey;
-            _weatherEnabled = _settings.WeatherEnabled.ToString().ToLowerInvariant();
-            _weatherCadence = _settings.WeatherCadenceMinutes;
-            _weatherSpecialistId = _settings.WeatherSpecialistModeratorId?.ToString() ?? "";
-            _weatherFullHandover = _settings.WeatherFullHandoverEnabled.ToString().ToLowerInvariant();
         }
     }
 
@@ -204,12 +151,6 @@ else
             OpenAiModel = _openAiModel,
             ElevenLabsEnabled = _elevenLabs == "true",
             ElevenLabsApiKey = _elevenLabsKey,
-            WeatherEnabled = _weatherEnabled == "true",
-            WeatherCadenceMinutes = _weatherCadence,
-            WeatherSpecialistModeratorId = int.TryParse(_weatherSpecialistId, out var specialistId)
-                ? specialistId
-                : null,
-            WeatherFullHandoverEnabled = _weatherFullHandover == "true",
         });
         _saved = true;
     }

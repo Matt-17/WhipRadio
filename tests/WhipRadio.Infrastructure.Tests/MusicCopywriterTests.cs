@@ -108,48 +108,48 @@ Member(Bjorn Iron-Fist, Vocals/Percussion", A malformed member row.",Deep backgr
     public async Task PlanSongAsync_ParsesArtistSongPlanAndPromptsWithHistory()
     {
         var llm = new CapturingLlm(""""""
-Title("Morgens am Gleis")
-Style("Motorik drums, glassy analog synth hooks, clipped bass, and a patient sunrise build with warm German lead vocals.")
-Language("de")
+Title("Manana al Anden")
+Style("Motorik drums, glassy analog synth hooks, clipped bass, and a patient sunrise build with warm Spanish lead vocals.")
+Language("es")
 Vocals("yes")
 DurationSeconds(205)
-Story("Die Kurvenlichter wrote it after a delayed train turned into a sunrise rehearsal, answering the restlessness of Alte Funken.")
+Story("Las Curvas wrote it after a delayed train turned into a sunrise rehearsal, answering the restlessness of Luces Viejas.")
 Lyrics("""
-Wir warten am Gleis
-Der Morgen wird heiss
-Die Stadt atmet ein
-Wir fahren heim
+Esperamos en el anden
+La manana sube
+La ciudad respira
+Volvemos al sur
 """)
 """""");
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
         {
-            Name = "Die Kurvenlichter",
+            Name = "Las Curvas",
             Genre = "rock",
-            Subgenre = "krautrock",
-            StyleDescriptor = "German motorik rock with analog synth color.",
+            Subgenre = "motorik art rock",
+            StyleDescriptor = "Spanish motorik rock with analog synth color.",
             Type = "Band",
-            Origin = "Essen, Germany",
-            Language = "de",
-            Biography = "A German band formed after night shifts around Essen Hauptbahnhof.",
+            Origin = "Madrid, Spain",
+            Language = "es",
+            Biography = "A Spanish band formed after night shifts around Madrid Chamartin.",
             Members =
             {
                 new ArtistMember
                 {
                     SortOrder = 0,
-                    Name = "Mara Licht",
+                    Name = "Mara Luz",
                     Role = "lead vocals",
                     Biography = "Mara writes compact commuter lyrics.",
-                    VoiceCreationPrompt = "Female alto, German accent, focused and close-mic.",
+                    VoiceCreationPrompt = "Female alto, Spanish accent, focused and close-mic.",
                 },
             },
         };
         var history = new[]
         {
             new ArtistSongHistoryItem(
-                "Alte Funken",
+                "Luces Viejas",
                 "Dry motorik drums and narrow synth lines.",
-                "de",
+                "es",
                 HasVocals: true,
                 SongStory: "Their first song about late-shift commuters.",
                 TargetDurationSeconds: 190,
@@ -161,45 +161,45 @@ Wir fahren heim
         var plan = await writer.PlanSongAsync(
             artist,
             history,
-            ["Alte Funken"],
+            ["Luces Viejas"],
             "en",
             minDurationSeconds: 150,
             maxDurationSeconds: 240,
             supportsVocals: true,
             CancellationToken.None);
 
-        Assert.Equal("Morgens am Gleis", plan.Title);
-        Assert.Equal("de", plan.Language);
+        Assert.Equal("Manana al Anden", plan.Title);
+        Assert.Equal("es", plan.Language);
         Assert.True(plan.WantVocals);
         Assert.Equal(205, plan.TargetDurationSeconds);
         Assert.Contains("Motorik drums", plan.Style);
         Assert.Contains("delayed train", plan.Story);
-        Assert.Contains("Wir warten am Gleis", plan.Lyrics);
+        Assert.Contains("Esperamos en el anden", plan.Lyrics);
 
-        Assert.Contains("A German band formed", llm.UserPrompt);
-        Assert.Contains("Canonical song language: de", llm.UserPrompt);
-        Assert.Contains("Mara Licht", llm.UserPrompt);
+        Assert.Contains("A Spanish band formed", llm.UserPrompt);
+        Assert.Contains("Canonical song language: es", llm.UserPrompt);
+        Assert.Contains("Mara Luz", llm.UserPrompt);
         Assert.Contains("Female alto", llm.UserPrompt);
-        Assert.Contains("Alte Funken", llm.UserPrompt);
+        Assert.Contains("Luces Viejas", llm.UserPrompt);
         Assert.Contains("likes 7, dislikes 2", llm.UserPrompt);
-        Assert.Contains("Never infer German from Nordic", llm.UserPrompt);
+        Assert.Contains("Never infer a non-default language from Nordic", llm.UserPrompt);
     }
 
     [TestMethod]
-    public async Task PlanSongAsync_FallsBackToEnglishWhenGermanIsNotExplicitlySupported()
+    public async Task PlanSongAsync_FallsBackToEnglishWhenNonDefaultLanguageIsNotExplicitlySupported()
     {
         var llm = new CapturingLlm(""""""
-Title("Der Atem des Eisgebiets")
+Title("El Aliento del Hielo")
 Style("A slow-moving soundscape built from heavily processed guitar washes, synthetic cello drones, and sparse melancholic vocals.")
-Language("de")
+Language("es")
 Vocals("yes")
 DurationSeconds(285)
 Story("The band explored Svalbard field recordings and human fragility against deep time.")
 Lyrics("""
-Was das Eis birgt unter sich
-Kein Geräusch nur Gewicht
-Die Zeit zählt nicht mehr
-Der Wind singt die Kälte
+El hielo guarda la voz
+Nada se mueve aqui
+La noche pesa mas
+El viento vuelve al mar
 """)
 """""");
         var writer = new MusicCopywriter(llm);
