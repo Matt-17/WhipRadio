@@ -60,7 +60,7 @@ else
                                     @if (studio.CurrentJob is { } job)
                                     {
                                         <div class="studio-job-line">
-                                            <StatusBadge Text="@BusyLabel(studio.Kind)" />
+                                            <StatusBadge Text="@BusyLabel(studio.Kind)" Pulse="true" />
                                             <span class="studio-job-title" title="@job">@job</span>
                                         </div>
                                         <div class="dim studio-job-time">
@@ -70,7 +70,9 @@ else
                                     }
                                     else if (studio.IsActive)
                                     {
-                                        <StatusBadge Text="@RuntimeLabel(studio)" />
+                                        <StatusBadge Text="@RuntimeLabel(studio)"
+                                                     Tone="@RuntimeTone(studio)"
+                                                     Marker="@RuntimeMarker(studio)" />
                                     }
                                     else
                                     {
@@ -329,6 +331,12 @@ else
             "unknown" => "checking",
             _ => studio.RuntimeStatus,
         };
+
+    private static StatusBadgeTone? RuntimeTone(StudioDto studio)
+        => studio.RuntimeStatus == "busy" ? StatusBadgeTone.Amber : null;
+
+    private static bool? RuntimeMarker(StudioDto studio)
+        => studio.RuntimeStatus == "busy" ? false : null;
 
     private static string ProviderLabel(StudioDto studio)
         => !string.IsNullOrWhiteSpace(studio.Url) && !string.IsNullOrWhiteSpace(studio.RuntimeDetail)

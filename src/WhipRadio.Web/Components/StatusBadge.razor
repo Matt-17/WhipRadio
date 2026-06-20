@@ -13,6 +13,8 @@
 
     [Parameter] public bool Pulse { get; set; }
 
+    [Parameter] public bool? Marker { get; set; }
+
     [Parameter] public string? Title { get; set; }
 
     [Parameter] public string? Class { get; set; }
@@ -25,7 +27,7 @@
             || NormalizedText.Equals("Busy", StringComparison.OrdinalIgnoreCase)
             || NormalizedText.Equals("WORK", StringComparison.OrdinalIgnoreCase);
 
-    private bool ShowMarker => Pulse || IsRecordingLabel;
+    private bool ShowMarker => Marker ?? (Pulse || IsRecordingLabel);
 
     private string MarkerClass => IsRecordingLabel ? "status-badge-rec-bull" : "status-badge-bull";
 
@@ -41,7 +43,7 @@
                 parts.Add("with-marker");
             }
 
-            if (Pulse || IsRecordingLabel)
+            if (ShowMarker && (Pulse || IsRecordingLabel))
             {
                 parts.Add("pulse");
             }
