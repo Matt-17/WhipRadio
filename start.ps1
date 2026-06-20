@@ -1,7 +1,9 @@
 # Starts WhipRadio: builds the solution and launches the Aspire AppHost
-# in a minimized window so this console stays free. Use .\stop.ps1 to shut down.
+# hidden in the background so this console stays free. Use .\stop.ps1 to shut down.
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appHost = Join-Path $root "src\WhipRadio.AppHost\WhipRadio.AppHost.csproj"
+$stdoutLog = Join-Path $root "apphost-run.log"
+$stderrLog = Join-Path $root "apphost-run.err.log"
 $projects = @(
     (Join-Path $root "src\WhipRadio.Orchestrator\WhipRadio.Orchestrator.csproj"),
     (Join-Path $root "src\WhipRadio.Web\WhipRadio.Web.csproj")
@@ -28,9 +30,12 @@ foreach ($project in $projects) {
     }
 }
 
-Start-Process dotnet -ArgumentList "run --project `"$appHost`" --no-build --no-restore" -WorkingDirectory $root -WindowStyle Minimized
+$process = Start-Process dotnet -ArgumentList "run --project `"$appHost`" --no-build --no-restore" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
 Write-Host ""
-Write-Host "WhipRadio is starting..." -ForegroundColor Green
+Write-Host "WhipRadio is starting in the background (PID $($process.Id))..." -ForegroundColor Green
 Write-Host "  Web app:          http://localhost:5084"
-Write-Host "  Aspire dashboard: https://localhost:17005 (login link in the AppHost window)"
+Write-Host "  Aspire dashboard: https://localhost:17005"
 Write-Host "  Stream:           http://localhost:8000/radio.mp3"
+Write-Host "  Logs:             $stdoutLog"
+Write-Host "                    $stderrLog"
+Write-Host "  Stop with:        .\stop.ps1"
