@@ -200,7 +200,6 @@ else
     <ChildContent>
         <div class="form-grid">
             <div class="field"><label>Name</label><input @bind="_feedLabel" placeholder="Source name" /></div>
-            <div class="field"><label>URL</label><input @bind="_feedUrl" placeholder="https://example.com/rss.xml" /></div>
             <div class="field">
                 <label>Category</label>
                 <select @bind="_feedCategory">
@@ -210,18 +209,7 @@ else
                     }
                 </select>
             </div>
-            <div class="field"><label>Region</label><input @bind="_feedRegion" placeholder="us or global" /></div>
-            <div class="field"><label>Max items per pull</label><input type="number" min="1" max="100" @bind="_feedMaxItems" /></div>
-        </div>
-        <div class="admin-row feed-modal-switch">
-            <div>
-                <strong>Active feed</strong>
-                <div class="dim">Included when the next news package pulls fresh stories.</div>
-            </div>
-            <UiSwitch Value="@_feedEnabled"
-                      ValueChanged="@((bool value) => _feedEnabled = value)"
-                      Size="SwitchSize.Big"
-                      Title="@(_feedEnabled ? "Feed active" : "Feed inactive")" />
+            <div class="field feed-url-field"><label>URL</label><input @bind="_feedUrl" placeholder="https://example.com/rss.xml" /></div>
         </div>
         @if (_feedError is not null)
         {
@@ -282,9 +270,7 @@ else
     private string _feedLabel = "";
     private string _feedUrl = "";
     private string _feedCategory = "technology";
-    private string _feedRegion = "us";
-    private int _feedMaxItems = 20;
-    private bool _feedEnabled = true;
+    private bool _editFeedEnabled = true;
 
     private IEnumerable<ModeratorDto> ActiveHosts
         => _moderators.Where(host => host is { IsActive: true, IsNewsSpecialist: true }).OrderBy(host => host.Name);
@@ -375,10 +361,10 @@ else
             _feedLabel,
             _feedUrl,
             Language: "en",
-            Region: _feedRegion,
+            Region: "global",
             Category: _feedCategory,
-            IsEnabled: _feedEnabled,
-            MaxItemsPerPoll: _feedMaxItems);
+            IsEnabled: _editFeedId is null || _editFeedEnabled,
+            MaxItemsPerPoll: 20);
         var (feed, error) = _editFeedId is { } id
             ? await Api.UpdateNewsFeedAsync(id, request)
             : await Api.CreateNewsFeedAsync(request);
@@ -402,9 +388,7 @@ else
         _feedLabel = feed.Label;
         _feedUrl = feed.Url;
         _feedCategory = feed.Category;
-        _feedRegion = feed.Region;
-        _feedMaxItems = feed.MaxItemsPerPoll;
-        _feedEnabled = feed.IsEnabled;
+        _editFeedEnabled = feed.IsEnabled;
         _feedError = null;
         _feedModalOpen = true;
     }
@@ -421,9 +405,7 @@ else
         _feedLabel = "";
         _feedUrl = "";
         _feedCategory = "technology";
-        _feedRegion = "us";
-        _feedMaxItems = 20;
-        _feedEnabled = true;
+        _editFeedEnabled = true;
         _feedError = null;
     }
 

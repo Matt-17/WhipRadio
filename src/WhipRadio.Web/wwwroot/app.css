@@ -779,13 +779,12 @@ table.console-table {
     align-items: center;
 }
 
-.feed-modal-switch {
-    padding: 0 0 16px;
-    margin-bottom: 14px;
-}
-
 .feed-delete-action {
     margin-right: auto;
+}
+
+.feed-url-field {
+    grid-column: 1 / -1;
 }
 
 .btn.icon-only {
