@@ -31,6 +31,7 @@ public class NewsCategoryOrderingTests
         Assert.Equal("technology", parsed[0]);
         Assert.Equal("general", parsed[1]);
         Assert.Contains("business", parsed);
+        Assert.Contains("sports", parsed);
         Assert.Contains("culture", parsed);
         Assert.Contains("regional", parsed);
     }

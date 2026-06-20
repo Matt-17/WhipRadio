@@ -9,6 +9,7 @@ public static class NewsCategoryOrdering
         "general",
         "business",
         "technology",
+        "sports",
         "culture",
         "regional",
     ];

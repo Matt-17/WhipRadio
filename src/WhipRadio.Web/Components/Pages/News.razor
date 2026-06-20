@@ -66,7 +66,7 @@ else
             </div>
             <div class="field">
                 <label>Category order</label>
-                <input @bind="_categoryOrderText" placeholder="general,business,technology,culture,regional" />
+                <input @bind="_categoryOrderText" placeholder="general,business,technology,sports,culture,regional" />
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_news.WarningText))
@@ -277,7 +277,7 @@ else
     private string _presenterId = "";
     private double _fadeOut = 1.0;
     private int _introGrace = 10;
-    private string _categoryOrderText = "general,business,technology,culture,regional";
+    private string _categoryOrderText = "general,business,technology,sports,culture,regional";
 
     private string _feedLabel = "";
     private string _feedUrl = "";
@@ -290,7 +290,7 @@ else
         => _moderators.Where(host => host is { IsActive: true, IsNewsSpecialist: true }).OrderBy(host => host.Name);
 
     private IReadOnlyList<string> CategoryOptions
-        => ParseCategoryOrder(_categoryOrderText).Concat(["general", "business", "technology", "culture", "regional"])
+        => ParseCategoryOrder(_categoryOrderText).Concat(["general", "business", "technology", "sports", "culture", "regional"])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
@@ -577,6 +577,7 @@ else
         => category switch
         {
             "technology" => "tech",
+            "sports" => "sports",
             "regional" => "regional",
             "business" => "business",
             "culture" => "culture",
@@ -587,6 +588,7 @@ else
         => category switch
         {
             "technology" => "category-tech",
+            "sports" => "category-sports",
             "regional" => "category-regional",
             "business" => "category-business",
             "culture" => "category-culture",
@@ -607,7 +609,7 @@ else
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        return parsed.Count == 0 ? ["general", "business", "technology", "culture", "regional"] : parsed;
+        return parsed.Count == 0 ? ["general", "business", "technology", "sports", "culture", "regional"] : parsed;
     }
 
     public ValueTask DisposeAsync()
