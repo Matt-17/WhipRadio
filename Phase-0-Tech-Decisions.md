@@ -192,6 +192,13 @@ profile. Exact cross-engine voice cloning remains a stretch goal, not a requirem
 prompts as Phase 3c/5 seed data. These are descriptive prompts only; the structured
 `VoiceProfile` with resolved voice ids and FX remains planned.
 
+**Implemented in Phase 3c:** new hosts created through the web UI use the active
+local voice booth's voice-design path. The UI no longer asks operators to choose a
+TTS engine/model for normal host hiring. If no active voice-design-capable booth is
+available, host creation fails with an explicit operator error instead of falling
+back to a preset Kokoro voice. Existing host rows keep their stored engine and voice
+ids until deliberately redesigned.
+
 ## Standing Constraints
 
 - Never break the live stream; risky subsystems ship behind flags or queues.

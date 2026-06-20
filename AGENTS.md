@@ -20,6 +20,10 @@ WhipRadio is a .NET 10 Aspire solution. Core domain logic lives in `src/WhipRadi
 
 Follow `.editorconfig`. C# uses 4-space indentation, file-scoped namespaces are preferred, nullable reference types and implicit usings are enabled, and `LangVersion` is `latest`. Project, XML, and JSON files use 2-space indentation. Use PascalCase for types, methods, properties, and public fields; camelCase for locals and parameters; `_camelCase` for private fields; `s_camelCase` for private static fields. Prefer explicit types over `var` unless the type is obvious from object creation.
 
+## Web UI Design Guide
+
+Before changing Blazor pages, shared components, or `src/WhipRadio.Web/wwwroot/app.css`, read `DESIGN-GUIDE.md`. Preserve the existing late-night broadcast-console design language. Treat switches as immediate-save controls for binary active/off state, always place them as the final item in their row or action cluster, and ask the user before choosing unresolved UI/UX directions such as dense tables versus cards, major layout changes, or icon-only versus text actions.
+
 ## Testing Guidelines
 
 .NET tests use MSTest with `coverlet.collector` available. Name test classes after the subject, for example `WeightedTrackSelectorTests`, and use descriptive test method names that state the expected behavior. Keep Core tests free of infrastructure dependencies. Sidecar tests should use synthetic fixtures rather than committed binary media.
