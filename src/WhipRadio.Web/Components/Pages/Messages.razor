@@ -62,19 +62,19 @@
                         <td>
                             @if (message.Status == "Pending")
                             {
-                                <span class="tag"><span class="blink">▮</span> checking…</span>
+                                <StatusBadge Text="checking" Pulse="true" />
                             }
                             else if (message.Status == "Dismissed")
                             {
-                                <span class="tag red" title="@(message.DismissalReason ?? "dismissed")">Dismissed</span>
+                                <StatusBadge Text="Dismissed" Title="@(message.DismissalReason ?? "dismissed")" />
                             }
                             else if (message.Status == "OnAir")
                             {
-                                <span class="tag green">On air</span>
+                                <StatusBadge Text="Received" />
                             }
                             else
                             {
-                                <span class="tag amber">@message.Status</span>
+                                <StatusBadge Text="@message.Status" />
                             }
                         </td>
                         <td class="num dim" title="received @message.SubmittedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss")">

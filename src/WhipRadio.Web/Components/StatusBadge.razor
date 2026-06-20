@@ -1,0 +1,75 @@
+<span class="@CssClass" title="@Title">
+    @if (ShowMarker)
+    {
+        <span class="@MarkerClass" aria-hidden="true">&bull;</span>
+    }
+    @Text
+</span>
+
+@code {
+    [Parameter] public string Text { get; set; } = "";
+
+    [Parameter] public StatusBadgeTone? Tone { get; set; }
+
+    [Parameter] public bool Pulse { get; set; }
+
+    [Parameter] public string? Title { get; set; }
+
+    [Parameter] public string? Class { get; set; }
+
+    private string NormalizedText => Text.Trim();
+
+    private bool IsRecordingLabel
+        => NormalizedText.Equals("REC", StringComparison.OrdinalIgnoreCase)
+            || NormalizedText.Equals("Recording", StringComparison.OrdinalIgnoreCase)
+            || NormalizedText.Equals("Busy", StringComparison.OrdinalIgnoreCase)
+            || NormalizedText.Equals("WORK", StringComparison.OrdinalIgnoreCase);
+
+    private bool ShowMarker => Pulse || IsRecordingLabel;
+
+    private string MarkerClass => IsRecordingLabel ? "status-badge-rec-bull" : "status-badge-bull";
+
+    private StatusBadgeTone EffectiveTone => Tone ?? MapTone(NormalizedText);
+
+    private string CssClass
+    {
+        get
+        {
+            var parts = new List<string> { "status-badge", ToneClass(EffectiveTone) };
+            if (ShowMarker)
+            {
+                parts.Add("with-marker");
+            }
+
+            if (Pulse || IsRecordingLabel)
+            {
+                parts.Add("pulse");
+            }
+
+            if (!string.IsNullOrWhiteSpace(Class))
+            {
+                parts.Add(Class);
+            }
+
+            return string.Join(" ", parts);
+        }
+    }
+
+    private static StatusBadgeTone MapTone(string text)
+        => text.ToLowerInvariant() switch
+        {
+            "active" or "ready" or "idle" or "succeeded" or "success" or "ok" or "on air" or "played" => StatusBadgeTone.Green,
+            "queued" or "queue" or "pending" or "checking" or "creating" or "redefining" or "running" => StatusBadgeTone.Amber,
+            "rec" or "recording" or "busy" or "work" or "failed" or "fail" or "error" or "dismissed" or "offline" or "delete queued" or "retired" => StatusBadgeTone.Red,
+            _ => StatusBadgeTone.Default,
+        };
+
+    private static string ToneClass(StatusBadgeTone tone)
+        => tone switch
+        {
+            StatusBadgeTone.Green => "green",
+            StatusBadgeTone.Amber => "amber",
+            StatusBadgeTone.Red => "red",
+            _ => "default",
+        };
+}

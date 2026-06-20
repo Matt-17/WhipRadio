@@ -23,25 +23,28 @@ else
                 <strong>Real-time Mixer</strong>
                 <div class="dim">Crossfades, beat-aligned blends, talk-overs. Off = classic sequential playout.</div>
             </div>
-            <div class="switch big @(_mx_enabled ? "on" : null)" @onclick="ToggleMixerAsync"></div>
+            <UiSwitch Value="@_mx_enabled"
+                      ValueChanged="@(_ => ToggleMixerAsync())"
+                      Size="SwitchSize.Big"
+                      Title="@(_mx_enabled ? "Mixer enabled" : "Mixer off")" />
         </div>
 
         <div class="mixer-state-line">
             @if (_mixer.Live.SessionActive)
             {
-                <span class="tag green">session active</span>
+                <StatusBadge Text="session active" Tone="StatusBadgeTone.Green" />
             }
             else if (_mx_enabled)
             {
-                <span class="tag amber">enabled - engaging at the next item boundary...</span>
+                <StatusBadge Text="pending" Tone="StatusBadgeTone.Amber" Title="enabled - engaging at the next item boundary..." />
             }
             else
             {
-                <span class="tag">off - legacy sequential playout</span>
+                <StatusBadge Text="off" Title="legacy sequential playout" />
             }
         </div>
 
-        <div class="stat-grid" style="margin-top:14px; margin-bottom:0">
+        <div class="stat-grid mixer-stat-grid">
             <div class="panel stat-card">
                 <div class="stat-value">@MasterClock</div>
                 <div class="stat-label">master clock</div>
@@ -51,7 +54,7 @@ else
                 <div class="stat-label">session transitions</div>
             </div>
             <div class="panel stat-card">
-                <div class="stat-value">@_mixer.Status.AnalyzedTracks<span class="dim" style="font-size:18px">/@_mixer.Status.TotalTracks</span></div>
+                <div class="stat-value">@_mixer.Status.AnalyzedTracks<span class="dim stat-value-sub">/@_mixer.Status.TotalTracks</span></div>
                 <div class="stat-label">tracks analyzed</div>
             </div>
             <div class="panel stat-card">
@@ -112,21 +115,20 @@ else
             <div class="field"><label>Crossfade (s)</label><input type="number" step="0.5" @bind="_mx_crossfade" /></div>
             <div class="field"><label>Gap after talk (ms min/max)</label>
                 <div class="btn-row">
-                    <input type="number" style="width:90px" @bind="_mx_gapTalkMin" />
-                    <input type="number" style="width:90px" @bind="_mx_gapTalkMax" />
+                    <input class="compact-number" type="number" @bind="_mx_gapTalkMin" />
+                    <input class="compact-number" type="number" @bind="_mx_gapTalkMax" />
                 </div>
             </div>
             <div class="field"><label>Gap between songs (ms min/max)</label>
                 <div class="btn-row">
-                    <input type="number" style="width:90px" @bind="_mx_gapSongMin" />
-                    <input type="number" style="width:90px" @bind="_mx_gapSongMax" />
+                    <input class="compact-number" type="number" @bind="_mx_gapSongMin" />
+                    <input class="compact-number" type="number" @bind="_mx_gapSongMax" />
                 </div>
             </div>
         </div>
-        <div class="field" style="margin-bottom:12px">
+        <div class="field bottom-gap">
             <label>Strategy weights JSON (empty = defaults)</label>
-            <textarea rows="3" style="width:100%; font-family:var(--font-mono); font-size:12px; background:#0b0a07; color:var(--amber-hot); border:1px solid var(--line); border-radius:6px; padding:8px"
-                      @bind="_mx_weights"></textarea>
+            <textarea class="mono-textarea compact" rows="3" @bind="_mx_weights"></textarea>
         </div>
         <div class="btn-row">
             <button class="btn primary" @onclick="SaveMixerAsync">Apply</button>

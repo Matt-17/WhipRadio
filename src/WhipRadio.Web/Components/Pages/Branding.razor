@@ -54,10 +54,6 @@ else
         </div>
         <div class="artist-actions">
             <button class="btn primary" @onclick="QueueJingleAsync">Queue Jingle</button>
-            @if (ActiveJingle is { } active)
-            {
-                <div class="queue-box">Recording • @active.Label</div>
-            }
             @if (QueuedJingleCount > 0)
             {
                 <div class="queue-box">Queue • @QueuedJingleCount jingle@(QueuedJingleCount == 1 ? "" : "s")</div>
@@ -71,7 +67,7 @@ else
 
     <div class="panel reveal">
         <div class="panel-label">Jingle Library</div>
-        @if (_branding.Jingles.Count == 0 && _jingleQueue.Count == 0)
+        @if (_branding.Jingles.Count == 0 && !RecordingJingleRows.Any())
         {
             <div class="empty-state">no jingles generated yet</div>
         }
@@ -83,12 +79,12 @@ else
                     <div class="library-head-title">Label</div>
                     <span class="library-length-cell num">Length</span>
                     <span class="library-plays-cell num">Uses</span>
-                    <span class="library-votes-cell">Active</span>
                     <span class="library-created-cell">Created</span>
                     <span class="library-delete-cell"></span>
+                    <span class="library-votes-cell">Active</span>
                 </div>
 
-                @foreach (var item in VisibleJingleQueue)
+                @foreach (var item in RecordingJingleRows)
                 {
                     <div class="library-song-grid jingle-song-grid library-song-item jingle-song-item generating-row">
                         <div class="library-action-cell">
@@ -99,7 +95,6 @@ else
                         </div>
                         <div class="library-title-line" title="@item.Label">
                             <span class="track-title">@item.Label</span>
-                            <span class="tag @QueueTag(item)">@QueueLabel(item)</span>
                         </div>
                         <div class="library-recording-status">
                             <span>@item.Style</span>
@@ -109,6 +104,9 @@ else
                                 <span>@item.Error</span>
                             }
                         </div>
+                        <div class="library-length-cell"></div>
+                        <div class="library-plays-cell"></div>
+                        <div class="library-created-cell"></div>
                         <div class="library-delete-cell">
                             @if (item.State != JingleQueueState.Recording)
                             {
@@ -116,6 +114,7 @@ else
                                         @onclick="() => RemoveQueuedJingle(item)"><Icon Name="trash" /></button>
                             }
                         </div>
+                        <div class="library-votes-cell"></div>
                     </div>
                 }
 
@@ -138,14 +137,15 @@ else
                         </div>
                         <div class="library-length-cell num">@FormatDuration(jingle.DurationSeconds)</div>
                         <div class="library-plays-cell num">@jingle.PlayCount</div>
-                        <div class="library-votes-cell">
-                            <button class="btn small jingle-toggle-btn @(jingle.IsActive ? "active" : null)" title="@(jingle.IsActive ? "disable jingle" : "enable jingle")"
-                                    @onclick="() => ToggleJingleAsync(jingle.Id)">@(jingle.IsActive ? "active" : "off")</button>
-                        </div>
                         <div class="library-created-cell dim" title="@createdLocal.ToString("dd.MM.yyyy HH:mm")">@createdLocal.ToString("dd.MM.")</div>
                         <div class="library-delete-cell">
                             <button class="btn small vote-down" title="delete this jingle"
                                     @onclick="() => _deleteTarget = jingle"><Icon Name="trash" /></button>
+                        </div>
+                        <div class="library-votes-cell">
+                            <UiSwitch Value="@jingle.IsActive"
+                                      ValueChanged="@(_ => ToggleJingleAsync(jingle.Id))"
+                                      Title="@(jingle.IsActive ? "disable jingle" : "enable jingle")" />
                         </div>
                     </div>
                 }
@@ -187,11 +187,12 @@ else
     private string _jingleStyle = "warm analog FM, memorable sonic logo, tight drums, bright synth tag";
     private int _jingleDuration = 10;
 
-    private QueuedJingle? ActiveJingle => _jingleQueue.FirstOrDefault(item => item.State == JingleQueueState.Recording);
-
     private int QueuedJingleCount => _jingleQueue.Count(item => item.State == JingleQueueState.Queued);
 
-    private IEnumerable<QueuedJingle> VisibleJingleQueue => _jingleQueue.OrderBy(item => item.Id);
+    private IEnumerable<QueuedJingle> RecordingJingleRows
+        => _jingleQueue
+            .Where(item => item.State == JingleQueueState.Recording)
+            .OrderBy(item => item.Id);
 
     protected override async Task OnInitializedAsync()
     {
@@ -377,21 +378,6 @@ else
         var compact = error.ReplaceLineEndings(" ").Trim();
         return compact.Length <= 180 ? compact : $"{compact[..180]}...";
     }
-
-    private static string QueueLabel(QueuedJingle item) => item.State switch
-    {
-        JingleQueueState.Queued => "queued",
-        JingleQueueState.Recording => "recording",
-        JingleQueueState.Failed => "failed",
-        _ => "queued",
-    };
-
-    private static string? QueueTag(QueuedJingle item) => item.State switch
-    {
-        JingleQueueState.Recording => "red",
-        JingleQueueState.Failed => "red",
-        _ => "amber",
-    };
 
     private static string FormatDuration(double seconds)
         => seconds >= 60

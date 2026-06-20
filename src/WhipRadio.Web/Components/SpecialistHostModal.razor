@@ -12,7 +12,9 @@
     </ChildContent>
     <Footer>
         <button class="btn small" @onclick="CloseAsync">Cancel</button>
-        <button class="btn small specialist-create-btn" disabled="@_submitting" @onclick="CreateAsync">Create @RoleLabel Host</button>
+        <button class="btn small specialist-create-btn @(_submitting ? "working-button" : null)"
+                disabled="@_submitting"
+                @onclick="CreateAsync">@(_submitting ? "Creating..." : $"Create {RoleLabel} Host")</button>
     </Footer>
 </Modal>
 
@@ -45,14 +47,13 @@
 
         _submitting = true;
         var hint = string.IsNullOrWhiteSpace(_hint) ? null : _hint.Trim();
-        await OnClose.InvokeAsync();
         try
         {
             await HostRequested.InvokeAsync(hint);
         }
         finally
         {
-            Reset();
+            _submitting = false;
         }
     }
 

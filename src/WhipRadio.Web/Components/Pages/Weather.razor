@@ -23,7 +23,10 @@ else
                 <strong>Weather reports</strong>
                 <div class="dim">When news is enabled, weather is appended to the top-of-hour package.</div>
             </div>
-            <div class="switch big @(_enabled ? "on" : null)" @onclick="() => _enabled = !_enabled"></div>
+            <UiSwitch Value="@_enabled"
+                      ValueChanged="ToggleWeatherEnabledAsync"
+                      Size="SwitchSize.Big"
+                      Title="@(_enabled ? "Weather enabled" : "Weather off")" />
         </div>
         <div class="form-grid">
             <div class="field">
@@ -53,10 +56,9 @@ else
             </div>
             <div class="field">
                 <label>Full handover</label>
-                <select @bind="_fullHandover">
-                    <option value="false">off</option>
-                    <option value="true">on</option>
-                </select>
+                <UiSwitch Value="@_fullHandoverEnabled"
+                          ValueChanged="ToggleFullHandoverAsync"
+                          Title="@(_fullHandoverEnabled ? "Full handover on" : "Full handover off")" />
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_weather.WarningText))
@@ -97,7 +99,7 @@ else
     private bool _enabled = true;
     private int _cadence = 60;
     private string _hostId = "";
-    private string _fullHandover = "false";
+    private bool _fullHandoverEnabled;
     private string _locationName = "New York, US";
     private double _latitude = 40.7128;
     private double _longitude = -74.0060;
@@ -129,7 +131,7 @@ else
         _enabled = _weather.WeatherEnabled;
         _cadence = _weather.WeatherCadenceMinutes;
         _hostId = _weather.WeatherSpecialistModeratorId?.ToString() ?? "";
-        _fullHandover = _weather.WeatherFullHandoverEnabled.ToString().ToLowerInvariant();
+        _fullHandoverEnabled = _weather.WeatherFullHandoverEnabled;
         _locationName = _weather.WeatherLocationName;
         _latitude = _weather.WeatherLatitude;
         _longitude = _weather.WeatherLongitude;
@@ -141,10 +143,39 @@ else
             _enabled,
             _cadence,
             int.TryParse(_hostId, out var hostId) ? hostId : null,
-            _fullHandover == "true",
+            _fullHandoverEnabled,
             _locationName,
             _latitude,
             _longitude));
+        _weather = weather ?? _weather;
+        _error = error;
+        _saved = error is null;
+        await LoadAsync();
+    }
+
+    private async Task ToggleWeatherEnabledAsync(bool enabled)
+    {
+        _enabled = enabled;
+        await SaveSwitchAsync(weatherEnabled: enabled);
+    }
+
+    private async Task ToggleFullHandoverAsync(bool enabled)
+    {
+        _fullHandoverEnabled = enabled;
+        await SaveSwitchAsync(fullHandoverEnabled: enabled);
+    }
+
+    private async Task SaveSwitchAsync(bool? weatherEnabled = null, bool? fullHandoverEnabled = null)
+    {
+        var source = _weather;
+        var (weather, error) = await Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
+            weatherEnabled ?? source?.WeatherEnabled ?? _enabled,
+            source?.WeatherCadenceMinutes ?? _cadence,
+            source?.WeatherSpecialistModeratorId,
+            fullHandoverEnabled ?? source?.WeatherFullHandoverEnabled ?? _fullHandoverEnabled,
+            source?.WeatherLocationName ?? _locationName,
+            source?.WeatherLatitude ?? _latitude,
+            source?.WeatherLongitude ?? _longitude));
         _weather = weather ?? _weather;
         _error = error;
         _saved = error is null;
@@ -179,6 +210,7 @@ else
             _moderators = await Api.GetModeratorsAsync();
             _hostId = host.Id.ToString();
             await SaveAsync();
+            _specialistModalOpen = false;
         }
         finally
         {

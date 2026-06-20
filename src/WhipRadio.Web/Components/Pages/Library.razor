@@ -30,7 +30,7 @@
                 <div class="artist-item artist-item-pending @(pending.Status == PendingArtistCreationStatus.Failed ? "failed" : null)" aria-live="polite">
                     <span class="artist-name-line">
                         <span class="artist-name">@PendingArtistTitle(pending)</span>
-                        <span class="tag @PendingArtistTag(pending)">@PendingArtistStatusText(pending)</span>
+                        <StatusBadge Text="@PendingArtistStatusText(pending)" />
                     </span>
                     <span class="artist-meta-row">
                         <span class="artist-meta dim">@(pending.Error ?? pending.Hint)</span>
@@ -45,22 +45,22 @@
                         <span class="artist-name">@artist.Name</span>
                         @if (artist.IsRetired)
                         {
-                            <span class="tag red">retired</span>
+                            <StatusBadge Text="retired" />
                         }
                     </span>
                     <span class="artist-meta-row">
                         <span class="artist-meta dim">@artist.Subgenre • @artist.TrackCount songs</span>
                         @if (IsGenerating(artist.Id))
                         {
-                            <span class="tag red"><span class="blink rec-dot">●</span> REC</span>
+                            <StatusBadge Text="REC" Pulse="true" />
                         }
                         else if (IsQueued(artist.Id))
                         {
-                            <span class="tag amber">queue</span>
+                            <StatusBadge Text="queue" />
                         }
                         @if (RedefinitionFor(artist.Id) is { } redefine)
                         {
-                            <span class="tag @PendingRedefinitionTag(redefine)">@PendingRedefinitionStatusText(redefine)</span>
+                            <StatusBadge Text="@PendingRedefinitionStatusText(redefine)" />
                         }
                     </span>
                 </button>
@@ -80,7 +80,7 @@
                             <div class="artist-title">@artist.Name
                                 @if (artist.IsRetired)
                                 {
-                                    <span class="tag red">retired</span>
+                                    <StatusBadge Text="retired" />
                                 }
                             </div>
                             <div class="dim" style="margin-bottom:8px">
@@ -208,8 +208,6 @@
                                         <span>@genName</span>
                                         <span class="library-meta-dot">•</span>
                                     }
-                                    <span>recording</span>
-                                    <span class="library-meta-dot">•</span>
                                     <span><StudioJobStatus StartedAtUtc="@_status?.StartedAtUtc" /></span>
                                 </div>
                                 <div class="library-delete-cell">
@@ -235,11 +233,11 @@
                                     <span class="track-title">@track.Title</span>
                                     @if (track.IsRetired)
                                     {
-                                        <span class="tag red">retired</span>
+                                        <StatusBadge Text="retired" />
                                     }
                                     @if (track.DeletionPending)
                                     {
-                                        <span class="tag red">delete queued</span>
+                                        <StatusBadge Text="delete queued" />
                                     }
                                     @if (track.HasVocals)
                                     {
@@ -811,9 +809,6 @@
             _ => "queued",
         };
 
-    private static string PendingArtistTag(PendingArtistCreation pending)
-        => pending.Status == PendingArtistCreationStatus.Failed ? "red" : "amber";
-
     private static string PendingRedefinitionStatusText(PendingArtistRedefinition pending)
         => pending.Status switch
         {
@@ -821,9 +816,6 @@
             PendingArtistRedefinitionStatus.Failed => "failed",
             _ => "redefine queue",
         };
-
-    private static string PendingRedefinitionTag(PendingArtistRedefinition pending)
-        => pending.Status == PendingArtistRedefinitionStatus.Failed ? "red" : "amber";
 
     private static string CleanApiError(string? error)
     {

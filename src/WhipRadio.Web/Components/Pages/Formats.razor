@@ -33,7 +33,7 @@ else
                     }
                     @if (format.NextOnAir is not null)
                     {
-                        <span class="tag green">next @format.NextOnAir</span>
+                        <StatusBadge Text="@($"next {format.NextOnAir}")" Tone="StatusBadgeTone.Green" />
                     }
                     <span class="tag">@(format.TalkDensity < 0.35 ? "music-heavy" : format.TalkDensity > 0.65 ? "talk-heavy" : "balanced")</span>
                     <span class="tag">@TalkDepthLabel(format.TalkDepth)</span>
@@ -47,9 +47,9 @@ else
                         <button class="btn small vote-up" @onclick="() => VoteAsync(format.Id, 1)">👍 @format.UpVotes</button>
                         <button class="btn small vote-down" @onclick="() => VoteAsync(format.Id, -1)">👎 @format.DownVotes</button>
                     </div>
-                    <div class="switch @(format.IsEnabled ? "on" : null)"
-                         title="Turn off: the director will assign a replacement over time, not instantly"
-                         @onclick="() => ToggleAsync(format.Id)"></div>
+                    <UiSwitch Value="@format.IsEnabled"
+                              ValueChanged="@(_ => ToggleAsync(format.Id))"
+                              Title="Turn off: the director will assign a replacement over time, not instantly" />
                 </footer>
             </div>
         }

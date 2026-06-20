@@ -24,7 +24,10 @@ else
                 <strong>Top-of-hour news</strong>
                 <div class="dim">One rewritten presenter bulletin from configured sources. Weather is appended when enabled.</div>
             </div>
-            <div class="switch big @(_newsEnabled ? "on" : null)" @onclick="() => _newsEnabled = !_newsEnabled"></div>
+            <UiSwitch Value="@_newsEnabled"
+                      ValueChanged="ToggleNewsEnabledAsync"
+                      Size="SwitchSize.Big"
+                      Title="@(_newsEnabled ? "News enabled" : "News off")" />
         </div>
         <div class="form-grid">
             <div class="field">
@@ -57,10 +60,9 @@ else
             <div class="field"><label>Intro grace (s)</label><input type="number" min="0" max="60" @bind="_introGrace" /></div>
             <div class="field">
                 <label>Article extraction</label>
-                <select @bind="_extract">
-                    <option value="true">enabled</option>
-                    <option value="false">disabled</option>
-                </select>
+                <UiSwitch Value="@_extractEnabled"
+                          ValueChanged="ToggleNewsExtractionAsync"
+                          Title="@(_extractEnabled ? "Article extraction enabled" : "Article extraction disabled")" />
             </div>
             <div class="field">
                 <label>Category order</label>
@@ -126,11 +128,9 @@ else
                                 </button>
                             </td>
                             <td>
-                                <div class="switch @(feed.IsEnabled ? "on" : null)"
-                                     role="switch"
-                                     aria-checked="@feed.IsEnabled"
-                                     title="@(feed.IsEnabled ? "active" : "inactive")"
-                                     @onclick="() => ToggleFeedAsync(feed.Id)"></div>
+                                <UiSwitch Value="@feed.IsEnabled"
+                                          ValueChanged="@(_ => ToggleFeedAsync(feed.Id))"
+                                          Title="@(feed.IsEnabled ? "active" : "inactive")" />
                             </td>
                         </tr>
                     }
@@ -164,7 +164,7 @@ else
                     {
                         <tr title="@package.FailureReason">
                             <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
-                            <td><span class="tag @PackageTag(package.Status)">@package.Status</span></td>
+                            <td><StatusBadge Text="@package.Status" /></td>
                             <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
                             <td class="news-package-actions">
                                 @if (package.AnnouncementId is { } announcementId)
@@ -218,10 +218,10 @@ else
                 <strong>Active feed</strong>
                 <div class="dim">Included when the next news package pulls fresh stories.</div>
             </div>
-            <div class="switch big @(_feedEnabled ? "on" : null)"
-                 role="switch"
-                 aria-checked="@_feedEnabled"
-                 @onclick="() => _feedEnabled = !_feedEnabled"></div>
+            <UiSwitch Value="@_feedEnabled"
+                      ValueChanged="@((bool value) => _feedEnabled = value)"
+                      Size="SwitchSize.Big"
+                      Title="@(_feedEnabled ? "Feed active" : "Feed inactive")" />
         </div>
         @if (_feedError is not null)
         {
@@ -234,7 +234,7 @@ else
             <button class="btn small danger feed-delete-action" @onclick="AskDeleteCurrentFeed">Delete</button>
         }
         <button class="btn small" @onclick="CloseFeedModal">Cancel</button>
-        <button class="btn primary" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
+        <button class="btn small primary" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
     </Footer>
 </Modal>
 
@@ -271,7 +271,7 @@ else
     private Guid? _packageActionId;
 
     private bool _newsEnabled = true;
-    private string _extract = "true";
+    private bool _extractEnabled = true;
     private int _cadence = 60;
     private int _maxDuration = 300;
     private string _presenterId = "";
@@ -312,7 +312,7 @@ else
         }
 
         _newsEnabled = _news.NewsEnabled;
-        _extract = _news.NewsExtractionEnabled.ToString().ToLowerInvariant();
+        _extractEnabled = _news.NewsExtractionEnabled;
         _cadence = _news.NewsPackageCadenceMinutes;
         _maxDuration = _news.NewsPackageMaxDurationSeconds;
         _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";
@@ -326,7 +326,7 @@ else
         _error = null;
         _error = await Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
             _newsEnabled,
-            _extract == "true",
+            _extractEnabled,
             _cadence,
             _maxDuration,
             int.TryParse(_presenterId, out var presenterId) ? presenterId : null,
@@ -335,6 +335,38 @@ else
             ParseCategoryOrder(_categoryOrderText)));
         _settingsSaved = _error is null;
         await LoadAsync();
+    }
+
+    private async Task ToggleNewsEnabledAsync(bool enabled)
+    {
+        _newsEnabled = enabled;
+        _error = await SaveProductionSettingsCoreAsync(newsEnabled: enabled);
+        _settingsSaved = _error is null;
+        await LoadAsync();
+    }
+
+    private async Task ToggleNewsExtractionAsync(bool enabled)
+    {
+        _extractEnabled = enabled;
+        _error = await SaveProductionSettingsCoreAsync(newsExtractionEnabled: enabled);
+        _settingsSaved = _error is null;
+        await LoadAsync();
+    }
+
+    private Task<string?> SaveProductionSettingsCoreAsync(
+        bool? newsEnabled = null,
+        bool? newsExtractionEnabled = null)
+    {
+        var source = _news;
+        return Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
+            newsEnabled ?? source?.NewsEnabled ?? _newsEnabled,
+            newsExtractionEnabled ?? source?.NewsExtractionEnabled ?? _extractEnabled,
+            source?.NewsPackageCadenceMinutes ?? _cadence,
+            source?.NewsPackageMaxDurationSeconds ?? _maxDuration,
+            source?.NewsPresenterModeratorId,
+            source?.TopOfHourFadeOutSeconds ?? _fadeOut,
+            source?.TopOfHourIntroGraceSeconds ?? _introGrace,
+            source?.NewsCategoryOrder ?? ParseCategoryOrder(_categoryOrderText)));
     }
 
     private async Task SaveFeedAsync()
@@ -491,6 +523,7 @@ else
                 _moderators = await Api.GetModeratorsAsync();
                 _presenterId = host.Id.ToString();
                 await SaveSettingsAsync();
+                _specialistModalOpen = false;
             }
             else
             {
@@ -529,15 +562,6 @@ else
 
         await LoadAsync();
     }
-
-    private static string? PackageTag(string status)
-        => status switch
-        {
-            "Pending" or "Ready" or "Queued" => "amber",
-            "Played" => "green",
-            "Failed" => "red",
-            _ => null,
-        };
 
     private static bool CanRecreatePackage(NewsPackageDto package)
         => package.Status is "Pending" or "Ready" or "Failed";

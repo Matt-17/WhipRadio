@@ -21,14 +21,21 @@ else
                 <strong>On Air</strong>
                 <div class="dim">Stops/starts the playout engine. Off air = the Icecast mount goes quiet.</div>
             </div>
-            <div class="switch big @(_settings.PlayoutEnabled ? "on" : null)" @onclick="TogglePlayoutAsync"></div>
+            <UiSwitch Value="@_settings.PlayoutEnabled"
+                      ValueChanged="@(_ => TogglePlayoutAsync())"
+                      Size="SwitchSize.Big"
+                      Tone="SwitchTone.Red"
+                      Title="@(_settings.PlayoutEnabled ? "On air" : "Off air")" />
         </div>
         <div class="admin-row">
             <div>
                 <strong>Music Production</strong>
                 <div class="dim">Stops/starts generating new tracks. Production also pauses automatically at @_settings.MaxLibrarySize tracks.</div>
             </div>
-            <div class="switch big @(_settings.MusicProductionEnabled ? "on" : null)" @onclick="ToggleMusicAsync"></div>
+            <UiSwitch Value="@_settings.MusicProductionEnabled"
+                      ValueChanged="@(_ => ToggleMusicAsync())"
+                      Size="SwitchSize.Big"
+                      Title="@(_settings.MusicProductionEnabled ? "Music production enabled" : "Music production off")" />
         </div>
         <div class="admin-row">
             <div>
@@ -37,7 +44,7 @@ else
             </div>
             <button class="btn" @onclick="RunDirectorAsync">@(_directorKicked ? "✓ running…" : "Run now")</button>
         </div>
-        <div class="dim" style="margin-top:10px; font-size:12.5px">
+            <div class="dim note-copy top-gap">
             Real-time transitions, crossfades and talk-overs are managed on the <a href="/mixer">Mixer page</a>.
         </div>
     </div>
@@ -52,7 +59,10 @@ else
                     History and overrides live on the <a href="/messages">Messages page</a>.
                 </div>
             </div>
-            <div class="switch big @(_settings.GreetingsEnabled ? "on" : null)" @onclick="ToggleGreetingsAsync"></div>
+            <UiSwitch Value="@_settings.GreetingsEnabled"
+                      ValueChanged="@(_ => ToggleGreetingsAsync())"
+                      Size="SwitchSize.Big"
+                      Title="@(_settings.GreetingsEnabled ? "Greetings enabled" : "Greetings off")" />
         </div>
     </div>
 
@@ -64,7 +74,7 @@ else
             <div class="field"><label>Min track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MinDuration" /></div>
             <div class="field"><label>Max track length (s)</label><input type="number" min="30" max="600" @bind="_settings_MaxDuration" /></div>
         </div>
-        <div class="dim" style="margin-bottom:12px; font-size:12.5px">
+        <div class="dim note-copy bottom-gap">
             Music AIs and voice booths are managed on the <a href="/studios">Studios page</a>.
         </div>
         <div class="btn-row">

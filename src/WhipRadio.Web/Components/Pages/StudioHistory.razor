@@ -97,7 +97,7 @@
                             {
                                 <tr class="@SelectedClass(entry)" @onclick="() => Select(entry)">
                                     <td style="width:94px" class="dim">@LocalStamp(entry.StartedAtUtc)</td>
-                                    <td style="width:92px"><span class="tag @StatusClass(entry.Status)">@StatusLabel(entry.Status)</span></td>
+                                    <td style="width:92px"><StatusBadge Text="@StatusLabel(entry.Status)" /></td>
                                     <td style="width:150px">
                                         <strong>@entry.StudioName</strong>
                                         <div class="dim history-row-sub">@entry.Provider</div>
@@ -135,7 +135,7 @@
                         <div class="history-detail-title">@_selected.Operation</div>
                         <div class="history-detail-sub">
                             <span>@_selected.StudioName - @_selected.Provider</span>
-                            <span class="tag @StatusClass(_selected.Status)">@_selected.Status</span>
+                            <StatusBadge Text="@_selected.Status" />
                         </div>
                     </div>
                     <div class="history-detail-summary">
@@ -481,15 +481,6 @@
 
     private string SelectedClass(StudioHistoryEntryDto entry)
         => _selected?.Id == entry.Id ? "selected" : "";
-
-    private static string StatusClass(string status)
-        => status switch
-        {
-            "Running" => "amber",
-            "Succeeded" => "green",
-            "Failed" => "red",
-            _ => "",
-        };
 
     private static string StatusLabel(string status)
         => status switch

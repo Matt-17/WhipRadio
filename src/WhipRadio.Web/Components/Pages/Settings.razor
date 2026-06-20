@@ -34,64 +34,11 @@ else
         </div>
     </div>
 
-    <div class="panel reveal">
-        <div class="panel-label">Speech And Automation</div>
-        <div class="form-grid">
-            <div class="field"><label>Announcement every N tracks</label><input type="number" min="0" max="10" @bind="_announceEvery" /></div>
-            <div class="field">
-                <label>Breath markers in speech</label>
-                <select @bind="_breath">
-                    <option value="false">off (recommended)</option>
-                    <option value="true">on</option>
-                </select>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel reveal">
-        <div class="panel-label">AI Providers</div>
-        <div class="form-grid">
-            <div class="field">
-                <label>Music &amp; Voice</label>
-                <div class="dim" style="font-size:12.5px; padding-top:10px">
-                    Recording studios and voice booths are managed on the <a href="/studios">Studios page</a>.
-                </div>
-            </div>
-            <div class="field">
-                <label>Text Provider (scripts, titles, director)</label>
-                <select @bind="_textProvider">
-                    <option value="ollama">Ollama (local, default)</option>
-                    <option value="openai">OpenAI (cloud)</option>
-                </select>
-            </div>
-            @if (_textProvider == "openai")
-            {
-                <div class="field"><label>OpenAI API Key</label><input type="password" @bind="_openAiKey" placeholder="sk-…" /></div>
-                <div class="field"><label>OpenAI Model</label><input @bind="_openAiModel" placeholder="gpt-4o-mini" /></div>
-            }
-            <div class="field">
-                <label>ElevenLabs TTS (cloud voices)</label>
-                <select @bind="_elevenLabs">
-                    <option value="false">disabled</option>
-                    <option value="true">enabled</option>
-                </select>
-            </div>
-            @if (_elevenLabs == "true")
-            {
-                <div class="field"><label>ElevenLabs API Key</label><input type="password" @bind="_elevenLabsKey" placeholder="xi-…" /></div>
-            }
-        </div>
-        <div class="dim" style="font-size:12.5px">
-            With ElevenLabs enabled, new hosts created with the elevenlabs engine get a designed
-            voice; local engines stay available for offline production.
-        </div>
-    </div>
-
-    <div class="btn-row" style="margin-top:22px">
+    <div class="btn-row block-end">
         <button class="btn primary" @onclick="SaveAsync">Save to Console</button>
         @if (_saved)
         {
-            <span class="flash">✓ settings stored — applied within ~15 seconds</span>
+            <span class="flash">✓ settings stored</span>
         }
     </div>
 }
@@ -103,13 +50,6 @@ else
     private string _defaultLanguage = "en";
     private double _frequencyMhz = 104.4;
     private int _firstDayOfWeek = 1;
-    private int _announceEvery = 1;
-    private string _breath = "false";
-    private string _textProvider = "ollama";
-    private string _openAiKey = "";
-    private string _openAiModel = "gpt-4o-mini";
-    private string _elevenLabs = "false";
-    private string _elevenLabsKey = "";
 
     protected override async Task OnInitializedAsync()
     {
@@ -119,20 +59,11 @@ else
             _defaultLanguage = _settings.DefaultLanguage;
             _frequencyMhz = _settings.FrequencyMhz;
             _firstDayOfWeek = _settings.FirstDayOfWeek;
-            _announceEvery = _settings.AnnouncementEveryNTracks;
-            _breath = _settings.EnableBreathMarkers.ToString().ToLowerInvariant();
-            _textProvider = _settings.TextProvider;
-            _openAiKey = _settings.OpenAiApiKey;
-            _openAiModel = _settings.OpenAiModel;
-            _elevenLabs = _settings.ElevenLabsEnabled.ToString().ToLowerInvariant();
-            _elevenLabsKey = _settings.ElevenLabsApiKey;
         }
     }
 
     private async Task SaveAsync()
     {
-        // Re-fetch first: only this page's fields are applied on top of the
-        // freshest server state — a stale snapshot must not revert other settings.
         var fresh = await Api.GetSettingsAsync();
         if (fresh is null)
         {
@@ -144,13 +75,6 @@ else
             DefaultLanguage = _defaultLanguage,
             FrequencyMhz = _frequencyMhz,
             FirstDayOfWeek = _firstDayOfWeek,
-            AnnouncementEveryNTracks = _announceEvery,
-            EnableBreathMarkers = _breath == "true",
-            TextProvider = _textProvider,
-            OpenAiApiKey = _openAiKey,
-            OpenAiModel = _openAiModel,
-            ElevenLabsEnabled = _elevenLabs == "true",
-            ElevenLabsApiKey = _elevenLabsKey,
         });
         _saved = true;
     }

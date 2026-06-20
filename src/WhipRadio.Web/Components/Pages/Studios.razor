@@ -19,7 +19,7 @@
 }
 else
 {
-    <div class="btn-row reveal" style="margin-bottom:20px">
+    <div class="btn-row reveal panel-gap">
         <button class="btn" @onclick="@(() => OpenCreate("WriterRoom"))">+ add writer room</button>
         <button class="btn" @onclick="@(() => OpenCreate("Recording"))">+ connect studio</button>
         <button class="btn" @onclick="@(() => OpenCreate("VoiceBooth"))">+ connect booth</button>
@@ -54,13 +54,13 @@ else
                                     <div class="studio-name-line">
                                         <strong>@studio.Name</strong><span class="dim"> &bull; @(string.IsNullOrEmpty(studio.Url) ? "online API" : studio.Url)</span>
                                     </div>
-                                    <div class="dim" style="font-size:11px">@ProviderLabel(studio)</div>
+                                    <div class="dim micro-copy">@ProviderLabel(studio)</div>
                                 </td>
                                 <td class="studio-state-cell">
                                     @if (studio.CurrentJob is { } job)
                                     {
                                         <div class="studio-job-line">
-                                            <span class="tag red"><span class="blink rec-dot">●</span> @BusyLabel(studio.Kind)</span>
+                                            <StatusBadge Text="@BusyLabel(studio.Kind)" />
                                             <span class="studio-job-title" title="@job">@job</span>
                                         </div>
                                         <div class="dim studio-job-time">
@@ -70,11 +70,11 @@ else
                                     }
                                     else if (studio.IsActive)
                                     {
-                                        <span class="tag @RuntimeTag(studio)">@RuntimeLabel(studio)</span>
+                                        <StatusBadge Text="@RuntimeLabel(studio)" />
                                     }
                                     else
                                     {
-                                        <span class="tag">off</span>
+                                        <StatusBadge Text="off" />
                                     }
                                 </td>
                                 <td style="width:58px; text-align:center">
@@ -90,9 +90,9 @@ else
                                                 @onclick="() => AskRestart(studio)">restart</button>
                                     }
                                     <button class="btn small" @onclick="() => StartEdit(studio)">edit</button>
-                                    <div class="switch @(studio.IsActive ? "on" : null)" title="active"
-                                         style="display:inline-block; vertical-align:middle"
-                                         @onclick="() => ToggleAsync(studio.Id)"></div>
+                                    <UiSwitch Value="@studio.IsActive"
+                                              ValueChanged="@(_ => ToggleAsync(studio.Id))"
+                                              Title="@(studio.IsActive ? "active" : "inactive")" />
                                 </td>
                             </tr>
                         }
@@ -180,10 +180,10 @@ else
                 <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
                     @(_editId is null ? "Create" : "Save")
                 </button>
-                <button class="btn small" @onclick="CloseForm">cancel</button>
+                <button class="btn" @onclick="CloseForm">cancel</button>
                 @if (_editId is { } editId)
                 {
-                    <button class="btn small vote-down" style="margin-left:auto" @onclick="() => DeleteAsync(editId)">delete</button>
+                    <button class="btn vote-down push-right" @onclick="() => DeleteAsync(editId)">delete</button>
                 }
                 @if (_saveError is not null)
                 {
@@ -328,14 +328,6 @@ else
             "offline" => "offline",
             "unknown" => "checking",
             _ => studio.RuntimeStatus,
-        };
-
-    private static string? RuntimeTag(StudioDto studio)
-        => studio.RuntimeStatus switch
-        {
-            "ready" => "green",
-            "offline" => "red",
-            _ => null,
         };
 
     private static string ProviderLabel(StudioDto studio)
