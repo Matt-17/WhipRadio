@@ -8,7 +8,7 @@
 <PageTitle>WhipRadio - Weather</PageTitle>
 
 <h1 class="stage-title">Weather</h1>
-<div class="stage-sub">forecast package settings and host assignment</div>
+<div class="stage-sub">forecast host assignment and location</div>
 
 @if (_weather is null)
 {
@@ -17,7 +17,7 @@
 else
 {
     <div class="panel reveal">
-        <div class="panel-label">Weather Package</div>
+        <div class="panel-label">Weather Settings</div>
         <div class="admin-row">
             <div>
                 <strong>Weather reports</strong>
@@ -44,15 +44,6 @@ else
                 <button class="btn specialist-create-btn specialist-create-launch-btn" disabled="@_creatingHost" @onclick="OpenSpecialistHostModal">
                     Create Weather Host
                 </button>
-            </div>
-            <div class="field">
-                <label>Cadence</label>
-                <select @bind="_cadence">
-                    <option value="30">every 30 minutes</option>
-                    <option value="60">hourly</option>
-                    <option value="120">every 2 hours</option>
-                    <option value="180">every 3 hours</option>
-                </select>
             </div>
             <div class="field">
                 <label>Full handover</label>
@@ -97,7 +88,6 @@ else
     private WeatherProductionDto? _weather;
     private List<ModeratorDto> _moderators = [];
     private bool _enabled = true;
-    private int _cadence = 60;
     private string _hostId = "";
     private bool _fullHandoverEnabled;
     private string _locationName = "New York, US";
@@ -129,7 +119,6 @@ else
         }
 
         _enabled = _weather.WeatherEnabled;
-        _cadence = _weather.WeatherCadenceMinutes;
         _hostId = _weather.WeatherSpecialistModeratorId?.ToString() ?? "";
         _fullHandoverEnabled = _weather.WeatherFullHandoverEnabled;
         _locationName = _weather.WeatherLocationName;
@@ -141,7 +130,7 @@ else
     {
         var (weather, error) = await Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
             _enabled,
-            _cadence,
+            _weather?.WeatherCadenceMinutes ?? 60,
             int.TryParse(_hostId, out var hostId) ? hostId : null,
             _fullHandoverEnabled,
             _locationName,
@@ -170,7 +159,7 @@ else
         var source = _weather;
         var (weather, error) = await Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
             weatherEnabled ?? source?.WeatherEnabled ?? _enabled,
-            source?.WeatherCadenceMinutes ?? _cadence,
+            source?.WeatherCadenceMinutes ?? 60,
             source?.WeatherSpecialistModeratorId,
             fullHandoverEnabled ?? source?.WeatherFullHandoverEnabled ?? _fullHandoverEnabled,
             source?.WeatherLocationName ?? _locationName,

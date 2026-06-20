@@ -4,12 +4,11 @@
 @implements IAsyncDisposable
 @inject RadioApiClient Api
 @inject ProductionLiveClient Live
-@inject PlayerState Player
 
 <PageTitle>WhipRadio - News</PageTitle>
 
 <h1 class="stage-title">News</h1>
-<div class="stage-sub">top-of-hour packages and editable RSS sources</div>
+<div class="stage-sub">news host assignment and editable RSS sources</div>
 
 @if (_news is null)
 {
@@ -18,7 +17,7 @@
 else
 {
     <div class="panel reveal">
-        <div class="panel-label">Package Settings</div>
+        <div class="panel-label">News Settings</div>
         <div class="admin-row">
             <div>
                 <strong>Top-of-hour news</strong>
@@ -46,18 +45,6 @@ else
                     Create News Host
                 </button>
             </div>
-            <div class="field">
-                <label>Cadence</label>
-                <select @bind="_cadence">
-                    <option value="30">every 30 minutes</option>
-                    <option value="60">hourly</option>
-                    <option value="120">every 2 hours</option>
-                    <option value="180">every 3 hours</option>
-                </select>
-            </div>
-            <div class="field"><label>Max package length (s)</label><input type="number" min="60" max="1800" @bind="_maxDuration" /></div>
-            <div class="field"><label>Fade out before package (s)</label><input type="number" step="0.25" min="0.25" max="10" @bind="_fadeOut" /></div>
-            <div class="field"><label>Intro grace (s)</label><input type="number" min="0" max="60" @bind="_introGrace" /></div>
             <div class="field">
                 <label>Article extraction</label>
                 <UiSwitch Value="@_extractEnabled"
@@ -138,59 +125,6 @@ else
             </table>
         }
     </div>
-
-    <div class="panel reveal">
-        <div class="news-feed-head">
-            <div class="panel-label">Recent Packages</div>
-            <button class="btn small" disabled="@_creatingPackage" @onclick="CreateNextPackageAsync">Create Next Package</button>
-        </div>
-        @if (_news.RecentPackages.Count == 0)
-        {
-            <div class="empty-state">no packages produced yet</div>
-        }
-        else
-        {
-            <table class="console-table">
-                <thead>
-                    <tr>
-                        <th style="width:155px">Target</th>
-                        <th style="width:95px">Status</th>
-                        <th>Sources</th>
-                        <th style="width:110px">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var package in _news.RecentPackages)
-                    {
-                        <tr title="@package.FailureReason">
-                            <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
-                            <td><StatusBadge Text="@package.Status" /></td>
-                            <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
-                            <td class="news-package-actions">
-                                @if (package.AnnouncementId is { } announcementId)
-                                {
-                                    <button class="btn small icon-only"
-                                            title="preview package in footer player"
-                                            @onclick="() => PlayPackage(package, announcementId)">
-                                        <Icon Name="play" />
-                                    </button>
-                                }
-                                @if (CanRecreatePackage(package))
-                                {
-                                    <button class="btn small icon-only"
-                                            disabled="@(_packageActionId == package.Id)"
-                                            title="recreate package"
-                                            @onclick="() => RecreatePackageAsync(package.Id)">
-                                        <Icon Name="refresh" />
-                                    </button>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        }
-    </div>
 }
 
 <Modal Visible="@_feedModalOpen"
@@ -255,16 +189,10 @@ else
     private bool _feedModalOpen;
     private bool _specialistModalOpen;
     private bool _creatingHost;
-    private bool _creatingPackage;
-    private Guid? _packageActionId;
 
     private bool _newsEnabled = true;
     private bool _extractEnabled = true;
-    private int _cadence = 60;
-    private int _maxDuration = 300;
     private string _presenterId = "";
-    private double _fadeOut = 1.0;
-    private int _introGrace = 10;
     private string _categoryOrderText = "general,business,technology,sports,culture,regional";
 
     private string _feedLabel = "";
@@ -299,11 +227,7 @@ else
 
         _newsEnabled = _news.NewsEnabled;
         _extractEnabled = _news.NewsExtractionEnabled;
-        _cadence = _news.NewsPackageCadenceMinutes;
-        _maxDuration = _news.NewsPackageMaxDurationSeconds;
         _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";
-        _fadeOut = _news.TopOfHourFadeOutSeconds;
-        _introGrace = _news.TopOfHourIntroGraceSeconds;
         _categoryOrderText = string.Join(",", _news.NewsCategoryOrder);
     }
 
@@ -313,11 +237,11 @@ else
         _error = await Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
             _newsEnabled,
             _extractEnabled,
-            _cadence,
-            _maxDuration,
+            _news?.NewsPackageCadenceMinutes ?? 60,
+            _news?.NewsPackageMaxDurationSeconds ?? 300,
             int.TryParse(_presenterId, out var presenterId) ? presenterId : null,
-            _fadeOut,
-            _introGrace,
+            _news?.TopOfHourFadeOutSeconds ?? 1.0,
+            _news?.TopOfHourIntroGraceSeconds ?? 10,
             ParseCategoryOrder(_categoryOrderText)));
         _settingsSaved = _error is null;
         await LoadAsync();
@@ -347,11 +271,11 @@ else
         return Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
             newsEnabled ?? source?.NewsEnabled ?? _newsEnabled,
             newsExtractionEnabled ?? source?.NewsExtractionEnabled ?? _extractEnabled,
-            source?.NewsPackageCadenceMinutes ?? _cadence,
-            source?.NewsPackageMaxDurationSeconds ?? _maxDuration,
+            source?.NewsPackageCadenceMinutes ?? 60,
+            source?.NewsPackageMaxDurationSeconds ?? 300,
             source?.NewsPresenterModeratorId,
-            source?.TopOfHourFadeOutSeconds ?? _fadeOut,
-            source?.TopOfHourIntroGraceSeconds ?? _introGrace,
+            source?.TopOfHourFadeOutSeconds ?? 1.0,
+            source?.TopOfHourIntroGraceSeconds ?? 10,
             source?.NewsCategoryOrder ?? ParseCategoryOrder(_categoryOrderText)));
     }
 
@@ -423,62 +347,6 @@ else
         await LoadAsync();
     }
 
-    private async Task CreateNextPackageAsync()
-    {
-        if (_creatingPackage)
-        {
-            return;
-        }
-
-        _creatingPackage = true;
-        _error = null;
-        await InvokeAsync(StateHasChanged);
-        try
-        {
-            var (_, error) = await Api.CreateNextNewsPackageAsync();
-            _error = error;
-            await LoadAsync();
-        }
-        finally
-        {
-            _creatingPackage = false;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private async Task RecreatePackageAsync(Guid id)
-    {
-        if (_packageActionId is not null)
-        {
-            return;
-        }
-
-        _packageActionId = id;
-        _error = null;
-        await InvokeAsync(StateHasChanged);
-        try
-        {
-            var (_, error) = await Api.RecreateNewsPackageAsync(id);
-            _error = error;
-            await LoadAsync();
-        }
-        finally
-        {
-            _packageActionId = null;
-            await InvokeAsync(StateHasChanged);
-        }
-    }
-
-    private void PlayPackage(NewsPackageDto package, Guid announcementId)
-    {
-        var title = $"News package {package.TargetUtc.ToLocalTime():ddd HH:mm}";
-        Player.PlayAnnouncement(
-            announcementId,
-            title,
-            Api.AnnouncementAudioUrl(announcementId),
-            package.TargetDurationSeconds);
-    }
-
     private void OpenSpecialistHostModal()
     {
         if (!_creatingHost)
@@ -545,9 +413,6 @@ else
         await LoadAsync();
     }
 
-    private static bool CanRecreatePackage(NewsPackageDto package)
-        => package.Status is "Pending" or "Ready" or "Failed";
-
     private static DateTime? AsUtc(DateTime? value)
         => value is null
             ? null
@@ -576,11 +441,6 @@ else
             "culture" => "category-culture",
             _ => "category-general",
         };
-
-    private static string Short(string value, int max)
-        => string.IsNullOrWhiteSpace(value)
-            ? "-"
-            : value.Length <= max ? value : $"{value[..Math.Max(0, max - 3)]}...";
 
     private static IReadOnlyList<string> ParseCategoryOrder(string value)
     {

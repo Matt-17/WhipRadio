@@ -1,0 +1,394 @@
+@page "/production"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IAsyncDisposable
+@inject RadioApiClient Api
+@inject ProductionLiveClient Live
+@inject PlayerState Player
+
+<PageTitle>WhipRadio - Production</PageTitle>
+
+<h1 class="stage-title">Production</h1>
+<div class="stage-sub">top-of-hour package timing, blocks, and recent package control</div>
+
+@if (_news is null || _weather is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading production...</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Top Of Hour</div>
+        <div class="form-grid">
+            <div class="field"><label>Max package length (s)</label><input type="number" min="60" max="1800" @bind="_maxDuration" /></div>
+            <div class="field"><label>Fade out before package (s)</label><input type="number" step="0.25" min="0.25" max="10" @bind="_fadeOut" /></div>
+            <div class="field"><label>Intro grace (s)</label><input type="number" min="0" max="60" @bind="_introGrace" /></div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(_news.WarningText) || !string.IsNullOrWhiteSpace(_weather.WarningText))
+        {
+            <div class="production-warning-stack">
+                @if (!string.IsNullOrWhiteSpace(_news.WarningText))
+                {
+                    <div class="production-warning">@_news.WarningText</div>
+                }
+                @if (!string.IsNullOrWhiteSpace(_weather.WarningText))
+                {
+                    <div class="production-warning">@_weather.WarningText</div>
+                }
+            </div>
+        }
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveAsync">Apply</button>
+            @if (_topHourSaved)
+            {
+                <span class="flash">applied</span>
+            }
+            @if (_error is not null)
+            {
+                <span class="dim">@_error</span>
+            }
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Blocks</div>
+        <div class="admin-row production-block-row">
+            <div>
+                <strong>News</strong>
+                <div class="dim">Presenter bulletin from configured RSS sources.</div>
+            </div>
+            <div class="field production-block-cadence">
+                <label>Cadence</label>
+                <select value="@_newsCadence" @onchange="SetNewsCadenceAsync">
+                    @foreach (var cadence in CadenceOptions)
+                    {
+                        <option value="@cadence.Value">@cadence.Label</option>
+                    }
+                </select>
+            </div>
+            <UiSwitch Value="@_newsEnabled"
+                      ValueChanged="ToggleNewsEnabledAsync"
+                      Size="SwitchSize.Big"
+                      Title="@(_newsEnabled ? "News enabled" : "News off")" />
+        </div>
+        <div class="admin-row production-block-row">
+            <div>
+                <strong>Weather</strong>
+                <div class="dim">Forecast report appended to top-of-hour packages.</div>
+            </div>
+            <div class="field production-block-cadence">
+                <label>Cadence</label>
+                <select value="@_weatherCadence" @onchange="SetWeatherCadenceAsync">
+                    @foreach (var cadence in CadenceOptions)
+                    {
+                        <option value="@cadence.Value">@cadence.Label</option>
+                    }
+                </select>
+            </div>
+            <UiSwitch Value="@_weatherEnabled"
+                      ValueChanged="ToggleWeatherEnabledAsync"
+                      Size="SwitchSize.Big"
+                      Title="@(_weatherEnabled ? "Weather enabled" : "Weather off")" />
+        </div>
+    </div>
+
+    <div class="panel reveal">
+        <div class="news-feed-head">
+            <div class="panel-label">Recent Packages</div>
+            <button class="btn small" disabled="@_creatingPackage" @onclick="CreateNextPackageAsync">Create Next Package</button>
+        </div>
+        @if (_news.RecentPackages.Count == 0)
+        {
+            <div class="empty-state">no packages produced yet</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <thead>
+                    <tr>
+                        <th style="width:155px">Target</th>
+                        <th style="width:95px">Status</th>
+                        <th>Sources</th>
+                        <th style="width:110px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var package in _news.RecentPackages)
+                    {
+                        <tr title="@package.FailureReason">
+                            <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
+                            <td><StatusBadge Text="@package.Status" /></td>
+                            <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
+                            <td class="news-package-actions">
+                                @if (package.AnnouncementId is { } announcementId)
+                                {
+                                    <button class="btn small icon-only"
+                                            title="preview package in footer player"
+                                            @onclick="() => PlayPackage(package, announcementId)">
+                                        <Icon Name="play" />
+                                    </button>
+                                }
+                                @if (CanRecreatePackage(package))
+                                {
+                                    <button class="btn small icon-only"
+                                            disabled="@(_packageActionId == package.Id)"
+                                            title="recreate package"
+                                            @onclick="() => RecreatePackageAsync(package.Id)">
+                                        <Icon Name="refresh" />
+                                    </button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+}
+
+@code {
+    private static readonly (int Value, string Label)[] CadenceOptions =
+    [
+        (30, "every 30 minutes"),
+        (60, "hourly"),
+        (120, "every 2 hours"),
+        (180, "every 3 hours"),
+    ];
+
+    private NewsProductionDto? _news;
+    private WeatherProductionDto? _weather;
+    private bool _newsEnabled = true;
+    private bool _weatherEnabled = true;
+    private int _newsCadence = 60;
+    private int _weatherCadence = 60;
+    private int _maxDuration = 300;
+    private double _fadeOut = 1.0;
+    private int _introGrace = 10;
+    private bool _topHourSaved;
+    private string? _error;
+    private bool _creatingPackage;
+    private Guid? _packageActionId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.NewsChanged += OnProductionChanged;
+        Live.WeatherChanged += OnProductionChanged;
+        await Live.EnsureStartedAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _news = await Api.GetNewsProductionAsync();
+        _weather = await Api.GetWeatherProductionAsync();
+        if (_news is not null)
+        {
+            _newsEnabled = _news.NewsEnabled;
+            _newsCadence = _news.NewsPackageCadenceMinutes;
+            _maxDuration = _news.NewsPackageMaxDurationSeconds;
+            _fadeOut = _news.TopOfHourFadeOutSeconds;
+            _introGrace = _news.TopOfHourIntroGraceSeconds;
+        }
+
+        if (_weather is not null)
+        {
+            _weatherEnabled = _weather.WeatherEnabled;
+            _weatherCadence = _weather.WeatherCadenceMinutes;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _topHourSaved = false;
+        _error = null;
+        var errors = new List<string>();
+
+        if (_news is not null)
+        {
+            var newsError = await Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
+                _newsEnabled,
+                _news.NewsExtractionEnabled,
+                _newsCadence,
+                _maxDuration,
+                _news.NewsPresenterModeratorId,
+                _fadeOut,
+                _introGrace,
+                _news.NewsCategoryOrder));
+            if (newsError is not null)
+            {
+                errors.Add(newsError);
+            }
+        }
+
+        if (_weather is not null)
+        {
+            var (_, weatherError) = await Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
+                _weatherEnabled,
+                _weatherCadence,
+                _weather.WeatherSpecialistModeratorId,
+                _weather.WeatherFullHandoverEnabled,
+                _weather.WeatherLocationName,
+                _weather.WeatherLatitude,
+                _weather.WeatherLongitude));
+            if (weatherError is not null)
+            {
+                errors.Add(weatherError);
+            }
+        }
+
+        _error = errors.Count == 0 ? null : string.Join(" ", errors);
+        _topHourSaved = _error is null;
+        await LoadAsync();
+    }
+
+    private async Task ToggleNewsEnabledAsync(bool enabled)
+    {
+        _newsEnabled = enabled;
+        _error = await SaveNewsSettingsCoreAsync(newsEnabled: enabled);
+        _topHourSaved = false;
+        await LoadAsync();
+    }
+
+    private async Task SetNewsCadenceAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var cadence))
+        {
+            return;
+        }
+
+        _newsCadence = cadence;
+        _error = await SaveNewsSettingsCoreAsync(newsCadence: cadence);
+        _topHourSaved = false;
+        await LoadAsync();
+    }
+
+    private async Task ToggleWeatherEnabledAsync(bool enabled)
+    {
+        _weatherEnabled = enabled;
+        var (_, error) = await SaveWeatherSettingsCoreAsync(weatherEnabled: enabled);
+        _error = error;
+        _topHourSaved = false;
+        await LoadAsync();
+    }
+
+    private async Task SetWeatherCadenceAsync(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var cadence))
+        {
+            return;
+        }
+
+        _weatherCadence = cadence;
+        var (_, error) = await SaveWeatherSettingsCoreAsync(weatherCadence: cadence);
+        _error = error;
+        _topHourSaved = false;
+        await LoadAsync();
+    }
+
+    private Task<string?> SaveNewsSettingsCoreAsync(bool? newsEnabled = null, int? newsCadence = null)
+    {
+        var source = _news;
+        return Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
+            newsEnabled ?? source?.NewsEnabled ?? _newsEnabled,
+            source?.NewsExtractionEnabled ?? true,
+            newsCadence ?? source?.NewsPackageCadenceMinutes ?? _newsCadence,
+            source?.NewsPackageMaxDurationSeconds ?? _maxDuration,
+            source?.NewsPresenterModeratorId,
+            source?.TopOfHourFadeOutSeconds ?? _fadeOut,
+            source?.TopOfHourIntroGraceSeconds ?? _introGrace,
+            source?.NewsCategoryOrder ?? ["general", "business", "technology", "sports", "culture", "regional"]));
+    }
+
+    private Task<(WeatherProductionDto? Weather, string? Error)> SaveWeatherSettingsCoreAsync(
+        bool? weatherEnabled = null,
+        int? weatherCadence = null)
+    {
+        var source = _weather;
+        return Api.SaveWeatherProductionAsync(new SaveWeatherProductionSettingsDto(
+            weatherEnabled ?? source?.WeatherEnabled ?? _weatherEnabled,
+            weatherCadence ?? source?.WeatherCadenceMinutes ?? _weatherCadence,
+            source?.WeatherSpecialistModeratorId,
+            source?.WeatherFullHandoverEnabled ?? false,
+            source?.WeatherLocationName ?? "New York, US",
+            source?.WeatherLatitude ?? 40.7128,
+            source?.WeatherLongitude ?? -74.0060));
+    }
+
+    private async Task CreateNextPackageAsync()
+    {
+        if (_creatingPackage)
+        {
+            return;
+        }
+
+        _creatingPackage = true;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var (_, error) = await Api.CreateNextNewsPackageAsync();
+            _error = error;
+            await LoadAsync();
+        }
+        finally
+        {
+            _creatingPackage = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RecreatePackageAsync(Guid id)
+    {
+        if (_packageActionId is not null)
+        {
+            return;
+        }
+
+        _packageActionId = id;
+        _error = null;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            var (_, error) = await Api.RecreateNewsPackageAsync(id);
+            _error = error;
+            await LoadAsync();
+        }
+        finally
+        {
+            _packageActionId = null;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void PlayPackage(NewsPackageDto package, Guid announcementId)
+    {
+        var title = $"News package {package.TargetUtc.ToLocalTime():ddd HH:mm}";
+        Player.PlayAnnouncement(
+            announcementId,
+            title,
+            Api.AnnouncementAudioUrl(announcementId),
+            package.TargetDurationSeconds);
+    }
+
+    private void OnProductionChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+
+    private static bool CanRecreatePackage(NewsPackageDto package)
+        => package.Status is "Pending" or "Ready" or "Failed";
+
+    private static string Short(string value, int max)
+        => string.IsNullOrWhiteSpace(value)
+            ? "-"
+            : value.Length <= max ? value : $"{value[..Math.Max(0, max - 3)]}...";
+
+    public ValueTask DisposeAsync()
+    {
+        Live.NewsChanged -= OnProductionChanged;
+        Live.WeatherChanged -= OnProductionChanged;
+        return ValueTask.CompletedTask;
+    }
+}
