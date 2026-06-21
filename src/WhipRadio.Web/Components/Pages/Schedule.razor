@@ -1,6 +1,7 @@
 @page "/schedule"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
+@implements IDisposable
 @inject RadioApiClient Api
 
 <PageTitle>WhipRadio - Schedule</PageTitle>
@@ -27,6 +28,16 @@
                 {
                     <div class="schedule-hour" style="@HourStyle(hour)">@($"{hour:00}:00")</div>
                 }
+
+                <div class="schedule-now-time"
+                     style="@NowTimeStyle()"
+                     data-time="@FormatMinute(CurrentMinute)"
+                     aria-label="@($"Current time: {FormatMinute(CurrentMinute)}")"
+                     title="@($"Current time: {FormatMinute(CurrentMinute)}")">
+                </div>
+                <div class="schedule-now-line"
+                     style="@NowLineStyle()"
+                     aria-hidden="true"></div>
 
                 @foreach (var day in _dayOrder)
                 {
@@ -59,6 +70,7 @@
 @code {
     private List<ProgramSlotDto>? _slots;
     private int[] _dayOrder = [1, 2, 3, 4, 5, 6, 0];
+    private System.Threading.Timer? _clockTimer;
 
     protected override async Task OnInitializedAsync()
     {
@@ -67,6 +79,16 @@
             ? [0, 1, 2, 3, 4, 5, 6]
             : [1, 2, 3, 4, 5, 6, 0];
         _slots = await Api.GetScheduleAsync();
+        _clockTimer = new System.Threading.Timer(
+            _ => _ = InvokeAsync(StateHasChanged),
+            null,
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(15));
+    }
+
+    public void Dispose()
+    {
+        _clockTimer?.Dispose();
     }
 
     private IEnumerable<ScheduleBlock> BlocksForDay(int day)
@@ -113,8 +135,14 @@
     private string BlockStyle(ScheduleBlock block)
         => $"grid-column:{DayColumn(block.DayOfWeek)};grid-row:{MinuteRow(block.StartMinute)} / span {MinuteSpan(block.DurationMinutes)}";
 
-    private static string BlockClass(ScheduleBlock block)
-        => $"schedule-cell {(block.IsPlanned ? "planned" : "planning")} {(MinuteSpan(block.DurationMinutes) == 1 ? "compact" : null)}";
+    private string BlockClass(ScheduleBlock block)
+        => $"schedule-cell {(block.IsPlanned ? "planned" : "planning")} {(MinuteSpan(block.DurationMinutes) == 1 ? "compact" : null)} {(IsCurrentBlock(block) ? "current" : null)}";
+
+    private string NowLineStyle()
+        => $"grid-column:{DayColumn(CurrentDay)};grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute)}%";
+
+    private string NowTimeStyle()
+        => $"grid-column:1;grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute)}%";
 
     private int DayColumn(int day)
         => Array.IndexOf(_dayOrder, day) + 2;
@@ -124,6 +152,19 @@
 
     private static int MinuteSpan(int minutes)
         => Math.Max(1, (minutes + 29) / 30);
+
+    private static double MinuteOffsetPercent(int minute)
+        => Math.Round(Math.Clamp(minute, 0, 24 * 60 - 1) % 30 / 30d * 100d, 2);
+
+    private static int CurrentDay => (int)DateTime.Now.DayOfWeek;
+
+    private static int CurrentMinute => DateTime.Now.Hour * 60 + DateTime.Now.Minute;
+
+    private static bool IsCurrentBlock(ScheduleBlock block)
+        => block.IsPlanned
+            && block.DayOfWeek == CurrentDay
+            && CurrentMinute >= block.StartMinute
+            && CurrentMinute < block.EndMinute;
 
     private static string BlockTitle(ScheduleBlock block)
         => block.Slot is { } slot

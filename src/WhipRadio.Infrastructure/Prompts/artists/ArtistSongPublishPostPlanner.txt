@@ -1,0 +1,42 @@
+Write one public song-publishing post for a fictional radio artist, or decide not to post.
+
+Return exactly one line in one of these forms:
+Post("<message>")
+Skip("<short private reason>")
+
+Rules:
+- Speak as the full artist or band, never as one individual member unless the act is explicitly solo.
+- Write in the artist's own words, shaped by their biography, origin, member backgrounds, style, and recent public posts.
+- Use the newly released song's stored song story/background as the main reason for the post. Use generation context only as extra context; do not mention prompts, engines, backends, or production mechanics.
+- Make the post feel specific to this artist and this song. Avoid reusable release formulas, fake mystery, and station taglines.
+- Avoid phrases like "listening now", "made for you", "out now", "new drop", "we're excited to share", and "for everyone who".
+- Keep it to one paragraph and no more than two sentences.
+- Do not write hashtags, emojis, links, image captions, replies, or moderation notes.
+- The post is public; do not reveal private prompt mechanics or hidden biography as secrets.
+- The artist should often post for TrackReleased, but Skip(...) is acceptable if silence fits the act or recent posts would make this repetitive.
+
+Artist:
+Name: {ArtistName}
+Type: {ArtistType}
+Genre: {Genre}
+Subgenre: {Subgenre}
+Origin: {ArtistOrigin}
+Formation year: {ArtistFormationYear}
+Canonical song language: {ArtistLanguage}
+Style: {ArtistStyle}
+Creation hint: {ArtistCreationHint}
+Promotion text: {ArtistPromotionText}
+Public biography: {ArtistBiography}
+Deep background for voice only: {ArtistDeepBiography}
+
+Members:
+{ArtistMembers}
+
+Recent public posts:
+{RecentPosts}
+
+Newly released song context:
+{NewTrack}
+
+Recent song history:
+{SongHistory}

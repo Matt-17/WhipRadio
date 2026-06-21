@@ -25,6 +25,8 @@ public static class DbInitializer
     private const int PreviousDefaultMaxTrackDurationSeconds = 300;
     private const string LegacyNewsPresenterName = "Maya Current";
     private const string SeedNewsPresenterName = "Maya Vale";
+    private const string LocalhostAceStepUrl = "http://localhost:8101";
+    private const string LoopbackAceStepUrl = "http://127.0.0.1:8101";
 
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
     {
@@ -83,7 +85,7 @@ public static class DbInitializer
                     Id = Guid.NewGuid(),
                     Name = "Studio #1",
                     Kind = StudioKind.Recording,
-                    Url = "http://localhost:8101",
+                    Url = LoopbackAceStepUrl,
                     Provider = MusicBackends.AceStep,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
@@ -100,20 +102,34 @@ public static class DbInitializer
                 });
             await db.SaveChangesAsync(ct);
         }
-        else if (!await db.Studios.AnyAsync(s => s.Kind == StudioKind.WriterRoom, ct))
+        else
         {
-            db.Studios.Add(new Studio
+            await PatchLocalStudioUrlsAsync(db, ct);
+
+            if (!await db.Studios.AnyAsync(s => s.Kind == StudioKind.WriterRoom, ct))
             {
-                Id = Guid.NewGuid(),
-                Name = "Writer Room #1",
-                Kind = StudioKind.WriterRoom,
-                Url = "http://localhost:11434",
-                Provider = TextProviders.Ollama,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-            });
-            await db.SaveChangesAsync(ct);
+                db.Studios.Add(new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Writer Room #1",
+                    Kind = StudioKind.WriterRoom,
+                    Url = "http://localhost:11434",
+                    Provider = TextProviders.Ollama,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                });
+                await db.SaveChangesAsync(ct);
+            }
         }
+    }
+
+    private static async Task PatchLocalStudioUrlsAsync(RadioDbContext db, CancellationToken ct)
+    {
+        await db.Studios
+            .Where(s => s.Kind == StudioKind.Recording
+                && s.Provider == MusicBackends.AceStep
+                && s.Url == LocalhostAceStepUrl)
+            .ExecuteUpdateAsync(s => s.SetProperty(studio => studio.Url, LoopbackAceStepUrl), ct);
     }
 
     private static async Task MarkAbandonedStudioHistoryAsync(RadioDbContext db, CancellationToken ct)

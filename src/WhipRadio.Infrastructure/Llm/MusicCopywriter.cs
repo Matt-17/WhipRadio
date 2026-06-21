@@ -157,7 +157,14 @@ public class MusicCopywriter(ITextGenerationService llm)
         IReadOnlyCollection<ArtistSongHistoryItem> songHistory,
         CancellationToken ct)
     {
-        var prompt = PromptTemplates.Render("ArtistPostPlanner", new Dictionary<string, string>
+        var templateName = kind switch
+        {
+            ArtistPostKind.ArtistCreated => "ArtistIntroductionPostPlanner",
+            ArtistPostKind.TrackReleased => "ArtistSongPublishPostPlanner",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown artist post kind."),
+        };
+
+        var prompt = PromptTemplates.Render(templateName, new Dictionary<string, string>
         {
             ["PostKind"] = kind.ToString(),
             ["ArtistName"] = artist.Name,

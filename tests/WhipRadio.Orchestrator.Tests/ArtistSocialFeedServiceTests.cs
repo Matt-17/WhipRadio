@@ -41,6 +41,8 @@ public class ArtistSocialFeedServiceTests
         Assert.Contains("New Signal", llm.UserPrompt);
         Assert.Contains("Old Signal", llm.UserPrompt);
         Assert.Contains("First wire post", llm.UserPrompt);
+        Assert.Contains("A reply to the first dock signal", llm.UserPrompt);
+        Assert.Contains("song-publishing post", llm.UserPrompt);
         Assert.Contains("stored generation prompt", llm.UserPrompt);
     }
 

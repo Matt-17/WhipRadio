@@ -418,11 +418,13 @@ These words should not be used.
 
         Assert.True(plan.ShouldPost);
         Assert.Equal("We tuned the harbor until it answered back.", plan.Text);
-        Assert.Contains("Speak as the full artist or band", llm.UserPrompt);
-        Assert.Contains("introduce the act to the world", llm.UserPrompt);
+        Assert.Contains("song-publishing post", llm.UserPrompt);
+        Assert.Contains("stored song story/background", llm.UserPrompt);
+        Assert.Contains("one paragraph and no more than two sentences", llm.UserPrompt);
         Assert.Contains("Mara Voss", llm.UserPrompt);
         Assert.Contains("First night on the dock", llm.UserPrompt);
         Assert.Contains("Signal Lamp", llm.UserPrompt);
+        Assert.Contains("Written after a fogbound load-in", llm.UserPrompt);
         Assert.Contains("stored generation prompt", llm.UserPrompt);
         Assert.Contains("Old Lamp", llm.UserPrompt);
     }
@@ -443,5 +445,7 @@ These words should not be used.
 
         Assert.False(plan.ShouldPost);
         Assert.Contains("stays silent", plan.Text);
+        Assert.Contains("introduction post", llm.UserPrompt);
+        Assert.DoesNotContain("Newly released song context", llm.UserPrompt);
     }
 }

@@ -86,6 +86,7 @@ public class AceStepGenerationProviderTests
             paths.Add(req.RequestUri!.AbsolutePath);
             return req.RequestUri!.AbsolutePath switch
             {
+                "/health" => JsonResponse("""{"data":{"status":"ok","models_initialized":true},"code":200,"error":null}"""),
                 "/v1/lora/load" => JsonResponse("""{"data":{"message":"loaded"},"code":200,"error":null}"""),
                 "/v1/lora/scale" => JsonResponse("""{"data":{"message":"scaled"},"code":200,"error":null}"""),
                 "/v1/lora/toggle" => JsonResponse("""{"data":{"message":"enabled"},"code":200,"error":null}"""),
@@ -125,6 +126,52 @@ public class AceStepGenerationProviderTests
     }
 
     [TestMethod]
+    public async Task ArtistLoraSkipsModelDependentEndpointsWhenModelsAreCold()
+    {
+        var paths = new List<string>();
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            paths.Add(req.RequestUri!.AbsolutePath);
+            return req.RequestUri!.AbsolutePath switch
+            {
+                "/health" => JsonResponse("""{"data":{"status":"ok","models_initialized":false},"code":200,"error":null}"""),
+                "/release_task" => JsonResponse("""{"data":{"task_id":"task-1","status":"queued"},"code":200,"error":null}"""),
+                "/query_result" => JsonResponse(QuerySuccess("task-1", "/v1/audio?path=x")),
+                _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(WavTestData.Pcm(128)) },
+            };
+        });
+        var provider = CreateProvider(handler, enableLora: true);
+
+        await provider.GenerateAsync(new MusicRequest("dream pop", "pop", true, "line one", 60)
+        {
+            LyricsMode = LyricsMode.Provided,
+            ArtistName = "Signal Hands",
+            AceStepLoraDatasetPath = "/app/data/acestep/lora-datasets/a",
+            AceStepLoraTensorPath = "/models/whipradio/lora/a/tensors",
+            AceStepLoraTrainingOutputPath = "/models/whipradio/lora/a/training",
+            AceStepLoraAdapterPath = "/models/whipradio/lora/a/adapter",
+            AceStepLoraReferences =
+            [
+                new MusicVoiceReferenceTrack(
+                    "First Signal",
+                    "0001.wav",
+                    "dream pop with breathy vocals",
+                    "line one",
+                    "en",
+                    180,
+                    181,
+                    0,
+                    0),
+            ],
+        }, CancellationToken.None);
+
+        Assert.Contains("/health", paths);
+        Assert.DoesNotContain("/v1/init", paths);
+        Assert.DoesNotContain("/v1/lora/load", paths);
+        Assert.True(paths.IndexOf("/health") < paths.IndexOf("/release_task"));
+    }
+
+    [TestMethod]
     public async Task ArtistLoraDatasetSampleUpdateIncludesRequiredSampleIndex()
     {
         var loadCalls = 0;
@@ -132,6 +179,7 @@ public class AceStepGenerationProviderTests
         {
             return req.RequestUri!.AbsolutePath switch
             {
+                "/health" => JsonResponse("""{"data":{"status":"ok","models_initialized":true},"code":200,"error":null}"""),
                 "/v1/lora/load" => ++loadCalls == 1
                     ? JsonResponse("""{"data":null,"code":400,"error":"not found"}""")
                     : JsonResponse("""{"data":{"message":"loaded"},"code":200,"error":null}"""),

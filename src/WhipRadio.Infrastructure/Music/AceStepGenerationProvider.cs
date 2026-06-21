@@ -176,6 +176,15 @@ public sealed class AceStepGenerationProvider(
         try
         {
             await ReportProgressAsync(request, string.Empty, "preparing artist voice LoRA", cancellationToken);
+            if (!await IsModelInitializedForLoraAsync(cancellationToken))
+            {
+                logger.LogInformation(
+                    "ACE-Step models are not initialized yet; skipping artist voice LoRA preparation for {Artist}.",
+                    request.ArtistName ?? "(unknown)");
+                await ReportProgressAsync(request, string.Empty, "artist voice LoRA deferred until ACE-Step is warm", cancellationToken);
+                return;
+            }
+
             if (await TryLoadAndActivateLoraAsync(request.AceStepLoraAdapterPath!, configured, cancellationToken))
             {
                 await ReportProgressAsync(request, string.Empty, "artist voice LoRA loaded", cancellationToken);
@@ -413,9 +422,23 @@ public sealed class AceStepGenerationProvider(
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogInformation(ex, "ACE-Step LoRA adapter {AdapterPath} is not ready to load.", adapterPath);
+            if (IsMissingLoraPath(ex))
+            {
+                logger.LogDebug("ACE-Step LoRA adapter {AdapterPath} has not been exported yet.", adapterPath);
+            }
+            else
+            {
+                logger.LogInformation(ex, "ACE-Step LoRA adapter {AdapterPath} is not ready to load.", adapterPath);
+            }
+
             return false;
         }
+    }
+
+    private async Task<bool> IsModelInitializedForLoraAsync(CancellationToken cancellationToken)
+    {
+        var health = await SendAsync<ApiResponse<HealthData>>(HttpMethod.Get, "/health", null, cancellationToken);
+        return health.Data?.ModelsInitialized == true;
     }
 
     private async Task TryUnloadLoraAsync(CancellationToken cancellationToken)
@@ -641,6 +664,9 @@ public sealed class AceStepGenerationProvider(
     private static bool IsGenerationTimeoutFailure(string value)
         => value.Contains("generation timed out", StringComparison.OrdinalIgnoreCase)
             || value.Contains("service_generate exceeded", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsMissingLoraPath(Exception ex)
+        => ex.GetBaseException().Message.Contains("LoRA path not found", StringComparison.OrdinalIgnoreCase);
 
     private static string? NormalizeProgressText(string? value)
     {
@@ -895,7 +921,8 @@ public sealed class AceStepGenerationProvider(
     private sealed record HealthData(
         [property: JsonPropertyName("status")] string? Status,
         [property: JsonPropertyName("service")] string? Service,
-        [property: JsonPropertyName("version")] string? Version);
+        [property: JsonPropertyName("version")] string? Version,
+        [property: JsonPropertyName("models_initialized")] bool? ModelsInitialized);
 
     private sealed record CreateTaskData(
         [property: JsonPropertyName("task_id")] string? TaskId,
