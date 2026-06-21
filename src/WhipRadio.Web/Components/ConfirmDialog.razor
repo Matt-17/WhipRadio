@@ -6,7 +6,7 @@
     </ChildContent>
     <Footer>
         <button class="btn small" @onclick="CancelAsync">@CancelText</button>
-        <button class="btn small @(Danger ? "danger" : "primary")" @onclick="ConfirmAsync">@ConfirmText</button>
+        <button class="btn small @(Danger ? "danger" : "primary") @((Working ? "working-button" : null))" disabled="@Working" @onclick="ConfirmAsync">@ConfirmText</button>
     </Footer>
 </Modal>
 
@@ -27,6 +27,8 @@
     [Parameter] public EventCallback OnConfirm { get; set; }
 
     [Parameter] public EventCallback OnCancel { get; set; }
+
+    [Parameter] public bool Working { get; set; }
 
     private Task ConfirmAsync() => OnConfirm.InvokeAsync();
 

@@ -26,22 +26,26 @@ else
     </div>
 }
 
-@foreach (var kind in StudioKinds)
-{
-    var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
-    <div class="panel reveal studio-section">
-        <div class="studio-section-head">
-            <div>
-                <div class="studio-section-title">@KindTitle(kind)</div>
-                <div class="studio-section-sub">@KindDescription(kind)</div>
+    @foreach (var kind in StudioKinds)
+    {
+        var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
+        <div class="panel reveal studio-section">
+            <div class="studio-section-head">
+                <div>
+                    <div class="studio-section-title">@KindTitle(kind)</div>
+                    <div class="studio-section-sub">@KindDescription(kind)</div>
+                </div>
+                <button class="btn small" @onclick="@(() => OpenCreate(kind))">@AddButtonText(kind)</button>
             </div>
-            <button class="btn small" @onclick="@(() => OpenCreate(kind))">@AddButtonText(kind)</button>
-        </div>
 
-        @if (kindStudios.Count == 0)
-        {
-            <div class="empty-state">no @(KindTitle(kind).ToLowerInvariant()) connected yet</div>
-        }
+            @if (_loading && kindStudios.Count == 0)
+            {
+                <div class="empty-state">loading @KindTitle(kind).ToLowerInvariant()...</div>
+            }
+            else if (kindStudios.Count == 0)
+            {
+                <div class="empty-state">no @(KindTitle(kind).ToLowerInvariant()) connected yet</div>
+            }
         else
         {
             <div class="studio-table-wrap">
@@ -112,7 +116,7 @@ else
 
 @if (_restartNotice is not null)
 {
-    <div class="@(_restartOk ? "flash" : "dim")" style="margin-top:8px">@_restartNotice</div>
+    <div class="@(_restartOk ? "flash" : "text-danger")" style="margin-top:8px">@_restartNotice</div>
 }
 
 <ConfirmDialog Visible="@(_restartTarget is not null)"
@@ -177,7 +181,7 @@ else
                 </button>
                 @if (_testResult is not null)
                 {
-                    <span class="@(_testResult.Ok ? "flash" : "dim")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
+                    <span class="@(_testResult.Ok ? "flash" : "text-danger")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
                 }
                 <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
                     @(_editId is null ? "Create" : "Save")
@@ -189,13 +193,14 @@ else
                 }
                 @if (_saveError is not null)
                 {
-                    <span class="dim">@_saveError</span>
+                    <span class="text-danger">@_saveError</span>
                 }
             </div>
         </div>
     };
 
     private List<StudioDto> _studios = [];
+    private bool _loading = true;
 
     private string? _formKind;
     private Guid? _editId;
@@ -231,6 +236,7 @@ else
             await StudioLive.EnsureStartedAsync();
             StartRefreshLoop();
             SyncStudios();
+            _loading = false;
             StateHasChanged();
         }
     }
@@ -413,34 +419,49 @@ else
     private async Task TestAsync()
     {
         _saveError = null;
-        _testResult = await Api.TestStudioAsync(new TestStudioDto(
-            _formKind!, _formSource,
-            _formSource == "local" ? _formUrl : null,
-            _formSource == "api" ? _formProvider : null,
-            _formSource == "api" ? _formApiKey : null));
+        try
+        {
+            _testResult = await Api.TestStudioAsync(new TestStudioDto(
+                _formKind!, _formSource,
+                _formSource == "local" ? _formUrl : null,
+                _formSource == "api" ? _formProvider : null,
+                _formSource == "api" ? _formApiKey : null));
+        }
+        catch (Exception ex)
+        {
+            _testResult = new StudioTestResultDto(Ok: false, Provider: null, Detail: $"test failed: {ex.Message}");
+        }
     }
 
     private async Task SaveAsync()
     {
-        var dto = new SaveStudioDto(
-            string.IsNullOrWhiteSpace(_formName) ? null : _formName,
-            _formKind!, _formSource,
-            _formSource == "local" ? _formUrl : null,
-            _formSource == "api" ? _formProvider : null,
-            _formSource == "api" ? _formApiKey : null);
-
-        var (studio, error) = _editId is { } id
-            ? await Api.UpdateStudioAsync(id, dto)
-            : await Api.CreateStudioAsync(dto);
-
-        if (studio is null)
+        _saveError = null;
+        try
         {
-            _saveError = error ?? "save failed";
-            return;
-        }
+            var dto = new SaveStudioDto(
+                string.IsNullOrWhiteSpace(_formName) ? null : _formName,
+                _formKind!, _formSource,
+                _formSource == "local" ? _formUrl : null,
+                _formSource == "api" ? _formProvider : null,
+                _formSource == "api" ? _formApiKey : null);
 
-        CloseForm();
-        await LoadAsync();
+            var (studio, error) = _editId is { } id
+                ? await Api.UpdateStudioAsync(id, dto)
+                : await Api.CreateStudioAsync(dto);
+
+            if (studio is null)
+            {
+                _saveError = error ?? "save failed";
+                return;
+            }
+
+            CloseForm();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"Save failed: {ex.Message}";
+        }
     }
 
     private void AskRestart(StudioDto studio)
@@ -462,28 +483,52 @@ else
         _restartOk = true;
         StateHasChanged();
 
-        var result = await Api.RestartStudioAsync(target.Id);
-        _restartBusy = false;
-        _restartOk = result.Ok;
-        _restartNotice = $"{target.Name}: {result.Detail}";
-        await LoadAsync();
+        try
+        {
+            var result = await Api.RestartStudioAsync(target.Id);
+            _restartOk = result.Ok;
+            _restartNotice = $"{target.Name}: {result.Detail}";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _restartOk = false;
+            _restartNotice = $"{target.Name}: restart failed — {ex.Message}";
+        }
+        finally
+        {
+            _restartBusy = false;
+        }
     }
 
     private async Task ToggleAsync(Guid id)
     {
-        await Api.ToggleStudioAsync(id);
-        await LoadAsync();
+        try
+        {
+            await Api.ToggleStudioAsync(id);
+            await LoadAsync();
+        }
+        catch
+        {
+        }
     }
 
     private async Task DeleteAsync(Guid id)
     {
-        _saveError = await Api.DeleteStudioAsync(id);
-        if (_saveError is null)
+        try
         {
-            CloseForm();
-        }
+            _saveError = await Api.DeleteStudioAsync(id);
+            if (_saveError is null)
+            {
+                CloseForm();
+            }
 
-        await LoadAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _saveError = $"Delete failed: {ex.Message}";
+        }
     }
 
     public void Dispose()

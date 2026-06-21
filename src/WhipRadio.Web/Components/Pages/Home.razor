@@ -119,7 +119,7 @@
         <button class="btn primary" @onclick="SendGreetingAsync">Send to the Studio</button>
         @if (_greetFeedback is not null)
         {
-            <span class="flash">@_greetFeedback</span>
+            <span class="@(_greetOk ? "flash" : "text-danger")">@_greetFeedback</span>
         }
     </div>
 </div>
@@ -142,6 +142,7 @@
     private string _greetKind = "Greeting";
     private string _greetGenre = "";
     private string? _greetFeedback;
+    private bool _greetOk;
     private bool _greetingsEnabled;
 
     private TimeSpan Elapsed => Live.NowPlaying is { } np ? DateTime.UtcNow - np.StartedAtUtc : TimeSpan.Zero;
@@ -194,12 +195,14 @@
     {
         if (string.IsNullOrWhiteSpace(_greetName) || string.IsNullOrWhiteSpace(_greetText))
         {
+            _greetOk = false;
             _greetFeedback = "Name and message, please!";
             return;
         }
 
         var (ok, message) = await Api.SubmitGreetingAsync(new SubmitGreetingDto(
             _greetName, _greetText, _greetKind, _greetKind == "Request" ? _greetGenre : null));
+        _greetOk = ok;
         _greetFeedback = ok ? $"Thanks {_greetName}! {message}" : message;
         if (ok)
         {

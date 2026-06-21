@@ -2,6 +2,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
+@inject RadioLiveClient Live
+@implements IDisposable
 
 <PageTitle>WhipRadio — Admin</PageTitle>
 
@@ -16,17 +18,25 @@ else
 {
     <div class="panel reveal">
         <div class="panel-label">Broadcast</div>
-        <div class="admin-row">
-            <div>
-                <strong>On Air</strong>
-                <div class="dim">Stops/starts the playout engine. Off air = the Icecast mount goes quiet.</div>
-            </div>
-            <UiSwitch Value="@_settings.PlayoutEnabled"
-                      ValueChanged="@(_ => TogglePlayoutAsync())"
-                      Size="SwitchSize.Big"
-                      Tone="SwitchTone.Red"
-                      Title="@(_settings.PlayoutEnabled ? "On air" : "Off air")" />
+    <div class="admin-row">
+        <div>
+            <strong>On Air</strong>
+            <div class="dim">Stops/starts the playout engine. Off air = the Icecast mount goes quiet.</div>
+            @if (_runtimeStatus is not null)
+            {
+                <div class="admin-runtime-status">
+                    <StatusBadge Text="@RuntimeStatusLabel"
+                                 Tone="@RuntimeStatusTone"
+                                 Title="@_runtimeStatus.Reason" />
+                </div>
+            }
         </div>
+        <UiSwitch Value="@_settings.PlayoutEnabled"
+                  ValueChanged="@(_ => TogglePlayoutAsync())"
+                  Size="SwitchSize.Big"
+                  Tone="SwitchTone.Red"
+                  Title="@(_settings.PlayoutEnabled ? "Playout enabled" : "Playout disabled")" />
+    </div>
         <div class="admin-row">
             <div>
                 <strong>Music Production</strong>
@@ -95,8 +105,51 @@ else
     private int _settings_MinDuration;
     private int _settings_MaxDuration;
 
+    private StationStatusDto? _runtimeStatus;
+
+    private string RuntimeStatusLabel
+    {
+        get
+        {
+            var status = _runtimeStatus?.Status;
+            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
+            {
+                return "offline";
+            }
+
+            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
+            {
+                return "reconnecting";
+            }
+
+            return _settings?.PlayoutEnabled == true ? "on air" : "off air";
+        }
+    }
+
+    private StatusBadgeTone RuntimeStatusTone
+    {
+        get
+        {
+            var status = _runtimeStatus?.Status;
+            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
+            {
+                return StatusBadgeTone.Red;
+            }
+
+            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
+            {
+                return StatusBadgeTone.Amber;
+            }
+
+            return _settings?.PlayoutEnabled == true ? StatusBadgeTone.Green : StatusBadgeTone.Default;
+        }
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        Live.Changed += OnLiveChanged;
+        await Live.EnsureStartedAsync();
+        _runtimeStatus = Live.StationStatus;
         _settings = await Api.GetSettingsAsync();
         if (_settings is not null)
         {
@@ -106,6 +159,12 @@ else
             _settings_MaxDuration = _settings.MaxTrackDurationSeconds;
         }
     }
+
+    private void OnLiveChanged() => _ = InvokeAsync(() =>
+    {
+        _runtimeStatus = Live.StationStatus;
+        StateHasChanged();
+    });
 
     private async Task TogglePlayoutAsync()
     {
@@ -134,8 +193,14 @@ else
 
     private async Task RunDirectorAsync()
     {
-        await Api.RunDirectorAsync();
-        _directorKicked = true;
+        try
+        {
+            await Api.RunDirectorAsync();
+            _directorKicked = true;
+        }
+        catch
+        {
+        }
     }
 
     private async Task ToggleGreetingsAsync()
@@ -166,4 +231,6 @@ else
         });
         _saved = true;
     }
+
+    public void Dispose() => Live.Changed -= OnLiveChanged;
 }

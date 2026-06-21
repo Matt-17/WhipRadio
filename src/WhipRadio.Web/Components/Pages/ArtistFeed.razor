@@ -23,6 +23,10 @@
     {
         <div class="empty-state"><span class="blink">&#x25AE;</span> tuning the artist wire...</div>
     }
+    else if (_loadError is not null)
+    {
+        <div class="empty-state text-danger">@_loadError</div>
+    }
     else if (_posts.Count == 0)
     {
         <div class="empty-state compact">No artist posts on the wire yet.</div>
@@ -69,16 +73,27 @@
     private int _total;
     private bool _loading = true;
     private bool _loadingOlder;
+    private string? _loadError;
     private readonly HashSet<Guid> _freshPostIds = [];
 
     private bool HasMore => _posts.Count < _total;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadPageAsync(1, replace: true);
-        Live.PostAdded += OnPostAdded;
-        await Live.EnsureStartedAsync();
-        _loading = false;
+        try
+        {
+            await LoadPageAsync(1, replace: true);
+            Live.PostAdded += OnPostAdded;
+            await Live.EnsureStartedAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Failed to initialize: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private async Task LoadOlderAsync()
@@ -101,15 +116,34 @@
 
     private async Task LoadPageAsync(int page, bool replace)
     {
-        var result = await Api.GetArtistPostsAsync(page, PageSize);
-        _total = result.Total;
-        _page = result.Page;
-        if (replace)
+        _loading = true;
+        try
         {
-            _posts.Clear();
-        }
+            var result = await Api.GetArtistPostsAsync(page, PageSize);
+            if (result is null)
+            {
+                _loadError = "Failed to load artist posts — backend unreachable.";
+                _loading = false;
+                return;
+            }
 
-        _posts.AddRange(result.Items);
+            _page = page;
+            _total = result.Total;
+            if (replace)
+            {
+                _posts.Clear();
+            }
+            _posts.AddRange(result.Items);
+            _loadError = null;
+        }
+        catch (Exception ex)
+        {
+            _loadError = $"Failed to load artist posts: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private void OnPostAdded(ArtistPostDto post)

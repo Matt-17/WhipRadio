@@ -88,9 +88,8 @@ else
                             {
                                 <span class="tag amber">weather</span>
                             }
-                            <span class="tag @(host.IsActive ? "green" : "red")">
-                                @(host.IsActive ? "on roster" : "off roster")
-                            </span>
+                            <StatusBadge Text="@(host.IsActive ? "on roster" : "off roster")"
+                                         Tone="@(host.IsActive ? StatusBadgeTone.Green : StatusBadgeTone.Default)" />
                         </div>
                         <div class="mod-persona">@host.PersonaPrompt</div>
                         @if (host.BaselineTraits is not null && host.CurrentTraits is not null)
@@ -144,7 +143,7 @@ else
                             @(_designing && _redesignFor == host.Id ? "designing..." : "redesign voice")
                         </button>
                     </div>
-                    <button class="btn small danger host-fire-action" disabled="@_firingHost" title="remove this host from active use"
+                    <button class="btn small danger host-fire-action @(_firingHost && _fireTarget?.Id == host.Id ? "working-button" : null)" disabled="@_firingHost" title="remove this host from active use"
                             @onclick="() => OpenFireAsync(host)">
                         @(_firingHost && _fireTarget?.Id == host.Id ? "firing..." : "Fire")
                     </button>
@@ -196,10 +195,9 @@ else
             <div class="field"><label>Style</label><input @bind="_newStyle" placeholder="fast-energetic / slow-thoughtful / …" /></div>
             <div class="field">
                 <label>Weather specialist</label>
-                <select @bind="_newWeatherSpecialist">
-                    <option value="false">no</option>
-                    <option value="true">yes</option>
-                </select>
+                <UiSwitch Value="@_newWeatherSpecialist"
+                          ValueChanged="@((bool value) => _newWeatherSpecialist = value)"
+                          Title="@(_newWeatherSpecialist ? "Weather specialist enabled" : "Weather specialist disabled")" />
             </div>
             <div class="field">
                 <label>Talkativeness</label>
@@ -294,15 +292,12 @@ else
         }
         @if (_designError is not null)
         {
-            <div class="production-warning">@_designError</div>
+            <div class="text-danger">@_designError</div>
         }
     </ChildContent>
     <Footer>
-        @if (false && _newEngine == "qwen" && _newVoiceHandle is null)
-        {
-            <span class="dim">design the voice first</span>
-        }
-        <button class="btn primary" disabled="@_creatingHost" @onclick="CreateAsync">@(_creatingHost ? "hiring..." : "Hire Host")</button>
+        <button class="btn" @onclick="CloseHire">Cancel</button>
+        <button class="btn primary @(_creatingHost ? "working-button" : null)" disabled="@_creatingHost" @onclick="CreateAsync">@(_creatingHost ? "hiring..." : "Hire Host")</button>
     </Footer>
 </Modal>
 
@@ -312,7 +307,8 @@ else
                CancelText="Keep"
                Danger="true"
                OnConfirm="FireConfirmedAsync"
-               OnCancel="CloseFireDialog">
+               OnCancel="CloseFireDialog"
+               Working="_firingHost">
     @if (_fireTarget is { } hostToFire)
     {
         <p>Fire <strong>@hostToFire.Name</strong>?</p>
@@ -344,7 +340,7 @@ else
         }
         @if (_fireError is not null)
         {
-            <div class="production-warning">@_fireError</div>
+            <div class="text-danger">@_fireError</div>
         }
     }
 </ConfirmDialog>
@@ -366,7 +362,7 @@ else
     private string _newStyle = "";
     private string _newGenres = "";
     private string _newTalkativeness = "0.5";
-    private string _newWeatherSpecialist = "false";
+    private bool _newWeatherSpecialist;
     private string _newEnergy = "Medium";
     private string _newFormality = "Balanced";
     private string _newHumorLevel = "Medium";
@@ -471,45 +467,56 @@ else
     {
         if (string.IsNullOrWhiteSpace(_newName))
         {
+            _designError = "Name is required";
             return;
         }
 
         _creatingHost = true;
         _designError = null;
-        var (created, error) = await Api.CreateModeratorAsync(new CreateModeratorDto(
-            Name: _newName,
-            Language: _stationLanguage,
-            Gender: _newGender,
-            TtsEngine: "qwen",
-            Style: _newStyle,
-            PersonaPrompt: _newPersona,
-            PrefersVocals: null,
-            PreferredGenres: _newGenres,
-            Talkativeness: double.TryParse(_newTalkativeness, System.Globalization.CultureInfo.InvariantCulture, out var talk) ? talk : 0.5,
-            IsWeatherSpecialist: _newWeatherSpecialist == "true",
-            PhotoUrl: string.IsNullOrWhiteSpace(_newPhotoUrl) ? null : _newPhotoUrl,
-            BaselineTraits: NewBaselineTraits(),
-            TalkProfile: NewTalkProfile(),
-            IsNewsSpecialist: false,
-            VoiceDescription: BuildNewVoiceDescription()));
-        _creatingHost = false;
-
-        if (created is null)
+        try
         {
-            _designError = string.IsNullOrWhiteSpace(error) ? "host creation failed" : error;
-            return;
-        }
+            var (created, error) = await Api.CreateModeratorAsync(new CreateModeratorDto(
+                Name: _newName,
+                Language: _stationLanguage,
+                Gender: _newGender,
+                TtsEngine: "qwen",
+                Style: _newStyle,
+                PersonaPrompt: _newPersona,
+                PrefersVocals: null,
+                PreferredGenres: _newGenres,
+                Talkativeness: double.TryParse(_newTalkativeness, System.Globalization.CultureInfo.InvariantCulture, out var talk) ? talk : 0.5,
+                IsWeatherSpecialist: _newWeatherSpecialist,
+                PhotoUrl: string.IsNullOrWhiteSpace(_newPhotoUrl) ? null : _newPhotoUrl,
+                BaselineTraits: NewBaselineTraits(),
+                TalkProfile: NewTalkProfile(),
+                IsNewsSpecialist: false,
+                VoiceDescription: BuildNewVoiceDescription()));
 
-        _created = created.Name;
-        _newName = "";
-        _newPersona = "";
-        _newPhotoUrl = "";
-        _newWeatherSpecialist = "false";
-        _newVoiceHandle = null;
-        _newDesigned = null;
-        _hireOpen = false;
-        _moderators = SortHosts(await Api.GetModeratorsAsync());
-        Select(created);
+            if (created is null)
+            {
+                _designError = string.IsNullOrWhiteSpace(error) ? "host creation failed" : error;
+                return;
+            }
+
+            _created = created.Name;
+            _newName = "";
+            _newPersona = "";
+            _newPhotoUrl = "";
+            _newWeatherSpecialist = false;
+            _newVoiceHandle = null;
+            _newDesigned = null;
+            _hireOpen = false;
+            _moderators = SortHosts(await Api.GetModeratorsAsync());
+            Select(created);
+        }
+        catch (Exception ex)
+        {
+            _designError = $"Host creation failed: {ex.Message}";
+        }
+        finally
+        {
+            _creatingHost = false;
+        }
     }
 
     private async Task SetPhotoAsync(int moderatorId)
@@ -536,16 +543,26 @@ else
 
         _designing = true;
         _designError = null;
-        var (voice, error) = await Api.DesignVoiceAsync(
-            new DesignVoiceDto(_newVoiceDescription, _newGender, _stationLanguage,
-                string.IsNullOrWhiteSpace(_newName) ? null : _newName));
-        _designing = false;
-        _newVoiceHandle = voice?.Handle;
-        _newDesigned = voice;
-        _designError = error;
-        if (voice is not null)
+        try
         {
-            PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, voice);
+            var (voice, error) = await Api.DesignVoiceAsync(
+                new DesignVoiceDto(_newVoiceDescription, _newGender, _stationLanguage,
+                    string.IsNullOrWhiteSpace(_newName) ? null : _newName));
+            _newVoiceHandle = voice?.Handle;
+            _newDesigned = voice;
+            _designError = error;
+            if (voice is not null)
+            {
+                PlayPreview(string.IsNullOrWhiteSpace(_newName) ? "new voice" : _newName, voice);
+            }
+        }
+        catch (Exception ex)
+        {
+            _designError = $"Voice design failed: {ex.Message}";
+        }
+        finally
+        {
+            _designing = false;
         }
     }
 
@@ -554,14 +571,24 @@ else
         _designing = true;
         _redesignFor = moderatorId;
         _redesigned = null;
-        var (voice, error) = await Api.RedesignVoiceAsync(moderatorId);
-        _designing = false;
-        _redesigned = voice;
-        _designError = error;
-        if (voice is not null)
+        try
         {
-            var name = _moderators?.FirstOrDefault(m => m.Id == moderatorId)?.Name ?? "host";
-            PlayPreview(name, voice);
+            var (voice, error) = await Api.RedesignVoiceAsync(moderatorId);
+            _redesigned = voice;
+            _designError = error;
+            if (voice is not null)
+            {
+                var name = _moderators?.FirstOrDefault(m => m.Id == moderatorId)?.Name ?? "host";
+                PlayPreview(name, voice);
+            }
+        }
+        catch (Exception ex)
+        {
+            _designError = $"Voice redesign failed: {ex.Message}";
+        }
+        finally
+        {
+            _designing = false;
         }
     }
 
@@ -583,10 +610,17 @@ else
         _fireTarget = host;
         _fireUsage = null;
         _fireError = null;
-        _fireUsage = await Api.GetModeratorUsageAsync(host.Id);
-        if (_fireUsage is null)
+        try
         {
-            _fireError = "Could not load host usage.";
+            _fireUsage = await Api.GetModeratorUsageAsync(host.Id);
+            if (_fireUsage is null)
+            {
+                _fireError = "Could not load host usage.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _fireError = $"Failed to load host usage: {ex.Message}";
         }
     }
 
@@ -607,21 +641,31 @@ else
 
         _firingHost = true;
         _fireError = null;
-        var (result, error) = await Api.FireModeratorAsync(host.Id);
-        _firingHost = false;
-        if (result is null)
+        try
         {
-            _fireError = string.IsNullOrWhiteSpace(error) ? "Could not fire host." : error;
-            return;
-        }
+            var (result, error) = await Api.FireModeratorAsync(host.Id);
+            if (result is null)
+            {
+                _fireError = string.IsNullOrWhiteSpace(error) ? "Could not fire host." : error;
+                return;
+            }
 
-        _created = null;
-        _talksFor = null;
-        _redesignFor = null;
-        _redesigned = null;
-        _moderators = SortHosts(await Api.GetModeratorsAsync());
-        Select(result.Moderator);
-        CloseFireDialog();
+            _created = null;
+            _talksFor = null;
+            _redesignFor = null;
+            _redesigned = null;
+            _moderators = SortHosts(await Api.GetModeratorsAsync());
+            Select(result.Moderator);
+            CloseFireDialog();
+        }
+        catch (Exception ex)
+        {
+            _fireError = $"Failed to fire host: {ex.Message}";
+        }
+        finally
+        {
+            _firingHost = false;
+        }
     }
 
     /// <summary>Voice previews play in the footer player like song previews.</summary>

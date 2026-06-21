@@ -156,7 +156,7 @@ else
             <button class="btn small danger feed-delete-action" @onclick="AskDeleteCurrentFeed">Delete</button>
         }
         <button class="btn small" @onclick="CloseFeedModal">Cancel</button>
-        <button class="btn small primary" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
+        <button class="btn small primary @(_savingFeed ? "working-button" : null)" disabled="@_savingFeed" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
     </Footer>
 </Modal>
 
@@ -171,7 +171,8 @@ else
                CancelText="Keep it"
                Danger="true"
                OnConfirm="DeleteFeedConfirmedAsync"
-               OnCancel="() => _deleteTarget = null">
+               OnCancel="() => _deleteTarget = null"
+               Working="_deletingFeed">
     @if (_deleteTarget is { } feed)
     {
         <text>Delete <strong>@feed.Label</strong> and its collected items?</text>
@@ -189,6 +190,8 @@ else
     private bool _feedModalOpen;
     private bool _specialistModalOpen;
     private bool _creatingHost;
+    private bool _savingFeed;
+    private bool _deletingFeed;
 
     private bool _newsEnabled = true;
     private bool _extractEnabled = true;
@@ -281,22 +284,35 @@ else
 
     private async Task SaveFeedAsync()
     {
-        var request = new SaveNewsFeedDto(
-            _feedLabel,
-            _feedUrl,
-            Language: "en",
-            Region: "global",
-            Category: _feedCategory,
-            IsEnabled: _editFeedId is null || _editFeedEnabled,
-            MaxItemsPerPoll: 20);
-        var (feed, error) = _editFeedId is { } id
-            ? await Api.UpdateNewsFeedAsync(id, request)
-            : await Api.CreateNewsFeedAsync(request);
-        _feedError = error;
-        if (feed is not null)
+        _savingFeed = true;
+        _feedError = null;
+        try
         {
-            CloseFeedModal();
-            await LoadAsync();
+            var request = new SaveNewsFeedDto(
+                _feedLabel,
+                _feedUrl,
+                Language: "en",
+                Region: "global",
+                Category: _feedCategory,
+                IsEnabled: _editFeedId is null || _editFeedEnabled,
+                MaxItemsPerPoll: 20);
+            var (feed, error) = _editFeedId is { } id
+                ? await Api.UpdateNewsFeedAsync(id, request)
+                : await Api.CreateNewsFeedAsync(request);
+            _feedError = error;
+            if (feed is not null)
+            {
+                CloseFeedModal();
+                await LoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _feedError = $"Failed to save feed: {ex.Message}";
+        }
+        finally
+        {
+            _savingFeed = false;
         }
     }
 
@@ -403,14 +419,27 @@ else
             return;
         }
 
-        _feedError = await Api.DeleteNewsFeedAsync(feed.Id);
-        _deleteTarget = null;
-        if (_feedError is null)
+        _deletingFeed = true;
+        _feedError = null;
+        try
         {
-            CloseFeedModal();
-        }
+            _feedError = await Api.DeleteNewsFeedAsync(feed.Id);
+            _deleteTarget = null;
+            if (_feedError is null)
+            {
+                CloseFeedModal();
+            }
 
-        await LoadAsync();
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _feedError = $"Failed to delete feed: {ex.Message}";
+        }
+        finally
+        {
+            _deletingFeed = false;
+        }
     }
 
     private static DateTime? AsUtc(DateTime? value)

@@ -1295,6 +1295,12 @@ table.console-table {
     animation: rise .3s both;
 }
 
+.text-danger {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--red);
+}
+
 /* segmented radio panel (message kind picker) */
 .seg {
     display: inline-flex;
@@ -3577,6 +3583,10 @@ table.console-table {
 }
 
 .admin-row:last-child { border-bottom: none; }
+
+.admin-runtime-status {
+    margin-top: 8px;
+}
 
 .admin-row.production-block-row {
     display: grid;
