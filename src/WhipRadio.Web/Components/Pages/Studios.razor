@@ -327,6 +327,7 @@ else
         => studio.RuntimeStatus switch
         {
             "ready" => "idle",
+            "busy" => "blocked",
             "offline" => "offline",
             "unknown" => "checking",
             _ => studio.RuntimeStatus,
