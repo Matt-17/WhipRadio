@@ -50,6 +50,50 @@ window.whipRadio = {
     return 0.055 + (index % 6) * 0.011;
   },
 
+  _frequencyBinFor(hz) {
+    const nyquist = this._spectrumContext.sampleRate / 2;
+    const maxBin = this._spectrumData.length - 1;
+    return Math.max(1, Math.min(maxBin, Math.round(hz / nyquist * maxBin)));
+  },
+
+  _readSpectrumLevels(visualBars) {
+    this._spectrumAnalyser.getByteFrequencyData(this._spectrumData);
+
+    const minHz = 80;
+    const maxHz = Math.min(12000, this._spectrumContext.sampleRate / 2);
+    const ratio = maxHz / minHz;
+    const levels = [];
+    let energy = 0;
+    let energyBins = 0;
+
+    for (let i = 0; i < visualBars; i++) {
+      const bandStartHz = minHz * Math.pow(ratio, i / visualBars);
+      const bandEndHz = minHz * Math.pow(ratio, (i + 1) / visualBars);
+      const start = this._frequencyBinFor(bandStartHz);
+      const end = Math.max(start + 1, this._frequencyBinFor(bandEndHz));
+      let peak = 0;
+      let total = 0;
+
+      for (let j = start; j < end; j++) {
+        const value = this._spectrumData[j];
+        peak = Math.max(peak, value);
+        total += value;
+        energy += value;
+        energyBins++;
+      }
+
+      const average = total / (end - start);
+      const normalized = (peak * 0.72 + average * 0.28) / 255;
+      const position = i / Math.max(1, visualBars - 1);
+      const gain = 0.62 + position * 1.35;
+      const level = Math.pow(Math.min(1, normalized * gain), 0.62) * 1.08;
+      levels.push(Math.max(0.055, Math.min(1, level)));
+    }
+
+    const averageEnergy = energyBins > 0 ? energy / energyBins / 255 : 0;
+    return averageEnergy < 0.018 ? null : levels;
+  },
+
   _setSpectrumRoot(root, active, values) {
     if (!root) {
       return;
@@ -70,20 +114,8 @@ window.whipRadio = {
     let levels = null;
 
     if (active) {
-      this._spectrumAnalyser.getByteFrequencyData(this._spectrumData);
       const visualBars = 28;
-      levels = [];
-      for (let i = 0; i < visualBars; i++) {
-        const start = Math.floor(i * this._spectrumData.length / visualBars);
-        const end = Math.max(start + 1, Math.floor((i + 1) * this._spectrumData.length / visualBars));
-        let total = 0;
-        for (let j = start; j < end; j++) {
-          total += this._spectrumData[j];
-        }
-
-        const normalized = total / (end - start) / 255;
-        levels.push(Math.max(0.075, Math.min(1, Math.pow(normalized, 0.72) * 1.2)));
-      }
+      levels = this._readSpectrumLevels(visualBars);
     }
 
     for (const root of this._spectrumRoots) {
@@ -115,8 +147,10 @@ window.whipRadio = {
       this._spectrumContext = this._spectrumContext || new AudioContextType();
       this._spectrumSource = this._spectrumSource || this._spectrumContext.createMediaElementSource(this._audio);
       this._spectrumAnalyser = this._spectrumContext.createAnalyser();
-      this._spectrumAnalyser.fftSize = 256;
-      this._spectrumAnalyser.smoothingTimeConstant = 0.78;
+      this._spectrumAnalyser.fftSize = 512;
+      this._spectrumAnalyser.minDecibels = -82;
+      this._spectrumAnalyser.maxDecibels = -18;
+      this._spectrumAnalyser.smoothingTimeConstant = 0.42;
       this._spectrumData = new Uint8Array(this._spectrumAnalyser.frequencyBinCount);
       this._spectrumSource.connect(this._spectrumAnalyser);
       this._spectrumAnalyser.connect(this._spectrumContext.destination);

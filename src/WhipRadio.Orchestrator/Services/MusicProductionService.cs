@@ -338,6 +338,9 @@ public class MusicProductionService(
 
         // Mixer analysis (BPM, intro/outro, loudness) — failure stores a stub
         // and the backfill retries; the track is playable either way.
+        var socialFeed = scope.ServiceProvider.GetRequiredService<ArtistSocialFeedService>();
+        await socialFeed.TryCreateTrackReleasedPostAsync(artist.Id, track.Id, ct);
+
         var recorder = scope.ServiceProvider.GetRequiredService<MediaAnalysisRecorder>();
         await recorder.AnalyzeAndStoreAsync(PlayoutItemType.Track, track.Id, relativePath, ct);
     }

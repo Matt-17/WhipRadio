@@ -43,6 +43,10 @@ public class ArtistCreationServiceTests
         var service = new ArtistCreationService(
             fixture,
             new MusicCopywriter(llm),
+            new ArtistSocialFeedService(
+                fixture,
+                new MusicCopywriter(llm),
+                NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             NullLogger<ArtistCreationService>.Instance);
 
@@ -66,6 +70,49 @@ public class ArtistCreationServiceTests
         Assert.Contains("Current artist:", llm.UserPrompt);
         Assert.Contains("Output Name exactly as: Broken Signal", llm.UserPrompt);
         Assert.Contains("Placeholder Member", llm.UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task CreateArtistAsync_PersistsArtistCreatedPostWhenLlmReturnsPost()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        var llm = new SequencedLlm(ArtistProfileJson("Wire Signal"), "Post(\"We found a frequency under the loading dock.\")");
+        var copywriter = new MusicCopywriter(llm);
+        var service = new ArtistCreationService(
+            fixture,
+            copywriter,
+            new ArtistSocialFeedService(fixture, copywriter, NullLogger<ArtistSocialFeedService>.Instance),
+            new ArtistCreationQueue(),
+            NullLogger<ArtistCreationService>.Instance);
+
+        var artist = await service.CreateArtistAsync("dock signal band", "electronic", "dock synth", CancellationToken.None);
+
+        await using RadioDbContext db = fixture.CreateDbContext();
+        var post = await db.ArtistPosts.Include(p => p.Artist).SingleAsync();
+        Assert.Equal(artist.Id, post.ArtistId);
+        Assert.Equal(ArtistPostKind.ArtistCreated, post.Kind);
+        Assert.Equal("We found a frequency under the loading dock.", post.Body);
+        Assert.Equal("Wire Signal", post.Artist.Name);
+    }
+
+    [TestMethod]
+    public async Task CreateArtistAsync_StillSucceedsWhenPostGenerationThrows()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        var llm = new SequencedLlm(ArtistProfileJson("Silent Relay"), "this is not a post function");
+        var copywriter = new MusicCopywriter(llm);
+        var service = new ArtistCreationService(
+            fixture,
+            copywriter,
+            new ArtistSocialFeedService(fixture, copywriter, NullLogger<ArtistSocialFeedService>.Instance),
+            new ArtistCreationQueue(),
+            NullLogger<ArtistCreationService>.Instance);
+
+        var artist = await service.CreateArtistAsync("private ambient artist", "ambient", "tape ambient", CancellationToken.None);
+
+        await using RadioDbContext db = fixture.CreateDbContext();
+        Assert.True(await db.Artists.AnyAsync(a => a.Id == artist.Id));
+        Assert.False(await db.ArtistPosts.AnyAsync());
     }
 
     private static async Task<Guid> AddSparseArtistAsync(DbFixture fixture)
@@ -125,6 +172,43 @@ public class ArtistCreationServiceTests
             return Task.FromResult(reply);
         }
     }
+
+    private sealed class SequencedLlm(params string[] replies) : ITextGenerationService
+    {
+        private int _index;
+
+        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+        {
+            var reply = replies[Math.Min(_index, replies.Length - 1)];
+            _index++;
+            return Task.FromResult(reply);
+        }
+    }
+
+    private static string ArtistProfileJson(string name)
+        => $$"""
+{
+  "name": "{{name}}",
+  "type": "Band",
+  "genre": "electronic",
+  "subgenre": "dock synth",
+  "origin": "Rotterdam harbor district",
+  "formationYear": 2024,
+  "style": "Tape-worn synths, crane field recordings, and clipped bass lines.",
+  "language": "en",
+  "shortBiography": "{{name}} turn harbor infrastructure into late-night electronic songs.",
+  "deepBackgroundBiography": "The band formed after long dock shifts and treats ship radios as percussion sources.",
+  "promotionText": "Port lights, tape hiss, and steel-frame rhythm.",
+  "members": [
+    {
+      "name": "Mara Voss",
+      "role": "lead vocals",
+      "biography": "Mara writes compact dockside lyrics.",
+      "voiceCreationPrompt": "Female alto, close microphone, light Dutch accent."
+    }
+  ]
+}
+""";
 
     private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
         : IDbContextFactory<RadioDbContext>, IAsyncDisposable

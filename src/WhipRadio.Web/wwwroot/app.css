@@ -1862,6 +1862,86 @@ table.console-table {
 
 .library-search::placeholder { color: var(--muted); }
 
+/* ---------- artist feed ---------- */
+
+.artist-feed-panel {
+    max-width: 980px;
+}
+
+.artist-feed-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.artist-feed-head .panel-label {
+    margin-bottom: 4px;
+}
+
+.artist-feed-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.artist-feed-row {
+    display: grid;
+    grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
+    gap: 18px;
+    padding: 16px 0;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+.artist-feed-row:first-child {
+    border-top-color: rgba(255, 196, 87, .24);
+}
+
+.artist-feed-meta {
+    min-width: 0;
+}
+
+.artist-feed-artist {
+    font-family: var(--font-display);
+    font-size: 1.24rem;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.artist-feed-readout,
+.mono-line {
+    font-family: var(--font-mono);
+    font-size: .78rem;
+    color: var(--muted);
+}
+
+.artist-feed-readout {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    margin-top: 5px;
+}
+
+.artist-feed-body {
+    line-height: 1.5;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.artist-feed-footer {
+    display: flex;
+    justify-content: center;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+}
+
+@media (max-width: 760px) {
+    .artist-feed-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+}
+
 /* ---------- modal dialogs ---------- */
 
 .modal-backdrop {

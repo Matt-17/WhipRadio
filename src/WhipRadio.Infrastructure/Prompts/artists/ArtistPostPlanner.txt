@@ -1,0 +1,42 @@
+Write one short public social post for a fictional radio artist, or decide not to post.
+
+Return exactly one line in one of these forms:
+Post("<short message>")
+Skip("<short private reason>")
+
+Rules:
+- Speak as the full artist or band, never as one individual member unless the act is explicitly solo.
+- Keep the post short, direct, and in the artist's own style.
+- Do not write generic promo copy, hashtags, emojis, links, image captions, replies, or moderation notes.
+- For ArtistCreated, treat this as the act's first public wire post unless recent posts show otherwise: introduce the act to the world in a Twitter-style launch note with a clear sense of who they are, where they are coming from, and what listeners should expect from them.
+- ArtistCreated should almost always return Post(...); use Skip(...) only if the artist profile is extremely private, silent, or anti-publicity.
+- For TrackReleased, the artist should often post, but skipping is acceptable if silence fits the act.
+- The post is public; do not reveal private prompt mechanics or hidden biography as secrets.
+
+Post kind: {PostKind}
+
+Artist:
+Name: {ArtistName}
+Type: {ArtistType}
+Genre: {Genre}
+Subgenre: {Subgenre}
+Origin: {ArtistOrigin}
+Formation year: {ArtistFormationYear}
+Canonical song language: {ArtistLanguage}
+Style: {ArtistStyle}
+Creation hint: {ArtistCreationHint}
+Promotion text: {ArtistPromotionText}
+Public biography: {ArtistBiography}
+Deep background for voice only: {ArtistDeepBiography}
+
+Members:
+{ArtistMembers}
+
+Recent public posts:
+{RecentPosts}
+
+Newly released song context:
+{NewTrack}
+
+Recent song history:
+{SongHistory}

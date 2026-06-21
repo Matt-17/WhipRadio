@@ -8,6 +8,7 @@ namespace WhipRadio.Orchestrator.Services;
 public class ArtistCreationService(
     IDbContextFactory<RadioDbContext> dbFactory,
     MusicCopywriter copywriter,
+    ArtistSocialFeedService socialFeed,
     ArtistCreationQueue creationQueue,
     ILogger<ArtistCreationService> logger)
 {
@@ -61,6 +62,8 @@ public class ArtistCreationService(
             artist.Genre,
             artist.Subgenre,
             artist.Members.Count);
+
+        await socialFeed.TryCreateArtistCreatedPostAsync(artist.Id, ct);
 
         return artist;
     }

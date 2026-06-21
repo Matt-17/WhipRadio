@@ -31,6 +31,7 @@ public static class RadioApiEndpoints
 
         MapNowPlaying(api);
         MapLibrary(api);
+        MapArtistPosts(api);
         MapPlayLog(api);
         MapTalkBreaks(api);
         MapVotes(api);
@@ -44,6 +45,19 @@ public static class RadioApiEndpoints
         MapPrivacy(api);
 
         return app;
+    }
+
+    private static void MapArtistPosts(RouteGroupBuilder api)
+    {
+        api.MapGet("/artist-posts", async (
+            ArtistSocialFeedService feed,
+            int? page,
+            int? pageSize,
+            CancellationToken ct) =>
+        {
+            var posts = await feed.GetPostsAsync(page, pageSize, ct);
+            return Results.Ok(posts);
+        });
     }
 
     private static void MapNowPlaying(RouteGroupBuilder api)

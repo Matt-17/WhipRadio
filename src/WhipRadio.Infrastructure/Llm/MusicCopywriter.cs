@@ -26,6 +26,10 @@ public class MusicCopywriter(ITextGenerationService llm)
         @"(?im)^\s*DurationSeconds\(\s*""?(?<value>\d{1,4})""?\s*\)\s*$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
+    private static readonly Regex ArtistPostRegex = new(
+        @"(?is)^\s*(?<kind>Post|Skip)\(\s*(?:""(?<quoted>(?:\\.|[^""\\])*)""|(?<bare>.*?))\s*\)\s*$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
     private static readonly Regex LyricsBlockRegex = new(
         @"(?is)Lyrics\(\s*(?:""""""(?<block>.*?)""""""|""(?<quoted>(?:\\.|[^""\\])*)""|(?<bare>.*?))\s*\)",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -143,6 +147,39 @@ public class MusicCopywriter(ITextGenerationService llm)
         }
 
         return plan;
+    }
+
+    public async Task<ArtistPostPlan> PlanArtistPostAsync(
+        Artist artist,
+        IReadOnlyCollection<ArtistRecentPostItem> recentPosts,
+        ArtistPostKind kind,
+        Track? track,
+        IReadOnlyCollection<ArtistSongHistoryItem> songHistory,
+        CancellationToken ct)
+    {
+        var prompt = PromptTemplates.Render("ArtistPostPlanner", new Dictionary<string, string>
+        {
+            ["PostKind"] = kind.ToString(),
+            ["ArtistName"] = artist.Name,
+            ["ArtistType"] = FirstNonEmpty(artist.Type, "Artist")!,
+            ["Genre"] = artist.Genre,
+            ["Subgenre"] = string.IsNullOrEmpty(artist.Subgenre) ? artist.Genre : artist.Subgenre,
+            ["ArtistStyle"] = artist.StyleDescriptor,
+            ["ArtistOrigin"] = FirstNonEmpty(artist.Origin, "unknown")!,
+            ["ArtistFormationYear"] = artist.FormationYear?.ToString() ?? "unknown",
+            ["ArtistLanguage"] = NormalizeSongLanguageCode(artist.Language),
+            ["ArtistCreationHint"] = FirstNonEmpty(artist.CreationHint, "(not recorded)")!,
+            ["ArtistBiography"] = FirstNonEmpty(artist.Biography, "(no public biography yet)")!,
+            ["ArtistDeepBiography"] = FirstNonEmpty(artist.DeepBackgroundBiography, "(no deep biography yet)")!,
+            ["ArtistPromotionText"] = FirstNonEmpty(artist.PromotionText, "(none)")!,
+            ["ArtistMembers"] = FormatArtistMembers(artist.Members),
+            ["RecentPosts"] = FormatRecentPosts(recentPosts),
+            ["NewTrack"] = FormatNewTrack(track),
+            ["SongHistory"] = FormatHistory(songHistory),
+        });
+
+        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Planning artist social post", ct));
+        return ParseArtistPostPlan(reply, prompt);
     }
 
     public async Task<string> InventTitleAsync(
@@ -302,6 +339,20 @@ public class MusicCopywriter(ITextGenerationService llm)
             story.Trim());
     }
 
+    private static ArtistPostPlan ParseArtistPostPlan(string reply, string prompt)
+    {
+        var match = ArtistPostRegex.Match(reply);
+        if (!match.Success)
+        {
+            throw new InvalidOperationException("Artist post response must be Post(\"...\") or Skip(\"...\").");
+        }
+
+        var value = CleanFunctionValue(match);
+        return string.Equals(match.Groups["kind"].Value, "Post", StringComparison.OrdinalIgnoreCase)
+            ? new ArtistPostPlan(true, value, prompt)
+            : new ArtistPostPlan(false, value, prompt);
+    }
+
     private static (string Language, bool WasCorrected) ResolveSongLanguage(
         string? requestedLanguage,
         string defaultLanguage,
@@ -425,6 +476,44 @@ public class MusicCopywriter(ITextGenerationService llm)
         }));
     }
 
+    private static string FormatRecentPosts(IReadOnlyCollection<ArtistRecentPostItem> posts)
+    {
+        if (posts.Count == 0)
+        {
+            return "(no prior posts)";
+        }
+
+        return string.Join(Environment.NewLine, posts.Take(8).Select(post =>
+        {
+            var track = string.IsNullOrWhiteSpace(post.TrackTitle) ? "" : $" Track: {post.TrackTitle}.";
+            return $"- {post.CreatedAtUtc:yyyy-MM-dd HH:mm} UTC [{post.Kind}].{track} {Trim(post.Body, 220)}";
+        }));
+    }
+
+    private static string FormatNewTrack(Track? track)
+    {
+        if (track is null)
+        {
+            return "(no new track; this is an artist-created post)";
+        }
+
+        var vocals = track.HasVocals
+            ? $"vocal track with {(string.IsNullOrWhiteSpace(track.Lyrics) ? "no stored lyrics" : "stored lyrics")}"
+            : "instrumental track";
+        var target = track.TargetDurationSeconds?.ToString() ?? "unknown";
+        return $"""
+            Title: {track.Title}
+            Style: {track.Style}
+            Language: {track.Language}
+            Vocals: {vocals}
+            Song story: {FirstNonEmpty(track.SongStory, "(none)")!}
+            Target duration: {target}s
+            Actual duration: {Math.Round(track.DurationSeconds)}s
+            Backend: {track.Backend}
+            Generation context: {Trim(track.GenerationPrompt, 1200)}
+            """;
+    }
+
     private static string FormatArtistMembers(IEnumerable<ArtistMember> members)
     {
         var lines = members
@@ -519,6 +608,17 @@ public sealed record ArtistSongHistoryItem(
     double DurationSeconds,
     int UpVotes,
     int DownVotes);
+
+public sealed record ArtistRecentPostItem(
+    string Kind,
+    string Body,
+    DateTime CreatedAtUtc,
+    string? TrackTitle);
+
+public sealed record ArtistPostPlan(
+    bool ShouldPost,
+    string Text,
+    string GenerationPrompt);
 
 public sealed record ArtistProfilePlan(
     string Name,

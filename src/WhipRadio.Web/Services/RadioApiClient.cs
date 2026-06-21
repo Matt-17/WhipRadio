@@ -58,6 +58,13 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<List<ArtistDto>> GetArtistsAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ArtistDto>>("/api/artists", ct) ?? [];
 
+    public async Task<PagedArtistPostsDto> GetArtistPostsAsync(
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken ct = default)
+        => await SafeGetAsync<PagedArtistPostsDto>($"/api/artist-posts?page={page}&pageSize={pageSize}", ct)
+            ?? new PagedArtistPostsDto(0, page, pageSize, []);
+
     public async Task<ArtistDto?> GetArtistAsync(Guid id, CancellationToken ct = default)
         => await SafeGetAsync<ArtistDto>($"/api/artists/{id}", ct);
 

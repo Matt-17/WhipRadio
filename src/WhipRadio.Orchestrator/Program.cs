@@ -34,6 +34,7 @@ builder.Services.AddHttpClient("icecast-admin", client => client.Timeout = TimeS
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
+builder.Services.AddScoped<ArtistSocialFeedService>();
 builder.Services.AddScoped<ArtistCreationService>();
 builder.Services.AddScoped<SpecialistHostCreationService>();
 builder.Services.AddScoped<AnnouncementFactory>();

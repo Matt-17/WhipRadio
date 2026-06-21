@@ -362,4 +362,86 @@ These words should not be used.
         Assert.Equal(180, plan.TargetDurationSeconds);
         Assert.Contains("Vocals are not available", llm.UserPrompt);
     }
+
+    [TestMethod]
+    public async Task PlanArtistPostAsync_ParsesPostAndIncludesContext()
+    {
+        var llm = new CapturingLlm("Post(\"We tuned the harbor until it answered back.\")");
+        var writer = new MusicCopywriter(llm);
+        var artist = new Artist
+        {
+            Name = "Harbor Signal",
+            Type = "Band",
+            Genre = "electronic",
+            Subgenre = "dock synth",
+            Origin = "Rotterdam",
+            FormationYear = 2024,
+            Language = "en",
+            StyleDescriptor = "Crane field recordings and analog bass.",
+            CreationHint = "harbor band",
+            Biography = "A band formed near the freight cranes.",
+            DeepBackgroundBiography = "They rehearse after midnight by the docks.",
+            PromotionText = "Port lights on tape.",
+            Members =
+            {
+                new ArtistMember
+                {
+                    SortOrder = 0,
+                    Name = "Mara Voss",
+                    Role = "lead vocals",
+                    Biography = "Writes from dockside notes.",
+                    VoiceCreationPrompt = "Close alto voice.",
+                },
+            },
+        };
+        var track = new Track
+        {
+            Title = "Signal Lamp",
+            Style = "Glass synths and tight drum machines.",
+            Language = "en",
+            HasVocals = true,
+            Lyrics = "light on the water",
+            SongStory = "Written after a fogbound load-in.",
+            TargetDurationSeconds = 180,
+            DurationSeconds = 178,
+            Backend = "ace-step",
+            GenerationPrompt = "stored generation prompt",
+        };
+
+        var plan = await writer.PlanArtistPostAsync(
+            artist,
+            [new ArtistRecentPostItem("ArtistCreated", "First night on the dock.", DateTime.UtcNow, null)],
+            ArtistPostKind.TrackReleased,
+            track,
+            [new ArtistSongHistoryItem("Old Lamp", "Older style", "en", true, "Older story", 170, 169, 3, 1)],
+            CancellationToken.None);
+
+        Assert.True(plan.ShouldPost);
+        Assert.Equal("We tuned the harbor until it answered back.", plan.Text);
+        Assert.Contains("Speak as the full artist or band", llm.UserPrompt);
+        Assert.Contains("introduce the act to the world", llm.UserPrompt);
+        Assert.Contains("Mara Voss", llm.UserPrompt);
+        Assert.Contains("First night on the dock", llm.UserPrompt);
+        Assert.Contains("Signal Lamp", llm.UserPrompt);
+        Assert.Contains("stored generation prompt", llm.UserPrompt);
+        Assert.Contains("Old Lamp", llm.UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task PlanArtistPostAsync_ParsesSkip()
+    {
+        var llm = new CapturingLlm("Skip(\"The act stays silent after releases.\")");
+        var writer = new MusicCopywriter(llm);
+
+        var plan = await writer.PlanArtistPostAsync(
+            new Artist { Name = "Quiet Relay", Genre = "ambient", Subgenre = "ambient", StyleDescriptor = "minimal" },
+            [],
+            ArtistPostKind.ArtistCreated,
+            track: null,
+            songHistory: [],
+            CancellationToken.None);
+
+        Assert.False(plan.ShouldPost);
+        Assert.Contains("stays silent", plan.Text);
+    }
 }

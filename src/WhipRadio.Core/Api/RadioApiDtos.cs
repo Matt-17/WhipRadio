@@ -66,6 +66,22 @@ public sealed record ArtistMemberDto(
     string Role,
     string Biography);
 
+public sealed record ArtistPostDto(
+    Guid Id,
+    Guid ArtistId,
+    string ArtistName,
+    Guid? TrackId,
+    string? TrackTitle,
+    string Kind,
+    string Body,
+    DateTime CreatedAtUtc);
+
+public sealed record PagedArtistPostsDto(
+    int Total,
+    int Page,
+    int PageSize,
+    IReadOnlyList<ArtistPostDto> Items);
+
 public sealed record CreateArtistRequestDto(string? Hint);
 
 public sealed record RedefineArtistRequestDto(string? Hint);

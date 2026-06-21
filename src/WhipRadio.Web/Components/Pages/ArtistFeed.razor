@@ -1,0 +1,131 @@
+@page "/artists/feed"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+
+<PageTitle>WhipRadio - Artist Feed</PageTitle>
+
+<h1 class="stage-title">Artist Feed</h1>
+<div class="stage-sub">public wire notes from the fictional roster</div>
+
+<div class="panel reveal artist-feed-panel">
+    <div class="artist-feed-head">
+        <div>
+            <div class="panel-label">Artist Wire</div>
+            <div class="dim mono-line">@_total posts logged</div>
+        </div>
+        @if (_loading)
+        {
+            <StatusBadge Text="checking" />
+        }
+    </div>
+
+    @if (_posts.Count == 0 && _loading)
+    {
+        <div class="empty-state"><span class="blink">&#x25AE;</span> tuning the artist wire...</div>
+    }
+    else if (_posts.Count == 0)
+    {
+        <div class="empty-state compact">No artist posts on the wire yet.</div>
+    }
+    else
+    {
+        <div class="artist-feed-list">
+            @foreach (var post in _posts)
+            {
+                <article class="artist-feed-row">
+                    <div class="artist-feed-meta">
+                        <div class="artist-feed-artist">@post.ArtistName</div>
+                        <div class="artist-feed-readout">
+                            <span>@FormatTimestamp(post.CreatedAtUtc)</span>
+                            <span>&bull;</span>
+                            <span>@FormatKind(post.Kind)</span>
+                            @if (!string.IsNullOrWhiteSpace(post.TrackTitle))
+                            {
+                                <span>&bull;</span>
+                                <span>@post.TrackTitle</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="artist-feed-body">@post.Body</div>
+                </article>
+            }
+        </div>
+
+        <div class="artist-feed-footer">
+            @if (HasMore)
+            {
+                <button class="btn small" disabled="@_loadingOlder" @onclick="LoadOlderAsync">
+                    @(_loadingOlder ? "loading..." : "load older")
+                </button>
+            }
+            else
+            {
+                <span class="dim mono-line">end of feed</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private const int PageSize = 20;
+
+    private readonly List<ArtistPostDto> _posts = [];
+    private int _page = 1;
+    private int _total;
+    private bool _loading = true;
+    private bool _loadingOlder;
+
+    private bool HasMore => _posts.Count < _total;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPageAsync(1, replace: true);
+        _loading = false;
+    }
+
+    private async Task LoadOlderAsync()
+    {
+        if (_loadingOlder || !HasMore)
+        {
+            return;
+        }
+
+        _loadingOlder = true;
+        try
+        {
+            await LoadPageAsync(_page + 1, replace: false);
+        }
+        finally
+        {
+            _loadingOlder = false;
+        }
+    }
+
+    private async Task LoadPageAsync(int page, bool replace)
+    {
+        var result = await Api.GetArtistPostsAsync(page, PageSize);
+        _total = result.Total;
+        _page = result.Page;
+        if (replace)
+        {
+            _posts.Clear();
+        }
+
+        _posts.AddRange(result.Items);
+    }
+
+    private static string FormatTimestamp(DateTime utc)
+    {
+        var local = DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime();
+        return local.ToString("dd.MM. HH:mm");
+    }
+
+    private static string FormatKind(string kind)
+        => kind switch
+        {
+            "ArtistCreated" => "artist arrived",
+            "TrackReleased" => "song released",
+            _ => kind,
+        };
+}

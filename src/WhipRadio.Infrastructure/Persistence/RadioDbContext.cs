@@ -11,6 +11,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<ArtistMember> ArtistMembers => Set<ArtistMember>();
 
+    public DbSet<ArtistPost> ArtistPosts => Set<ArtistPost>();
+
     public DbSet<Track> Tracks => Set<Track>();
 
     public DbSet<Announcement> Announcements => Set<Announcement>();
@@ -77,6 +79,21 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<ArtistMember>(member =>
         {
             member.HasIndex(m => new { m.ArtistId, m.SortOrder });
+        });
+
+        modelBuilder.Entity<ArtistPost>(post =>
+        {
+            post.Property(p => p.Kind).HasConversion<string>();
+            post.HasIndex(p => p.CreatedAtUtc).IsDescending();
+            post.HasIndex(p => p.ArtistId);
+            post.HasOne(p => p.Artist)
+                .WithMany()
+                .HasForeignKey(p => p.ArtistId)
+                .OnDelete(DeleteBehavior.Cascade);
+            post.HasOne(p => p.Track)
+                .WithMany()
+                .HasForeignKey(p => p.TrackId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<Announcement>(announcement =>
