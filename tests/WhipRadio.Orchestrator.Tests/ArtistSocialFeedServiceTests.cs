@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -18,9 +19,11 @@ public class ArtistSocialFeedServiceTests
         await using DbFixture fixture = await DbFixture.CreateAsync();
         var (artistId, trackId) = await SeedArtistWithTracksAsync(fixture);
         var llm = new CapturingLlm("Post(\"The new signal keeps the old one in its shadow.\")");
+        var publisher = new CapturingPublisher();
         var service = new ArtistSocialFeedService(
             fixture,
             new MusicCopywriter(llm),
+            publisher,
             NullLogger<ArtistSocialFeedService>.Instance);
 
         await service.TryCreateTrackReleasedPostAsync(artistId, trackId, CancellationToken.None);
@@ -29,6 +32,11 @@ public class ArtistSocialFeedServiceTests
         var post = await db.ArtistPosts.SingleAsync(p => p.TrackId == trackId);
         Assert.Equal(ArtistPostKind.TrackReleased, post.Kind);
         Assert.Equal("The new signal keeps the old one in its shadow.", post.Body);
+        Assert.NotNull(publisher.LastPost);
+        var pushed = publisher.LastPost!;
+        Assert.Equal(post.Id, pushed.Id);
+        Assert.Equal(trackId, pushed.TrackId);
+        Assert.Equal("New Signal", pushed.TrackTitle);
 
         Assert.Contains("New Signal", llm.UserPrompt);
         Assert.Contains("Old Signal", llm.UserPrompt);
@@ -53,6 +61,7 @@ public class ArtistSocialFeedServiceTests
         var service = new ArtistSocialFeedService(
             fixture,
             new MusicCopywriter(new CapturingLlm("Skip(\"no-op\")")),
+            new CapturingPublisher(),
             NullLogger<ArtistSocialFeedService>.Instance);
 
         var page = await service.GetPostsAsync(1, 2, CancellationToken.None);
@@ -175,6 +184,17 @@ public class ArtistSocialFeedServiceTests
         {
             UserPrompt = userPrompt;
             return Task.FromResult(reply);
+        }
+    }
+
+    private sealed class CapturingPublisher : IArtistPostUpdatePublisher
+    {
+        public ArtistPostDto? LastPost { get; private set; }
+
+        public Task PublishPostAddedAsync(ArtistPostDto post, CancellationToken ct = default)
+        {
+            LastPost = post;
+            return Task.CompletedTask;
         }
     }
 

@@ -70,6 +70,7 @@ builder.Services.AddSingleton<PrivacyReportService>();
 builder.Services.AddSingleton<IPromptContextBuilder, PromptContextBuilder>();
 builder.Services.AddSingleton<IStudioUpdatePublisher, SignalRStudioUpdatePublisher>();
 builder.Services.AddSingleton<IProductionUpdatePublisher, SignalRProductionUpdatePublisher>();
+builder.Services.AddSingleton<IArtistPostUpdatePublisher, SignalRArtistPostUpdatePublisher>();
 builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
 builder.Services.AddSingleton<MixerDiagnostics>();

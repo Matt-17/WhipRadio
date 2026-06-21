@@ -1897,6 +1897,10 @@ table.console-table {
     border-top-color: rgba(255, 196, 87, .24);
 }
 
+.artist-feed-row.fresh {
+    animation: artist-feed-arrival 2.4s ease-out;
+}
+
 .artist-feed-meta {
     min-width: 0;
 }
@@ -1939,6 +1943,24 @@ table.console-table {
     .artist-feed-row {
         grid-template-columns: 1fr;
         gap: 8px;
+    }
+}
+
+@keyframes artist-feed-arrival {
+    0% {
+        background: rgba(255, 196, 87, .18);
+        box-shadow: inset 3px 0 0 var(--amber), 0 0 22px rgba(255, 196, 87, .18);
+        transform: translateY(-4px);
+    }
+    45% {
+        background: rgba(255, 196, 87, .08);
+        box-shadow: inset 3px 0 0 rgba(255, 196, 87, .7), 0 0 14px rgba(255, 196, 87, .10);
+        transform: translateY(0);
+    }
+    100% {
+        background: transparent;
+        box-shadow: inset 0 0 0 rgba(255, 196, 87, 0), 0 0 0 rgba(255, 196, 87, 0);
+        transform: translateY(0);
     }
 }
 

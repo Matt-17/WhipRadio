@@ -10,6 +10,7 @@ namespace WhipRadio.Orchestrator.Services;
 public class ArtistSocialFeedService(
     IDbContextFactory<RadioDbContext> dbFactory,
     MusicCopywriter copywriter,
+    IArtistPostUpdatePublisher updatePublisher,
     ILogger<ArtistSocialFeedService> logger)
 {
     private const int RecentPostCount = 8;
@@ -94,9 +95,10 @@ public class ArtistSocialFeedService(
                 return;
             }
 
+            ArtistPostDto? dto;
             await using (var db = await dbFactory.CreateDbContextAsync(ct))
             {
-                db.ArtistPosts.Add(new ArtistPost
+                var post = new ArtistPost
                 {
                     Id = Guid.NewGuid(),
                     ArtistId = artistId,
@@ -104,10 +106,21 @@ public class ArtistSocialFeedService(
                     Kind = kind,
                     Body = body,
                     CreatedAtUtc = DateTime.UtcNow,
-                });
+                };
+                db.ArtistPosts.Add(post);
                 await db.SaveChangesAsync(ct);
+                dto = new ArtistPostDto(
+                    post.Id,
+                    artist.Id,
+                    artist.Name,
+                    track?.Id,
+                    track?.Title,
+                    post.Kind.ToString(),
+                    post.Body,
+                    post.CreatedAtUtc);
             }
 
+            await updatePublisher.PublishPostAddedAsync(dto, ct);
             logger.LogInformation("Posted artist wire update for {Artist}: {Kind}", artist.Name, kind);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

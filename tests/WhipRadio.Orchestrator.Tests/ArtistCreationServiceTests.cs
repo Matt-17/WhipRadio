@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -46,6 +47,7 @@ public class ArtistCreationServiceTests
             new ArtistSocialFeedService(
                 fixture,
                 new MusicCopywriter(llm),
+                new NoOpArtistPostUpdatePublisher(),
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             NullLogger<ArtistCreationService>.Instance);
@@ -81,7 +83,11 @@ public class ArtistCreationServiceTests
         var service = new ArtistCreationService(
             fixture,
             copywriter,
-            new ArtistSocialFeedService(fixture, copywriter, NullLogger<ArtistSocialFeedService>.Instance),
+            new ArtistSocialFeedService(
+                fixture,
+                copywriter,
+                new NoOpArtistPostUpdatePublisher(),
+                NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             NullLogger<ArtistCreationService>.Instance);
 
@@ -104,7 +110,11 @@ public class ArtistCreationServiceTests
         var service = new ArtistCreationService(
             fixture,
             copywriter,
-            new ArtistSocialFeedService(fixture, copywriter, NullLogger<ArtistSocialFeedService>.Instance),
+            new ArtistSocialFeedService(
+                fixture,
+                copywriter,
+                new NoOpArtistPostUpdatePublisher(),
+                NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             NullLogger<ArtistCreationService>.Instance);
 
@@ -183,6 +193,12 @@ public class ArtistCreationServiceTests
             _index++;
             return Task.FromResult(reply);
         }
+    }
+
+    private sealed class NoOpArtistPostUpdatePublisher : IArtistPostUpdatePublisher
+    {
+        public Task PublishPostAddedAsync(ArtistPostDto post, CancellationToken ct = default)
+            => Task.CompletedTask;
     }
 
     private static string ArtistProfileJson(string name)
