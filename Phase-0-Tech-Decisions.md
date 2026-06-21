@@ -66,13 +66,18 @@ that story is stored on the track for future host intros/outros. Instrumental-on
 studios such as MusicGen constrain the plan to instrumental output, but host playlist
 preferences no longer decide whether an artist writes a vocal song.
 
-**Implemented:** ACE-Step vocal tracks now use artist voice continuity. From the
-second vocal ACE-Step song onward, WhipRadio uploads the best previous vocal track as
-`ref_audio` so the same singer can be anchored immediately. When prior vocal tracks
-exist, WhipRadio also prepares a curated per-artist ACE-Step LoRA dataset and tries to
-load or train the matching adapter before recording the next song. Adapter artifacts
-live under the ACE-Step `/models` volume, while curated source copies live under the
-station data root mounted into the ACE-Step container at `/app/data`.
+**Implemented:** ACE-Step vocal tracks now use artist voice continuity. WhipRadio
+prepares a hidden Qwen-designed spoken reference for the lead vocalist and always
+uploads that pre-generated TTS voice reference as `ref_audio` for vocal ACE-Step
+songs. Existing sung ACE-Step tracks are not used as the handoff reference. If the
+spoken reference is not ready, manual song requests stay queued at the front and
+automatic production skips the cycle instead of generating a vocal song without a
+reference.
+
+**Deferred:** live ACE-Step LoRA is disabled for song production. Existing LoRA
+provider code remains as offline/future infrastructure, but the runtime producer no
+longer trains, exports, loads, scales, toggles, or sends LoRA adapter fields for live
+recording. Reliable sung/spoken reference audio is the active continuity mechanism.
 
 ## LLM: Gemma 4 E4B Via Ollama
 
@@ -188,9 +193,9 @@ TTS voice, and optional future FX chain.
 construction: both TTS selection and music vocal prompting derive from the same
 profile. Exact cross-engine voice cloning remains a stretch goal, not a requirement.
 
-**Partly implemented:** artist creation now stores member biographies and voice-creation
-prompts as Phase 3c/5 seed data. These are descriptive prompts only; the structured
-`VoiceProfile` with resolved voice ids and FX remains planned.
+**Partly implemented:** artist creation now stores member biographies, voice-creation
+prompts, hidden Qwen voice ids, and saved spoken reference WAV paths for every member.
+The full structured `VoiceProfile` with FX remains planned.
 
 **Implemented in Phase 3c:** new hosts created through the web UI use the active
 local voice booth's voice-design path. The UI no longer asks operators to choose a

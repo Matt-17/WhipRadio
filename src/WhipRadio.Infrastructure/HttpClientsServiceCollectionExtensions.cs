@@ -83,7 +83,7 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<StudioProviderFactory>();
         services.AddSingleton<StudioDockerControl>();
         services.AddScoped<ITtsEngine, TtsEngineRouter>();
-        services.AddScoped<IVoiceDesignClient, VoiceDesignClient>();
+        services.AddSingleton<IVoiceDesignClient, VoiceDesignClient>();
         services.AddScoped<IMusicGenerator, StudioMusicGenerator>();
 
         services.AddHttpClient<OpenMeteoWeatherSource>(client =>

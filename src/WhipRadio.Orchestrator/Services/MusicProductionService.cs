@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -28,12 +26,11 @@ public class MusicProductionService(
     MusicProductionControl control,
     StudioCoordinator studios,
     ProductionGate gate,
+    ArtistVoiceReferenceResolver voiceReferenceResolver,
     IOptions<RadioOptions> radioOptions,
     IOptions<MusicOptions> musicOptions,
     ILogger<MusicProductionService> logger) : BackgroundService
 {
-    private const double VoiceReferenceClipSeconds = 45;
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var backoff = TimeSpan.FromSeconds(musicOptions.Value.ProducerBackoffSeconds);
@@ -65,13 +62,31 @@ public class MusicProductionService(
                                 "Recording studio became unavailable while producing requested artist {ArtistId}; keeping the request queued.",
                                 artistId);
                         }
+                        catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
+                        {
+                            control.RequeueTrackForFront(artistId);
+                            logger.LogInformation(
+                                "Requested vocal song for artist {ArtistId} is waiting for member voice {MemberId}; keeping the request queued.",
+                                artistId,
+                                ex.MemberId);
+                        }
                     }
                 }
                 else if (settings.MusicProductionEnabled && await LibraryNeedsTrackAsync(settings, stoppingToken))
                 {
                     if (await studios.AnyAvailableAsync(StudioKind.Recording, requiredProvider: null, stoppingToken))
                     {
-                        await ProduceOneTrackAsync(settings, forcedArtistId: null, stoppingToken);
+                        try
+                        {
+                            await ProduceOneTrackAsync(settings, forcedArtistId: null, stoppingToken);
+                        }
+                        catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
+                        {
+                            logger.LogInformation(
+                                "Automatic vocal production for artist {ArtistId} is waiting for member voice {MemberId}; retrying on the next producer cycle.",
+                                ex.ArtistId,
+                                ex.MemberId);
+                        }
                     }
                     else
                     {
@@ -169,7 +184,7 @@ public class MusicProductionService(
         {
             await gate.WaitAsync(generationToken); // analysis backfill yields while we generate
             gateHeld = true;
-            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, generationToken);
+            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, generationToken, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && generationToken.IsCancellationRequested)
         {
@@ -188,7 +203,7 @@ public class MusicProductionService(
 
     private async Task GenerateAndStoreTrackAsync(
         StationSettings settings, ShowContext context, Artist artist, RequestHint? requestHint,
-        IServiceScope scope, CancellationToken ct)
+        IServiceScope scope, CancellationToken ct, CancellationToken postProcessingToken)
     {
         var musicGenerator = scope.ServiceProvider.GetRequiredService<IMusicGenerator>();
         var copywriter = scope.ServiceProvider.GetRequiredService<MusicCopywriter>();
@@ -227,7 +242,7 @@ public class MusicProductionService(
             : MusicBackends.Normalize(await studios.GetPreferredMusicProviderAsync(ct));
         var artistSongHistory = FormatArtistSongHistoryForBackend(history);
         var voiceContinuity = wantVocals && preferredProvider == MusicBackends.AceStep
-            ? await BuildVoiceContinuityContextAsync(artist.Id, ct)
+            ? await ResolveVoiceReferenceAsync(artist, ct)
             : null;
 
         logger.LogInformation(
@@ -253,12 +268,6 @@ public class MusicProductionService(
                     ArtistSongHistory = artistSongHistory,
                     ReferenceAudioPath = voiceContinuity?.ReferenceAudioPath,
                     ReferenceAudioLabel = voiceContinuity?.ReferenceAudioLabel,
-                    AceStepLoraDatasetPath = voiceContinuity?.DatasetPath,
-                    AceStepLoraTensorPath = voiceContinuity?.TensorPath,
-                    AceStepLoraTrainingOutputPath = voiceContinuity?.TrainingOutputPath,
-                    AceStepLoraAdapterPath = voiceContinuity?.AdapterPath,
-                    AceStepLoraActivationTag = voiceContinuity?.ActivationTag,
-                    AceStepLoraReferences = voiceContinuity?.References ?? [],
                     VocalGender = InferVocalGender(artist),
                     VocalStyle = BuildVocalStyle(artist),
                     AllowProviderFallback = !wantVocals,
@@ -336,13 +345,15 @@ public class MusicProductionService(
             "Added \"{Title}\" by {Artist} to the library ({Duration:F0}s, backend {Backend})",
             plan.Title, artist.Name, track.DurationSeconds, track.Backend);
 
+        control.EndGeneration();
+
         // Mixer analysis (BPM, intro/outro, loudness) — failure stores a stub
         // and the backfill retries; the track is playable either way.
         var socialFeed = scope.ServiceProvider.GetRequiredService<ArtistSocialFeedService>();
-        await socialFeed.TryCreateTrackReleasedPostAsync(artist.Id, track.Id, ct);
+        await socialFeed.TryCreateTrackReleasedPostAsync(artist.Id, track.Id, postProcessingToken);
 
         var recorder = scope.ServiceProvider.GetRequiredService<MediaAnalysisRecorder>();
-        await recorder.AnalyzeAndStoreAsync(PlayoutItemType.Track, track.Id, relativePath, ct);
+        await recorder.AnalyzeAndStoreAsync(PlayoutItemType.Track, track.Id, relativePath, postProcessingToken);
     }
 
     /// <summary>
@@ -444,7 +455,7 @@ public class MusicProductionService(
         Artist artist,
         IReadOnlyCollection<ArtistSongHistoryItem> history,
         string backendPrompt,
-        ArtistVoiceContinuityContext? voiceContinuity)
+        ArtistVoiceReferenceContext? voiceContinuity)
     {
         var lines = new List<string>
         {
@@ -464,8 +475,6 @@ public class MusicProductionService(
         if (voiceContinuity is not null)
         {
             lines.Add($"Reference audio: {voiceContinuity.ReferenceAudioLabel ?? "none"}");
-            lines.Add($"Artist voice LoRA adapter: {voiceContinuity.AdapterPath}");
-            lines.Add($"Artist voice LoRA sources: {voiceContinuity.References.Count}");
         }
 
         if (!string.IsNullOrWhiteSpace(artist.Biography))
@@ -489,163 +498,21 @@ public class MusicProductionService(
         return string.Join(Environment.NewLine, lines);
     }
 
-    private async Task<ArtistVoiceContinuityContext?> BuildVoiceContinuityContextAsync(Guid artistId, CancellationToken ct)
+    private async Task<ArtistVoiceReferenceContext> ResolveVoiceReferenceAsync(Artist artist, CancellationToken ct)
     {
-        await using var db = await dbFactory.CreateDbContextAsync(ct);
-        var tracks = await db.Tracks
-            .AsNoTracking()
-            .Where(t => t.ArtistId == artistId
-                && t.HasVocals
-                && t.Backend == MusicBackends.AceStep
-                && !t.IsRetired)
-            .OrderBy(t => t.CreatedAt)
-            .Select(t => new ArtistVoiceTrack(
-                t.Id,
-                t.Title,
-                t.Style,
-                t.Language,
-                t.Lyrics,
-                t.FilePath,
-                t.TargetDurationSeconds,
-                t.DurationSeconds,
-                t.UpVotes,
-                t.DownVotes,
-                t.CreatedAt))
-            .ToListAsync(ct);
-
-        var usable = tracks
-            .Select(track => (Track: track, AbsolutePath: Path.Combine(radioOptions.Value.DataRoot, track.FilePath)))
-            .Where(item => File.Exists(item.AbsolutePath))
-            .ToList();
-        if (usable.Count == 0)
+        var resolution = await voiceReferenceResolver.ResolveAsync(artist, ct);
+        if (resolution.Reference is { } reference)
         {
-            return null;
+            return reference;
         }
 
-        var bestReference = usable
-            .OrderByDescending(item => item.Track.UpVotes - item.Track.DownVotes)
-            .ThenByDescending(item => item.Track.CreatedAt)
-            .First();
-
-        var sources = usable
-            .OrderByDescending(item => item.Track.UpVotes - item.Track.DownVotes)
-            .ThenByDescending(item => item.Track.CreatedAt)
-            .Take(8)
-            .OrderBy(item => item.Track.CreatedAt)
-            .ToList();
-        var sourceKey = HashSourceTracks(sources.Select(item => item.Track.Id));
-        var datasetRelativeDirectory = Path.Combine(
-            "acestep",
-            "lora-datasets",
-            artistId.ToString("N"),
-            sourceKey);
-        var datasetHostDirectory = Path.Combine(radioOptions.Value.DataRoot, datasetRelativeDirectory);
-        Directory.CreateDirectory(datasetHostDirectory);
-
-        var loraReferences = new List<MusicVoiceReferenceTrack>();
-        for (var i = 0; i < sources.Count; i++)
-        {
-            var source = sources[i];
-            var fileName = $"{i + 1:0000}-{source.Track.Id:N}.wav";
-            var targetPath = Path.Combine(datasetHostDirectory, fileName);
-            CopyIfChanged(source.AbsolutePath, targetPath);
-            loraReferences.Add(new MusicVoiceReferenceTrack(
-                source.Track.Title,
-                fileName,
-                source.Track.Style,
-                source.Track.Lyrics,
-                source.Track.Language,
-                source.Track.TargetDurationSeconds,
-                source.Track.DurationSeconds,
-                source.Track.UpVotes,
-                source.Track.DownVotes));
-        }
-
-        var referenceAudioPath = CreateReferenceAudioClip(
-            bestReference.AbsolutePath,
-            datasetHostDirectory,
-            bestReference.Track);
-        var modelRoot = $"/models/whipradio/lora/artists/{artistId:N}/{sourceKey}";
-        return new ArtistVoiceContinuityContext(
-            referenceAudioPath,
-            bestReference.Track.Title,
-            ToContainerDataPath(datasetRelativeDirectory),
-            $"{modelRoot}/tensors",
-            $"{modelRoot}/training",
-            $"{modelRoot}/adapter",
-            $"whipradio_artist_{artistId:N}"[..29],
-            loraReferences);
+        var missing = resolution.MissingVoice
+            ?? throw new InvalidOperationException($"Artist {artist.Id} vocal reference resolution did not return a reference or missing voice.");
+        throw new VocalReferenceNotReadyException(artist.Id, missing.MemberId, missing.Reason);
     }
 
     private static string TrimForStoredPrompt(string value, int maxChars)
         => value.Length <= maxChars ? value : value[..maxChars].TrimEnd() + "...";
-
-    private static string CreateReferenceAudioClip(
-        string sourcePath,
-        string outputDirectory,
-        ArtistVoiceTrack track)
-    {
-        try
-        {
-            var source = new FileInfo(sourcePath);
-            if (!source.Exists || source.Length == 0)
-            {
-                return sourcePath;
-            }
-
-            if (track.DurationSeconds <= VoiceReferenceClipSeconds + 5)
-            {
-                return sourcePath;
-            }
-
-            var clipPath = Path.Combine(outputDirectory, $"reference-{track.Id:N}.wav");
-            var existing = new FileInfo(clipPath);
-            if (existing.Exists && existing.Length > 0 && existing.LastWriteTimeUtc >= source.LastWriteTimeUtc)
-            {
-                return clipPath;
-            }
-
-            var wav = File.ReadAllBytes(sourcePath);
-            var duration = WavFile.GetDurationSeconds(wav);
-            if (duration <= VoiceReferenceClipSeconds + 5)
-            {
-                return sourcePath;
-            }
-
-            var clipSeconds = Math.Min(VoiceReferenceClipSeconds, duration);
-            var latestStart = Math.Max(0, duration - clipSeconds);
-            var startSeconds = Math.Min(Math.Max(15, duration * 0.25), latestStart);
-            var clip = WavFile.SlicePcm16(wav, startSeconds, clipSeconds);
-            File.WriteAllBytes(clipPath, clip);
-            return clipPath;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException)
-        {
-            return sourcePath;
-        }
-    }
-
-    private static void CopyIfChanged(string sourcePath, string targetPath)
-    {
-        var source = new FileInfo(sourcePath);
-        var target = new FileInfo(targetPath);
-        if (target.Exists && target.Length == source.Length)
-        {
-            return;
-        }
-
-        File.Copy(sourcePath, targetPath, overwrite: true);
-    }
-
-    private static string HashSourceTracks(IEnumerable<Guid> trackIds)
-    {
-        var input = string.Join("|", trackIds.Select(id => id.ToString("N")));
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
-    }
-
-    private static string ToContainerDataPath(string relativePath)
-        => "/app/data/" + relativePath.Replace('\\', '/');
 
     private static string ArtistGenerationContext(Artist artist)
     {
@@ -767,26 +634,11 @@ public class MusicProductionService(
     private static bool ContainsAny(string value, params string[] needles)
         => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
 
-    private sealed record ArtistVoiceContinuityContext(
-        string ReferenceAudioPath,
-        string ReferenceAudioLabel,
-        string DatasetPath,
-        string TensorPath,
-        string TrainingOutputPath,
-        string AdapterPath,
-        string ActivationTag,
-        IReadOnlyList<MusicVoiceReferenceTrack> References);
+    private sealed class VocalReferenceNotReadyException(Guid artistId, Guid memberId, string reason)
+        : Exception($"Vocal reference for artist {artistId} is waiting for member {memberId}: {reason}")
+    {
+        public Guid ArtistId { get; } = artistId;
 
-    private sealed record ArtistVoiceTrack(
-        Guid Id,
-        string Title,
-        string Style,
-        string Language,
-        string? Lyrics,
-        string FilePath,
-        int? TargetDurationSeconds,
-        double DurationSeconds,
-        int UpVotes,
-        int DownVotes,
-        DateTime CreatedAt);
+        public Guid MemberId { get; } = memberId;
+    }
 }

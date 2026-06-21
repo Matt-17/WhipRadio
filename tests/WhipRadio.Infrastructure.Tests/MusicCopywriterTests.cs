@@ -243,6 +243,11 @@ El viento vuelve al mar
         Assert.Contains("Solveig Ljungqvist", llm.UserPrompt);
         Assert.Contains("Whispery, breathy soprano", llm.UserPrompt);
         Assert.Contains("Canonical song language: en", llm.UserPrompt);
+        Assert.Contains("ACE-Step caption", llm.UserPrompt);
+        Assert.Contains("ACE-Step temporal script", llm.UserPrompt);
+        Assert.Contains("[Verse 1]", llm.UserPrompt);
+        Assert.Contains("6-10 syllables per line", llm.UserPrompt);
+        Assert.Contains("memorable chorus hook", llm.UserPrompt);
     }
 
     [TestMethod]
@@ -419,6 +424,10 @@ These words should not be used.
         Assert.True(plan.ShouldPost);
         Assert.Equal("We tuned the harbor until it answered back.", plan.Text);
         Assert.Contains("song-publishing post", llm.UserPrompt);
+        Assert.Contains("artist feed", llm.UserPrompt);
+        Assert.Contains("will not show the song title anywhere else", llm.UserPrompt);
+        Assert.Contains("include it naturally inside the message", llm.UserPrompt);
+        Assert.Contains("public place to advertise it", llm.UserPrompt);
         Assert.Contains("stored song story/background", llm.UserPrompt);
         Assert.Contains("one paragraph and no more than two sentences", llm.UserPrompt);
         Assert.Contains("Mara Voss", llm.UserPrompt);

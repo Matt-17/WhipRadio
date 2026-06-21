@@ -23,7 +23,7 @@ public class AceStepGenerationProviderTests
             Language = "en",
         }, CancellationToken.None);
 
-        using var body = JsonDocument.Parse(handler.RequestBodies[0]!);
+        using var body = JsonDocument.Parse(ReleaseTaskBody(handler));
         Assert.True(body.RootElement.GetProperty("sample_mode").GetBoolean());
         Assert.Equal("en", body.RootElement.GetProperty("vocal_language").GetString());
         Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("lyrics").ValueKind);
@@ -41,7 +41,7 @@ public class AceStepGenerationProviderTests
             LyricsMode = LyricsMode.Provided,
         }, CancellationToken.None);
 
-        using var body = JsonDocument.Parse(handler.RequestBodies[0]!);
+        using var body = JsonDocument.Parse(ReleaseTaskBody(handler));
         Assert.False(body.RootElement.GetProperty("sample_mode").GetBoolean());
         Assert.Equal("line one", body.RootElement.GetProperty("lyrics").GetString());
     }
@@ -172,6 +172,35 @@ public class AceStepGenerationProviderTests
     }
 
     [TestMethod]
+    public async Task ArtistLoraDisabledUnloadsExistingAdapterBeforeGeneration()
+    {
+        var paths = new List<string>();
+        var handler = new FakeHttpMessageHandler(req =>
+        {
+            paths.Add(req.RequestUri!.AbsolutePath);
+            return req.RequestUri!.AbsolutePath switch
+            {
+                "/v1/lora/unload" => JsonResponse("""{"data":{"message":"unloaded"},"code":200,"error":null}"""),
+                "/release_task" => JsonResponse("""{"data":{"task_id":"task-1","status":"queued"},"code":200,"error":null}"""),
+                "/query_result" => JsonResponse(QuerySuccess("task-1", "/v1/audio?path=x")),
+                _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(WavTestData.Pcm(128)) },
+            };
+        });
+        var provider = CreateProvider(handler, enableLora: false);
+
+        await provider.GenerateAsync(new MusicRequest("dream pop", "pop", true, "line one", 60)
+        {
+            LyricsMode = LyricsMode.Provided,
+            ArtistName = "Signal Hands",
+            AceStepLoraAdapterPath = "/models/whipradio/lora/a/adapter",
+        }, CancellationToken.None);
+
+        Assert.True(paths.IndexOf("/v1/lora/unload") < paths.IndexOf("/release_task"));
+        Assert.DoesNotContain("/v1/lora/load", paths);
+        Assert.DoesNotContain("/v1/lora/scale", paths);
+    }
+
+    [TestMethod]
     public async Task ArtistLoraDatasetSampleUpdateIncludesRequiredSampleIndex()
     {
         var loadCalls = 0;
@@ -263,7 +292,7 @@ public class AceStepGenerationProviderTests
             LyricsMode = LyricsMode.Instrumental,
         }, CancellationToken.None);
 
-        using var body = JsonDocument.Parse(handler.RequestBodies[0]!);
+        using var body = JsonDocument.Parse(ReleaseTaskBody(handler));
         Assert.Equal(600, body.RootElement.GetProperty("audio_duration").GetInt32());
     }
 
@@ -451,7 +480,7 @@ public class AceStepGenerationProviderTests
             SubGenre = "radio identity",
         }, CancellationToken.None);
 
-        using var body = JsonDocument.Parse(handler.RequestBodies[0]!);
+        using var body = JsonDocument.Parse(ReleaseTaskBody(handler));
         var prompt = body.RootElement.GetProperty("prompt").GetString();
         Assert.False(body.RootElement.GetProperty("thinking").GetBoolean());
         Assert.False(body.RootElement.GetProperty("sample_mode").GetBoolean());
@@ -611,6 +640,13 @@ public class AceStepGenerationProviderTests
         {
             Content = new StringContent(json, Encoding.UTF8, "application/json"),
         };
+
+    private static string ReleaseTaskBody(FakeHttpMessageHandler handler)
+    {
+        var index = handler.Requests.FindIndex(r => r.RequestUri!.AbsolutePath == "/release_task");
+        Assert.True(index >= 0);
+        return handler.RequestBodies[index]!;
+    }
 
     private static string QuerySuccess(string taskId, string file)
     {

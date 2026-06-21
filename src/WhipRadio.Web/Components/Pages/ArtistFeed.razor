@@ -10,12 +10,9 @@
 <h1 class="stage-title">Artist Feed</h1>
 <div class="stage-sub">public wire notes from the fictional roster</div>
 
-<div class="panel reveal artist-feed-panel">
+<section class="reveal artist-feed-panel">
     <div class="artist-feed-head">
-        <div>
-            <div class="panel-label">Artist Wire</div>
-            <div class="dim mono-line">@_total posts logged</div>
-        </div>
+        <div class="panel-label">Artist Wire</div>
         @if (_loading)
         {
             <StatusBadge Text="checking" />
@@ -36,20 +33,15 @@
             @foreach (var post in _posts)
             {
                 <article class="artist-feed-row @(_freshPostIds.Contains(post.Id) ? "fresh" : null)">
-                    <div class="artist-feed-meta">
-                        <div class="artist-feed-artist">@post.ArtistName</div>
-                        <div class="artist-feed-readout">
-                            <span>@FormatTimestamp(post.CreatedAtUtc)</span>
-                            <span>&bull;</span>
-                            <span>@FormatKind(post.Kind)</span>
-                            @if (!string.IsNullOrWhiteSpace(post.TrackTitle))
-                            {
-                                <span>&bull;</span>
-                                <span>@post.TrackTitle</span>
-                            }
+                    <PersonAvatar Name="@post.ArtistName" Size="feed" />
+                    <div class="artist-feed-post">
+                        <div class="artist-feed-meta">
+                            <span class="artist-feed-artist">@post.ArtistName</span>
+                            <span class="artist-feed-dot">&bull;</span>
+                            <span class="artist-feed-time"><TimeAgo Date="@AsUtc(post.CreatedAtUtc)" /></span>
                         </div>
+                        <div class="artist-feed-body">@post.Body</div>
                     </div>
-                    <div class="artist-feed-body">@post.Body</div>
                 </article>
             }
         </div>
@@ -67,7 +59,7 @@
             }
         </div>
     }
-</div>
+</section>
 
 @code {
     private const int PageSize = 20;
@@ -142,19 +134,10 @@
         });
     }
 
-    private static string FormatTimestamp(DateTime utc)
-    {
-        var local = DateTime.SpecifyKind(utc, DateTimeKind.Utc).ToLocalTime();
-        return local.ToString("dd.MM. HH:mm");
-    }
-
-    private static string FormatKind(string kind)
-        => kind switch
-        {
-            "ArtistCreated" => "artist arrived",
-            "TrackReleased" => "song released",
-            _ => kind,
-        };
+    private static DateTime AsUtc(DateTime value)
+        => value.Kind == DateTimeKind.Utc
+            ? value
+            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
     public void Dispose()
     {

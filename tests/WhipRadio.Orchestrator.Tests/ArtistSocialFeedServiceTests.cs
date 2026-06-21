@@ -43,6 +43,8 @@ public class ArtistSocialFeedServiceTests
         Assert.Contains("First wire post", llm.UserPrompt);
         Assert.Contains("A reply to the first dock signal", llm.UserPrompt);
         Assert.Contains("song-publishing post", llm.UserPrompt);
+        Assert.Contains("will not show the song title anywhere else", llm.UserPrompt);
+        Assert.Contains("public place to advertise it", llm.UserPrompt);
         Assert.Contains("stored generation prompt", llm.UserPrompt);
     }
 
@@ -76,6 +78,26 @@ public class ArtistSocialFeedServiceTests
 
         var second = await service.GetPostsAsync(2, 2, CancellationToken.None);
         Assert.Equal("old", second.Items.Single().Body);
+    }
+
+    [TestMethod]
+    public async Task TrackReleasedPost_PreservesLongGeneratedBody()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        var (artistId, trackId) = await SeedArtistWithTracksAsync(fixture);
+        var body = string.Join(' ', Enumerable.Repeat("Cartagena harbor memory keeps ringing through the old melody.", 7));
+        Assert.True(body.Length > 280);
+        var service = new ArtistSocialFeedService(
+            fixture,
+            new MusicCopywriter(new CapturingLlm($$"""Post("{{body}}")""")),
+            new CapturingPublisher(),
+            NullLogger<ArtistSocialFeedService>.Instance);
+
+        await service.TryCreateTrackReleasedPostAsync(artistId, trackId, CancellationToken.None);
+
+        await using RadioDbContext db = fixture.CreateDbContext();
+        var post = await db.ArtistPosts.SingleAsync(p => p.TrackId == trackId);
+        Assert.Equal(body, post.Body);
     }
 
     private static ArtistPost NewPost(Guid artistId, string body, DateTime createdAtUtc)

@@ -41,6 +41,7 @@ public class ArtistCreationServiceTests
   ]
 }
 """);
+        var voiceQueue = new ArtistMemberVoiceQueue();
         var service = new ArtistCreationService(
             fixture,
             new MusicCopywriter(llm),
@@ -50,6 +51,7 @@ public class ArtistCreationServiceTests
                 new NoOpArtistPostUpdatePublisher(),
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
+            voiceQueue,
             NullLogger<ArtistCreationService>.Instance);
 
         var updated = await service.RedefineArtistAsync(artistId, hint: null, CancellationToken.None);
@@ -72,6 +74,7 @@ public class ArtistCreationServiceTests
         Assert.Contains("Current artist:", llm.UserPrompt);
         Assert.Contains("Output Name exactly as: Broken Signal", llm.UserPrompt);
         Assert.Contains("Placeholder Member", llm.UserPrompt);
+        Assert.Equal(updated.Members.Select(m => m.Id).ToArray(), voiceQueue.QueuedMemberIds().ToArray());
     }
 
     [TestMethod]
@@ -80,6 +83,7 @@ public class ArtistCreationServiceTests
         await using DbFixture fixture = await DbFixture.CreateAsync();
         var llm = new SequencedLlm(ArtistProfileJson("Wire Signal"), "Post(\"We found a frequency under the loading dock.\")");
         var copywriter = new MusicCopywriter(llm);
+        var voiceQueue = new ArtistMemberVoiceQueue();
         var service = new ArtistCreationService(
             fixture,
             copywriter,
@@ -89,6 +93,7 @@ public class ArtistCreationServiceTests
                 new NoOpArtistPostUpdatePublisher(),
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
+            voiceQueue,
             NullLogger<ArtistCreationService>.Instance);
 
         var artist = await service.CreateArtistAsync("dock signal band", "electronic", "dock synth", CancellationToken.None);
@@ -99,6 +104,7 @@ public class ArtistCreationServiceTests
         Assert.Equal(ArtistPostKind.ArtistCreated, post.Kind);
         Assert.Equal("We found a frequency under the loading dock.", post.Body);
         Assert.Equal("Wire Signal", post.Artist.Name);
+        Assert.Equal(artist.Members.Select(m => m.Id).ToArray(), voiceQueue.QueuedMemberIds().ToArray());
     }
 
     [TestMethod]
@@ -116,6 +122,7 @@ public class ArtistCreationServiceTests
                 new NoOpArtistPostUpdatePublisher(),
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
+            new ArtistMemberVoiceQueue(),
             NullLogger<ArtistCreationService>.Instance);
 
         var artist = await service.CreateArtistAsync("private ambient artist", "ambient", "tape ambient", CancellationToken.None);

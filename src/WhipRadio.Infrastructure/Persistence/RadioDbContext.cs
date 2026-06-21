@@ -78,6 +78,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
         modelBuilder.Entity<ArtistMember>(member =>
         {
+            member.Property(m => m.TtsEngine).HasDefaultValue("qwen");
             member.HasIndex(m => new { m.ArtistId, m.SortOrder });
         });
 

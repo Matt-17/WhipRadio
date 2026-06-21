@@ -1122,6 +1122,8 @@ table.console-table {
 
 .host-photo.thumb { width: 42px; height: 42px; border-radius: 6px; }
 
+.host-photo.feed { width: 48px; height: 48px; border-radius: 50%; }
+
 .host-photo.portrait { width: 190px; height: 190px; border-radius: 10px; }
 
 /* skeleton placeholder: head-and-shoulders silhouette over a slow sheen */
@@ -1870,64 +1872,83 @@ table.console-table {
 
 .artist-feed-head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+    padding: 0 2px;
 }
 
 .artist-feed-head .panel-label {
-    margin-bottom: 4px;
+    color: var(--amber);
 }
 
 .artist-feed-list {
     display: flex;
     flex-direction: column;
+    gap: 10px;
 }
 
 .artist-feed-row {
     display: grid;
-    grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
-    gap: 18px;
-    padding: 16px 0;
-    border-top: 1px solid rgba(255, 255, 255, .08);
+    grid-template-columns: 48px minmax(0, 1fr);
+    align-items: start;
+    gap: 13px;
+    padding: 16px 18px 17px;
+    background:
+        linear-gradient(180deg, rgba(255, 196, 87, .035), rgba(255, 255, 255, .012)),
+        var(--bg-panel);
+    border: 1px solid rgba(255, 196, 87, .16);
+    border-radius: 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    transition: border-color .15s ease, background .15s ease;
 }
 
-.artist-feed-row:first-child {
-    border-top-color: rgba(255, 196, 87, .24);
+.artist-feed-row:hover {
+    border-color: rgba(255, 196, 87, .28);
+    background:
+        linear-gradient(180deg, rgba(255, 196, 87, .055), rgba(255, 255, 255, .015)),
+        var(--bg-panel);
 }
 
 .artist-feed-row.fresh {
     animation: artist-feed-arrival 2.4s ease-out;
 }
 
+.artist-feed-post,
 .artist-feed-meta {
     min-width: 0;
 }
 
+.artist-feed-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin-bottom: 6px;
+}
+
 .artist-feed-artist {
     font-family: var(--font-display);
-    font-size: 1.24rem;
+    font-size: 1.13rem;
+    line-height: 1.05;
     color: var(--text);
     overflow-wrap: anywhere;
 }
 
-.artist-feed-readout,
+.artist-feed-dot,
+.artist-feed-time,
 .mono-line {
     font-family: var(--font-mono);
     font-size: .78rem;
     color: var(--muted);
 }
 
-.artist-feed-readout {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-top: 5px;
+.artist-feed-time {
+    white-space: nowrap;
 }
 
 .artist-feed-body {
-    line-height: 1.5;
+    line-height: 1.48;
     color: var(--text);
     overflow-wrap: anywhere;
 }
@@ -1941,24 +1962,33 @@ table.console-table {
 
 @media (max-width: 760px) {
     .artist-feed-row {
-        grid-template-columns: 1fr;
-        gap: 8px;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 11px;
+        padding: 14px 13px 15px;
+    }
+
+    .host-photo.feed {
+        width: 42px;
+        height: 42px;
     }
 }
 
 @keyframes artist-feed-arrival {
     0% {
         background: rgba(255, 196, 87, .18);
+        border-color: rgba(255, 196, 87, .58);
         box-shadow: inset 3px 0 0 var(--amber), 0 0 22px rgba(255, 196, 87, .18);
         transform: translateY(-4px);
     }
     45% {
         background: rgba(255, 196, 87, .08);
+        border-color: rgba(255, 196, 87, .32);
         box-shadow: inset 3px 0 0 rgba(255, 196, 87, .7), 0 0 14px rgba(255, 196, 87, .10);
         transform: translateY(0);
     }
     100% {
-        background: transparent;
+        background: var(--bg-panel);
+        border-color: rgba(255, 196, 87, .16);
         box-shadow: inset 0 0 0 rgba(255, 196, 87, 0), 0 0 0 rgba(255, 196, 87, 0);
         transform: translateY(0);
     }
@@ -2563,7 +2593,17 @@ table.console-table {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
     line-height: 1;
+    position: relative;
     text-align: right;
+}
+
+.schedule-hour::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 1px;
+    width: 7px;
+    border-top: 1px solid rgba(183, 159, 124, 0.45);
 }
 
 .schedule-cell {
@@ -2596,8 +2636,7 @@ table.console-table {
     background: rgba(255, 255, 255, 0.018);
 }
 
-.schedule-now-line,
-.schedule-now-time {
+.schedule-now-line {
     align-self: stretch;
     min-height: 0;
     pointer-events: none;
@@ -2625,36 +2664,6 @@ table.console-table {
     border-radius: 999px;
     background: var(--red);
     box-shadow: 0 0 10px rgba(255, 75, 67, 0.85);
-}
-
-.schedule-now-time {
-    padding-right: 8px;
-    color: var(--red);
-    font-size: 9px;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-    text-align: right;
-    text-shadow: 0 0 8px rgba(255, 75, 67, 0.7);
-}
-
-.schedule-now-time::before {
-    content: "";
-    position: absolute;
-    right: 0;
-    top: var(--now-offset);
-    width: 8px;
-    border-top: 2px solid var(--red);
-    box-shadow: 0 0 8px rgba(255, 75, 67, 0.68);
-}
-
-.schedule-now-time::after {
-    content: attr(data-time);
-    position: absolute;
-    right: 12px;
-    top: calc(var(--now-offset) - 5px);
-    padding: 1px 3px;
-    border-radius: 3px;
-    background: rgba(27, 18, 15, 0.9);
 }
 
 .schedule-cell .cell-format,

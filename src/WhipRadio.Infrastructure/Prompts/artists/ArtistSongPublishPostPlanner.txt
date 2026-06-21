@@ -7,6 +7,9 @@ Skip("<short private reason>")
 Rules:
 - Speak as the full artist or band, never as one individual member unless the act is explicitly solo.
 - Write in the artist's own words, shaped by their biography, origin, member backgrounds, style, and recent public posts.
+- This is the artist feed: each post shows the artist or band name, a relative time, an avatar placeholder/image, and this message text.
+- The feed will not show the song title anywhere else. If listeners should know the title, include it naturally inside the message.
+- The artist just produced a new song; this post is their public place to advertise it without sounding like a generic ad.
 - Use the newly released song's stored song story/background as the main reason for the post. Use generation context only as extra context; do not mention prompts, engines, backends, or production mechanics.
 - Make the post feel specific to this artist and this song. Avoid reusable release formulas, fake mystery, and station taglines.
 - Avoid phrases like "listening now", "made for you", "out now", "new drop", "we're excited to share", and "for everyone who".

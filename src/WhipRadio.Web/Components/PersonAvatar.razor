@@ -1,0 +1,18 @@
+<div class="host-photo @Size @Class @(HasPhoto ? null : "skeleton")">
+    @if (HasPhoto)
+    {
+        <img src="@PhotoUrl" alt="@Name" />
+    }
+</div>
+
+@code {
+    [Parameter] public string? PhotoUrl { get; set; }
+
+    [Parameter] public string Name { get; set; } = "person";
+
+    [Parameter] public string Size { get; set; } = "thumb";
+
+    [Parameter] public string? Class { get; set; }
+
+    private bool HasPhoto => !string.IsNullOrWhiteSpace(PhotoUrl);
+}

@@ -34,12 +34,7 @@ else
             {
                 <div class="host-row @(moderator.Id == _selectedId ? "selected" : null) @(moderator.IsActive ? null : "inactive")"
                      @onclick="() => Select(moderator.Id)">
-                    <div class="host-photo thumb @(HasPhoto(moderator) ? null : "skeleton")">
-                        @if (HasPhoto(moderator))
-                        {
-                            <img src="@moderator.PhotoUrl" alt="@moderator.Name" />
-                        }
-                    </div>
+                    <PersonAvatar PhotoUrl="@moderator.PhotoUrl" Name="@moderator.Name" Size="thumb" />
                     <div>
                         <div class="host-row-name">@moderator.Name</div>
                         <div class="host-row-sub">@TalkLabel(moderator.Talkativeness) · @MoodSummary(moderator.CurrentTraits)</div>
@@ -59,12 +54,7 @@ else
             <div class="panel host-detail @(host.IsActive ? null : "inactive")">
                 <div class="host-detail-head">
                     <div class="host-photo-col">
-                        <div class="host-photo portrait @(HasPhoto(host) ? null : "skeleton")">
-                            @if (HasPhoto(host))
-                            {
-                                <img src="@host.PhotoUrl" alt="@host.Name" />
-                            }
-                        </div>
+                        <PersonAvatar PhotoUrl="@host.PhotoUrl" Name="@host.Name" Size="portrait" />
                         <div class="host-photo-edit">
                             <input @bind="_photoUrlEdit" placeholder="photo url…" />
                             <button class="btn small" title="set photo" @onclick="() => SetPhotoAsync(host.Id)">set</button>
@@ -409,8 +399,6 @@ else
         _photoUrlEdit = Selected?.PhotoUrl ?? "";
         _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "en";
     }
-
-    private static bool HasPhoto(ModeratorDto m) => !string.IsNullOrWhiteSpace(m.PhotoUrl);
 
     private static List<ModeratorDto> SortHosts(IEnumerable<ModeratorDto> hosts)
         => hosts

@@ -15,7 +15,6 @@ public class ArtistSocialFeedService(
 {
     private const int RecentPostCount = 8;
     private const int RecentSongCount = 12;
-    private const int MaxBodyLength = 280;
 
     public async Task TryCreateArtistCreatedPostAsync(Guid artistId, CancellationToken ct)
         => await TryCreatePostAsync(artistId, trackId: null, ArtistPostKind.ArtistCreated, ct);
@@ -178,8 +177,6 @@ public class ArtistSocialFeedService(
             .Trim()
             .Trim('"');
         sanitized = string.Join(' ', sanitized.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        return sanitized.Length <= MaxBodyLength
-            ? sanitized
-            : sanitized[..MaxBodyLength].TrimEnd();
+        return sanitized;
     }
 }

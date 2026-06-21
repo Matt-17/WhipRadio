@@ -16,7 +16,7 @@ public sealed class AceStepOptions
 
     public string? ApiKey { get; set; }
 
-    public bool EnableArtistLora { get; set; } = true;
+    public bool EnableArtistLora { get; set; }
 
     public int ArtistLoraMinReferenceTracks { get; set; } = 1;
 

@@ -46,6 +46,8 @@ builder.Services.AddScoped<MediaAnalysisRecorder>();
 builder.Services.AddScoped<ModeratorMemoryService>();
 builder.Services.AddSingleton<ProductionGate>();
 builder.Services.AddSingleton<ArtistCreationQueue>();
+builder.Services.AddSingleton<ArtistMemberVoiceQueue>();
+builder.Services.AddSingleton<ArtistVoiceReferenceResolver>();
 builder.Services.AddSingleton<ArtistDeletionService>();
 
 builder.Services.AddSingleton(TimeProvider.System);
@@ -90,6 +92,7 @@ builder.Logging.AddProvider(new BufferLoggerProvider(logBuffer));
 builder.Services.AddHostedService<PlayoutRecoveryService>();
 builder.Services.AddHostedService<PlayoutService>();
 builder.Services.AddHostedService<ShowRunnerService>();
+builder.Services.AddHostedService<ArtistMemberVoicePreparationService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
 builder.Services.AddSingleton<NewsFeedPollingService>();

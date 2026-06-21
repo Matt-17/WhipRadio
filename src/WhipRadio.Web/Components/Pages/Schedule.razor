@@ -29,12 +29,6 @@
                     <div class="schedule-hour" style="@HourStyle(hour)">@($"{hour:00}:00")</div>
                 }
 
-                <div class="schedule-now-time"
-                     style="@NowTimeStyle()"
-                     data-time="@FormatMinute(CurrentMinute)"
-                     aria-label="@($"Current time: {FormatMinute(CurrentMinute)}")"
-                     title="@($"Current time: {FormatMinute(CurrentMinute)}")">
-                </div>
                 <div class="schedule-now-line"
                      style="@NowLineStyle()"
                      aria-hidden="true"></div>
@@ -140,9 +134,6 @@
 
     private string NowLineStyle()
         => $"grid-column:{DayColumn(CurrentDay)};grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute)}%";
-
-    private string NowTimeStyle()
-        => $"grid-column:1;grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute)}%";
 
     private int DayColumn(int day)
         => Array.IndexOf(_dayOrder, day) + 2;

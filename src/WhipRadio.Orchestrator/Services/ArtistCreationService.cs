@@ -10,6 +10,7 @@ public class ArtistCreationService(
     MusicCopywriter copywriter,
     ArtistSocialFeedService socialFeed,
     ArtistCreationQueue creationQueue,
+    ArtistMemberVoiceQueue voiceQueue,
     ILogger<ArtistCreationService> logger)
 {
     public async Task<Artist> CreateArtistAsync(
@@ -64,6 +65,9 @@ public class ArtistCreationService(
             artist.Members.Count);
 
         await socialFeed.TryCreateArtistCreatedPostAsync(artist.Id, ct);
+        voiceQueue.EnqueueMany(artist.Members
+            .Where(member => string.IsNullOrWhiteSpace(member.VoiceId))
+            .Select(member => member.Id));
 
         return artist;
     }
@@ -116,6 +120,9 @@ public class ArtistCreationService(
             artist.Genre,
             artist.Subgenre,
             artist.Members.Count);
+        voiceQueue.EnqueueMany(newMembers
+            .Where(member => string.IsNullOrWhiteSpace(member.VoiceId))
+            .Select(member => member.Id));
 
         return artist;
     }

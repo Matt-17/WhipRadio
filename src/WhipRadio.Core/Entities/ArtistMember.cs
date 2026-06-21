@@ -18,4 +18,15 @@ public class ArtistMember
     public string Biography { get; set; } = string.Empty;
 
     public string VoiceCreationPrompt { get; set; } = string.Empty;
+
+    public string TtsEngine { get; set; } = "qwen";
+
+    public string? VoiceId { get; set; }
+
+    /// <summary>Relative to the /data root.</summary>
+    public string? VoiceReferencePath { get; set; }
+
+    public DateTime? VoiceDesignedAtUtc { get; set; }
+
+    public string? VoiceDesignLastError { get; set; }
 }

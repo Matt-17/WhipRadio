@@ -152,6 +152,7 @@ public sealed class AceStepGenerationProvider(
     {
         if (!configured.EnableArtistLora)
         {
+            await TryUnloadLoraAsync(cancellationToken);
             return;
         }
 

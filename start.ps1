@@ -30,7 +30,8 @@ foreach ($project in $projects) {
     }
 }
 
-$process = Start-Process dotnet -ArgumentList "run --project `"$appHost`" --no-build --no-restore" -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
+$command = "cd /d `"$root`" && dotnet run --project `"$appHost`" --no-build --no-restore > `"$stdoutLog`" 2> `"$stderrLog`""
+$process = Start-Process "$env:ComSpec" -ArgumentList "/d", "/c", $command -WorkingDirectory $root -WindowStyle Hidden -PassThru
 Write-Host ""
 Write-Host "WhipRadio is starting in the background (PID $($process.Id))..." -ForegroundColor Green
 Write-Host "  Web app:          http://localhost:5084"
