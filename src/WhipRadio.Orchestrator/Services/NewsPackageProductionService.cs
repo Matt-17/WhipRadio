@@ -18,6 +18,7 @@ public sealed class NewsPackageProductionService(
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ProductionBudget = TimeSpan.FromMinutes(20);
+    internal sealed record PackagePlan(DateTimeOffset TargetLocal, bool IncludeNews, bool IncludeWeather);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -70,19 +71,18 @@ public sealed class NewsPackageProductionService(
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(ProductionBudget);
-        await ProducePackageAsync(settings, targetLocal.UtcDateTime, ct, budget.Token);
+        await ProducePackageAsync(settings, targetLocal.UtcDateTime, BuildPackagePlan(settings, targetLocal), ct, budget.Token);
     }
 
     public async Task<NewsPackage?> ProduceNextPackageAsync(CancellationToken ct)
     {
         StationSettings settings;
-        DateTime targetUtc;
+        PackagePlan plan;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-            targetUtc = TopOfHourScheduler.NextTarget(
-                timeProvider.GetLocalNow(),
-                settings.NewsPackageCadenceMinutes).UtcDateTime;
+            plan = ResolveNextPackagePlan(settings, timeProvider.GetLocalNow());
+            var targetUtc = plan.TargetLocal.UtcDateTime;
 
             var existing = await db.NewsPackages.AsNoTracking()
                 .Where(package => package.Kind == NewsPackageKind.TopOfHour
@@ -98,13 +98,14 @@ public sealed class NewsPackageProductionService(
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(ProductionBudget);
-        return await ProducePackageAsync(settings, targetUtc, ct, budget.Token);
+        return await ProducePackageAsync(settings, plan.TargetLocal.UtcDateTime, plan, ct, budget.Token);
     }
 
     public async Task<NewsPackage?> RecreatePackageAsync(Guid packageId, CancellationToken ct)
     {
         StationSettings settings;
         DateTime targetUtc;
+        PackagePlan plan;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
@@ -116,6 +117,7 @@ public sealed class NewsPackageProductionService(
             }
 
             targetUtc = package.TargetUtc;
+            plan = BuildPackagePlan(settings, ToLocalTime(targetUtc, timeProvider.GetLocalNow().Offset));
             foreach (var item in await db.NewsItems
                 .Where(item => item.Status == NewsItemStatus.Selected
                     && item.SelectionReason == "Top-of-hour package")
@@ -132,37 +134,47 @@ public sealed class NewsPackageProductionService(
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(ProductionBudget);
-        return await ProducePackageAsync(settings, targetUtc, ct, budget.Token, packageId);
+        return await ProducePackageAsync(settings, targetUtc, plan, ct, budget.Token, packageId);
     }
 
     private async Task<NewsPackage?> ProducePackageAsync(
         StationSettings settings,
         DateTime targetUtc,
+        PackagePlan plan,
         CancellationToken stoppingToken,
         CancellationToken ct,
         Guid? reusePackageId = null)
     {
-        var step = "polling feeds";
-        await feedPolling.PollEnabledFeedsAsync(ct);
+        var includeNews = plan.IncludeNews;
+        var includeWeather = plan.IncludeWeather;
+        var weatherOnly = !includeNews && includeWeather;
+        var step = weatherOnly ? "creating production scope" : "polling feeds";
+        if (includeNews)
+        {
+            await feedPolling.PollEnabledFeedsAsync(ct);
+        }
 
-        List<NewsItem> items;
+        List<NewsItem> items = [];
         NewsPackage package;
-        step = "selecting news items";
+        step = weatherOnly ? "creating package" : "selecting news items";
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
-            var candidates = await db.NewsItems
-                .Include(item => item.Feed)
-                .Where(item => item.Status == NewsItemStatus.New
-                    && item.Feed != null
-                    && item.Feed.IsEnabled)
-                .ToListAsync(ct);
-            items = NewsCategoryOrdering
-                .SortItems(candidates, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
-                .Take(5)
-                .ToList();
-            if (items.Count == 0)
+            if (includeNews)
             {
-                return null;
+                var candidates = await db.NewsItems
+                    .Include(item => item.Feed)
+                    .Where(item => item.Status == NewsItemStatus.New
+                        && item.Feed != null
+                        && item.Feed.IsEnabled)
+                    .ToListAsync(ct);
+                items = NewsCategoryOrdering
+                    .SortItems(candidates, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
+                    .Take(5)
+                    .ToList();
+                if (items.Count == 0)
+                {
+                    return null;
+                }
             }
 
             if (reusePackageId is { } packageId)
@@ -172,7 +184,7 @@ public sealed class NewsPackageProductionService(
                 package.Kind = NewsPackageKind.TopOfHour;
                 package.Status = NewsPackageStatus.Pending;
                 package.TargetUtc = targetUtc;
-                package.TargetDurationSeconds = Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60);
+                package.TargetDurationSeconds = TargetDurationSeconds(settings, plan);
                 package.AnnouncementId = null;
                 package.ProducedAtUtc = null;
                 package.QueuedAtUtc = null;
@@ -188,7 +200,7 @@ public sealed class NewsPackageProductionService(
                     Kind = NewsPackageKind.TopOfHour,
                     Status = NewsPackageStatus.Pending,
                     TargetUtc = targetUtc,
-                    TargetDurationSeconds = Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60),
+                    TargetDurationSeconds = TargetDurationSeconds(settings, plan),
                     CreatedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
                 };
                 db.NewsPackages.Add(package);
@@ -216,10 +228,6 @@ public sealed class NewsPackageProductionService(
             step = "loading current show context";
             var context = await schedule.GetCurrentAsync(ct);
 
-            step = "resolving news specialist";
-            var newsModerator = await ResolveNewsModeratorAsync(settings, specialistHosts, ct);
-            step = "extracting article text";
-            await EnrichItemsAsync(items, settings.NewsExtractionEnabled, extractor, ct);
             var expiresAt = targetUtc.AddMinutes(15);
             var targetEnd = targetUtc.AddSeconds(
                 TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
@@ -227,24 +235,34 @@ public sealed class NewsPackageProductionService(
             var targetLocal = new DateTimeOffset(
                 DateTime.SpecifyKind(targetUtc, DateTimeKind.Utc),
                 TimeSpan.Zero).ToOffset(localNow.Offset);
-            var newsHandoff = BuildIntroText(context.Moderator, newsModerator, targetLocal);
+            Moderator? newsModerator = null;
+            string? newsHandoff = null;
+            AnnouncementFactory.AnnouncementScriptDraft? newsDraft = null;
+            if (includeNews)
+            {
+                step = "resolving news specialist";
+                newsModerator = await ResolveNewsModeratorAsync(settings, specialistHosts, ct);
+                step = "extracting article text";
+                await EnrichItemsAsync(items, settings.NewsExtractionEnabled, extractor, ct);
+                newsHandoff = BuildIntroText(context.Moderator, newsModerator, targetLocal);
 
-            step = "writing news script";
-            var newsDraft = await factory.WriteScriptDraftAsync(
-                AnnouncementKind.News,
-                newsModerator,
-                null,
-                BuildNewsFacts(items, targetLocal),
-                settings.StationName,
-                ct,
-                lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
-                alreadySpokenContext: newsHandoff,
-                localNowOverride: targetLocal);
+                step = "writing news script";
+                newsDraft = await factory.WriteScriptDraftAsync(
+                    AnnouncementKind.News,
+                    newsModerator,
+                    null,
+                    BuildNewsFacts(items, targetLocal),
+                    settings.StationName,
+                    ct,
+                    lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, package.TargetDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
+                    alreadySpokenContext: newsHandoff,
+                    localNowOverride: targetLocal);
+            }
 
             Moderator? weatherModerator = null;
             string? weatherHandoff = null;
             AnnouncementFactory.AnnouncementScriptDraft? weatherDraft = null;
-            if (settings.WeatherEnabled)
+            if (includeWeather)
             {
                 step = "resolving weather specialist";
                 weatherModerator = await ResolveWeatherModeratorAsync(settings, newsModerator, specialistHosts, ct);
@@ -266,9 +284,10 @@ public sealed class NewsPackageProductionService(
             }
 
             step = "recording news handoff";
-            var parts = new List<Announcement>
+            var parts = new List<Announcement>();
+            if (newsDraft is not null && newsModerator is not null && newsHandoff is not null)
             {
-                await factory.ProduceDirectAsync(
+                parts.Add(await factory.ProduceDirectAsync(
                     AnnouncementKind.StationId,
                     TalkPartKind.StationId,
                     TalkBreakPriority.Scheduled,
@@ -279,43 +298,54 @@ public sealed class NewsPackageProductionService(
                     title: "Top of hour",
                     expiresAtUtc: expiresAt,
                     desiredDurationSeconds: 8,
-                    wordBudget: 22),
-            };
+                    wordBudget: 22));
 
-            step = "directing and recording news bulletin";
-            parts.Add(await factory.ProduceFromDraftAsync(newsDraft, ct));
+                step = "directing and recording news bulletin";
+                parts.Add(await factory.ProduceFromDraftAsync(newsDraft, ct));
+            }
 
             if (weatherDraft is not null && weatherModerator is not null && weatherHandoff is not null)
             {
-                step = "recording weather handoff";
-                parts.Add(await factory.ProduceDirectAsync(
-                    AnnouncementKind.StationId,
-                    TalkPartKind.WeatherHandoff,
-                    TalkBreakPriority.Scheduled,
-                    newsModerator,
-                    weatherHandoff,
-                    "WeatherHandoff",
-                    ct,
-                    title: "Weather handoff",
-                    expiresAtUtc: expiresAt,
-                    desiredDurationSeconds: 5,
-                    wordBudget: 14));
+                if (newsModerator is not null)
+                {
+                    step = "recording weather handoff";
+                    parts.Add(await factory.ProduceDirectAsync(
+                        AnnouncementKind.StationId,
+                        TalkPartKind.WeatherHandoff,
+                        TalkBreakPriority.Scheduled,
+                        newsModerator,
+                        weatherHandoff,
+                        "WeatherHandoff",
+                        ct,
+                        title: "Weather handoff",
+                        expiresAtUtc: expiresAt,
+                        desiredDurationSeconds: 5,
+                        wordBudget: 14));
+                }
 
                 step = "directing and recording weather forecast";
                 parts.Add(await factory.ProduceFromDraftAsync(weatherDraft, ct));
             }
 
+            if (parts.Count == 0)
+            {
+                await MarkPackageFailedAsync(package.Id, "Production did not create any package audio.", items, ct);
+                return await LoadPackageAsync(package.Id, CancellationToken.None);
+            }
+
             step = "marking package announcements as scheduled";
             await MarkScheduledAsync(parts.Select(part => part.Id).ToList(), targetUtc, targetEnd, expiresAt, ct);
             step = "rendering package audio";
-            var composite = parts.Count == 1 ? parts[0] : await renderer.RenderAsync(parts, newsModerator, ct);
+            var fallbackModerator = newsModerator ?? weatherModerator ?? context.Moderator;
+            var composite = parts.Count == 1 ? parts[0] : await renderer.RenderAsync(parts, fallbackModerator, ct);
             step = "finalizing package";
-            await FinalizePackageAsync(package.Id, composite, targetUtc, targetEnd, expiresAt, items, ct);
+            await FinalizePackageAsync(package.Id, composite, targetUtc, targetEnd, expiresAt, items, plan, ct);
 
             logger.LogInformation(
-                "Top-of-hour package ready for {Target:u}: {Count} news item(s), announcement {AnnouncementId}",
+                "Scheduled package ready for {Target:u}: {Count} news item(s), weather {IncludeWeather}, announcement {AnnouncementId}",
                 targetUtc,
                 items.Count,
+                includeWeather,
                 composite.Id);
             return await LoadPackageAsync(package.Id, CancellationToken.None);
         }
@@ -450,13 +480,16 @@ public sealed class NewsPackageProductionService(
 
     private async Task<Moderator> ResolveWeatherModeratorAsync(
         StationSettings settings,
-        Moderator newsModerator,
+        Moderator? newsModerator,
         SpecialistHostCreationService specialistHosts,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
-        var resolved = ProductionSpecialistPolicy.ResolveWeatherModerator(settings, moderators, newsModerator);
+        var resolved = ProductionSpecialistPolicy.ResolveWeatherModerator(
+            settings,
+            moderators,
+            newsModerator ?? new Moderator { Id = int.MinValue });
         if (resolved is not null)
         {
             return resolved;
@@ -509,6 +542,7 @@ public sealed class NewsPackageProductionService(
         DateTime targetEndUtc,
         DateTime expiresAtUtc,
         IReadOnlyList<NewsItem> items,
+        PackagePlan plan,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -516,17 +550,19 @@ public sealed class NewsPackageProductionService(
         package.Status = NewsPackageStatus.Ready;
         package.AnnouncementId = composite.Id;
         package.ProducedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
-        package.SourceSummary = string.Join("; ", items.Select(item => $"{item.Feed?.Label}: {item.Title}"));
+        package.SourceSummary = !plan.IncludeNews && plan.IncludeWeather
+            ? "Weather forecast"
+            : string.Join("; ", items.Select(item => $"{item.Feed?.Label}: {item.Title}"));
 
         var announcement = await db.Announcements.FirstAsync(a => a.Id == composite.Id, ct);
-        announcement.Kind = AnnouncementKind.News;
+        announcement.Kind = plan.IncludeNews ? AnnouncementKind.News : AnnouncementKind.Weather;
 
         var talkBreak = await db.TalkBreaks
             .Include(talkBreak => talkBreak.Parts)
             .FirstAsync(talkBreak => talkBreak.AnnouncementId == composite.Id, ct);
         talkBreak.Priority = TalkBreakPriority.Scheduled;
-        talkBreak.Purpose = "TopOfHourPackage";
-        talkBreak.Title = "Top of hour";
+        talkBreak.Purpose = plan.IncludeNews ? "TopOfHourPackage" : "WeatherReport";
+        talkBreak.Title = plan.IncludeNews ? "Top of hour" : "Weather";
         talkBreak.TargetWindowStartUtc = targetUtc;
         talkBreak.TargetWindowEndUtc = targetEndUtc;
         talkBreak.ExpiresAtUtc = expiresAtUtc;
@@ -583,6 +619,43 @@ public sealed class NewsPackageProductionService(
             ? $"It's {timeText}. Here is the news."
             : $"It's {timeText}. {newsModerator.Name} has the news.";
     }
+
+    internal static DateTimeOffset ResolveNextPackageTarget(StationSettings settings, DateTimeOffset localNow)
+        => ResolveNextPackagePlan(settings, localNow).TargetLocal;
+
+    internal static PackagePlan ResolveNextPackagePlan(StationSettings settings, DateTimeOffset localNow)
+    {
+        var newsTarget = TopOfHourScheduler.NextTarget(localNow, settings.NewsPackageCadenceMinutes);
+        if (!settings.WeatherEnabled)
+        {
+            return BuildPackagePlan(settings, newsTarget);
+        }
+
+        var weatherTarget = WeatherScheduler.NextWindowStart(localNow, settings.WeatherCadenceMinutes);
+        return BuildPackagePlan(settings, weatherTarget < newsTarget ? weatherTarget : newsTarget);
+    }
+
+    internal static PackagePlan BuildPackagePlan(StationSettings settings, DateTimeOffset targetLocal)
+    {
+        var includeNews = IsCadenceBoundary(targetLocal, TopOfHourScheduler.NormalizeCadence(settings.NewsPackageCadenceMinutes));
+        var includeWeather = settings.WeatherEnabled
+            && IsCadenceBoundary(targetLocal, WeatherScheduler.NormalizeCadence(settings.WeatherCadenceMinutes));
+        return new PackagePlan(targetLocal, includeNews, includeWeather);
+    }
+
+    private static int TargetDurationSeconds(StationSettings settings, PackagePlan plan)
+        => !plan.IncludeNews && plan.IncludeWeather
+            ? 60
+            : Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60);
+
+    private static bool IsCadenceBoundary(DateTimeOffset localTime, int cadenceMinutes)
+    {
+        var minuteOfDay = localTime.Hour * 60 + localTime.Minute;
+        return minuteOfDay % cadenceMinutes == 0;
+    }
+
+    private static DateTimeOffset ToLocalTime(DateTime targetUtc, TimeSpan localOffset)
+        => new DateTimeOffset(DateTime.SpecifyKind(targetUtc, DateTimeKind.Utc), TimeSpan.Zero).ToOffset(localOffset);
 
     internal static string BuildNewsFacts(IEnumerable<NewsItem> items, DateTimeOffset localNow)
         => $"Bulletin time: {localNow:yyyy-MM-dd HH:mm} local.\n\n" + string.Join(

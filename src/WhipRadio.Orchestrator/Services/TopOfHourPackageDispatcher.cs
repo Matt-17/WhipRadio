@@ -96,7 +96,7 @@ public sealed class TopOfHourPackageDispatcher(
             PlayoutItemType.Announcement,
             announcement.Id,
             announcement.FilePath,
-            "Top of hour - news and weather",
+            announcement.Kind == AnnouncementKind.Weather ? "Weather" : "Top of hour - news and weather",
             announcement.DurationSeconds,
             announcement.ModeratorId);
 
