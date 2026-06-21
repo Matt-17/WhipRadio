@@ -30,6 +30,18 @@ builder.Services.Configure<MusicOptions>(builder.Configuration.GetSection(MusicO
 builder.Services.AddRadioPersistence(builder.Configuration);
 builder.Services.AddRadioHttpClients(builder.Configuration);
 builder.Services.AddHttpClient("icecast-admin", client => client.Timeout = TimeSpan.FromSeconds(10));
+builder.Services.AddHttpClient("health-icecast");
+builder.Services.AddHttpClient("health-ollama");
+
+// Station-specific readiness probes. The Aspire defaults only register a "self"
+// liveness check; these cover the dependencies that actually determine whether
+// the station can serve audio and generate content.
+builder.Services.AddHealthChecks()
+    .AddCheck<IcecastHealthCheck>("icecast", tags: ["ready"])
+    .AddCheck<FfmpegHealthCheck>("ffmpeg", tags: ["ready"])
+    .AddCheck<RadioDbHealthCheck>("db", tags: ["ready"])
+    .AddCheck<OllamaHealthCheck>("ollama", tags: ["ready"])
+    .AddCheck<EncoderHeartbeatHealthCheck>("encoder", tags: ["ready", "live"]);
 
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
@@ -77,9 +89,11 @@ builder.Services.AddSingleton<WhipRadio.Core.Audio.IMixPlanner>(
     _ => new WhipRadio.Core.Audio.MixPlanner(new WhipRadio.Core.Audio.SystemRandomSource()));
 builder.Services.AddSingleton<MixerDiagnostics>();
 builder.Services.AddSingleton<MixerOverviewService>();
-builder.Services.AddSingleton<MixerUpdatePublisher>();
+builder.Services.AddSingleton<IMixerUpdatePublisher, MixerUpdatePublisher>();
+builder.Services.AddSingleton<IPcmSampleReaderFactory, FfmpegPcmSampleReaderFactory>();
 builder.Services.AddSingleton<TimedPlayoutInterruptService>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
+builder.Services.AddSingleton<EncoderHeartbeat>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 

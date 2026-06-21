@@ -22,6 +22,7 @@ public class PlayoutService(
     TrackDeletionService trackDeletions,
     AudioMixerEngine mixerEngine,
     FfmpegProcessRegistry ffmpegRegistry,
+    EncoderHeartbeat heartbeat,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
@@ -65,6 +66,8 @@ public class PlayoutService(
 
         while (!ct.IsCancellationRequested)
         {
+            heartbeat.LastBeatUtc = DateTime.UtcNow;
+
             if (encoder.HasExited)
             {
                 throw new InvalidOperationException($"Encoder ffmpeg exited with code {encoder.ExitCode}.");
@@ -98,7 +101,7 @@ public class PlayoutService(
             if (await IsMixerEnabledAsync(ct))
             {
                 logger.LogInformation("Mixer engaged");
-                await mixerEngine.RunSessionAsync(encoder, encoderInput,
+                await mixerEngine.RunSessionAsync(new ProcessEncoderSink(encoder), encoderInput,
                     async token => await IsPlayoutEnabledAsync(token) && await IsMixerEnabledAsync(token), ct);
                 logger.LogInformation("Mixer disengaged — legacy playout resumes");
                 continue;

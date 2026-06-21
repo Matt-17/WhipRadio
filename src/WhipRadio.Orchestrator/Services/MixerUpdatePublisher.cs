@@ -3,10 +3,19 @@ using WhipRadio.Orchestrator.Api;
 
 namespace WhipRadio.Orchestrator.Services;
 
+/// <summary>Fire-and-forget mixer state push. Interface extracted so the mixer
+/// state machine can be tested without a SignalR hub / overview service.</summary>
+public interface IMixerUpdatePublisher
+{
+    void Publish();
+
+    Task PublishAsync(CancellationToken ct = default);
+}
+
 public class MixerUpdatePublisher(
     IHubContext<RadioHub> hub,
     MixerOverviewService overview,
-    ILogger<MixerUpdatePublisher> logger)
+    ILogger<MixerUpdatePublisher> logger) : IMixerUpdatePublisher
 {
     private int _publishing;
 

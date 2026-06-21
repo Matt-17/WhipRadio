@@ -23,12 +23,10 @@ public sealed class AudioMixerEngine(
     TrackDeletionService trackDeletions,
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
-    MixerUpdatePublisher mixerUpdates,
+    IMixerUpdatePublisher mixerUpdates,
     TimedPlayoutInterruptService timedInterrupts,
-    FfmpegProcessRegistry ffmpegRegistry,
+    IPcmSampleReaderFactory readerFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
-    IOptions<StreamOptions> streamOptions,
-    IOptions<RadioOptions> radioOptions,
     ILogger<AudioMixerEngine> logger)
 {
     private static readonly PcmFormat Format = new();
@@ -39,7 +37,7 @@ public sealed class AudioMixerEngine(
 
         public required PlayoutItem Item { get; init; }
 
-        public required FfmpegPcmSampleReader Reader { get; init; }
+        public required IPcmSampleReader Reader { get; init; }
 
         public required long EndAtMaster { get; set; }
 
@@ -54,7 +52,7 @@ public sealed class AudioMixerEngine(
     /// <summary>Runs until cancelled, the encoder dies, or the mixer/playout flag
     /// turns the session off (returns at an item boundary).</summary>
     public async Task RunSessionAsync(
-        Process encoder, Stream encoderInput,
+        IMixerEncoderSink encoder, Stream encoderInput,
         Func<CancellationToken, Task<bool>> sessionStillWanted, CancellationToken ct)
     {
         var core = new MixerCore(Format);
@@ -175,7 +173,7 @@ public sealed class AudioMixerEngine(
                                 a.Item.Title, earlySeconds);
                         }
 
-                        a.Reader.Dispose();
+                        a.Reader.DisposeIfDisposable();
                         stateStore.Complete(a.Item);
                         await trackDeletions.MarkPlaybackCompletedAsync(a.Item, ct);
                         actives.RemoveAt(i);
@@ -198,7 +196,7 @@ public sealed class AudioMixerEngine(
             mixerUpdates.Publish();
             foreach (var active in actives)
             {
-                active.Reader.Dispose();
+                active.Reader.DisposeIfDisposable();
                 stateStore.Complete(active.Item);
                 await trackDeletions.MarkPlaybackCompletedAsync(active.Item, CancellationToken.None);
             }
@@ -566,12 +564,8 @@ public sealed class AudioMixerEngine(
         };
     }
 
-    private FfmpegPcmSampleReader CreateReader(PlayoutItem item, ItemInfo info, double startAtSeconds)
-    {
-        var absolutePath = Path.Combine(radioOptions.Value.DataRoot, item.FilePath);
-        return new FfmpegPcmSampleReader(
-            streamOptions.Value.FfmpegPath, absolutePath, Format, startAtSeconds, ffmpegRegistry);
-    }
+    private IPcmSampleReader CreateReader(PlayoutItem item, ItemInfo info, double startAtSeconds)
+        => readerFactory.Create(item, Format, startAtSeconds);
 
     private static double PlaybackStartSeconds(PlayoutItem item, ItemInfo info)
     {
@@ -756,6 +750,16 @@ internal static class MixerCoreExtensions
         if (idle && (core.ClipCount > 0 || core.UnderrunCount > 0))
         {
             core.ResetCounters();
+        }
+    }
+
+    /// <summary>Dispose a PCM reader only if it owns unmanaged resources; the
+    /// in-memory test fake is not IDisposable and must not box/cast-thrown.</summary>
+    public static void DisposeIfDisposable(this IPcmSampleReader reader)
+    {
+        if (reader is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 }
