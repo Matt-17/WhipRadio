@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
@@ -17,6 +18,7 @@ public class AnnouncementProductionService(
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
     TimeProvider timeProvider,
+    IStationMetrics metrics,
     ILogger<AnnouncementProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
@@ -28,9 +30,12 @@ public class AnnouncementProductionService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            const string kind = "announcement";
+            var cycleStart = Stopwatch.GetTimestamp();
             try
             {
                 await RunCycleAsync(stoppingToken);
+                metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -38,6 +43,7 @@ public class AnnouncementProductionService(
             }
             catch (Exception ex)
             {
+                metrics.GenerationFailed(kind);
                 logger.LogError(ex,
                     "Announcement production cycle failed ({Reason}); retrying in {Delay}s",
                     ex.GetBaseException().Message, CycleDelay.TotalSeconds);

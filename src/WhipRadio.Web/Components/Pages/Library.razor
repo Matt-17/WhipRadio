@@ -1,9 +1,11 @@
 @page "/library"
+@page "/library/artists/{ArtistSlug}"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
 @inject PlayerState Player
+@inject NavigationManager Navigation
 
 <PageTitle>WhipRadio — Library</PageTitle>
 
@@ -40,7 +42,7 @@
             @foreach (var artist in _artists.Where(ArtistMatchesSearch))
             {
                 <button class="artist-item @(_selectedArtistId == artist.Id ? "active" : null)"
-                        @onclick="() => SelectArtistAsync(artist.Id)">
+                        @onclick="() => SelectArtistAsync(artist)">
                     <span class="artist-name-line">
                         <span class="artist-name">@artist.Name</span>
                         @if (artist.IsRetired)
@@ -352,6 +354,8 @@
 @code {
     private const int PageSize = 25;
 
+    [Parameter] public string? ArtistSlug { get; set; }
+
     private List<TrackDto>? _tracks;
     private List<TrackDto>? _allTracks;
     private List<ArtistDto> _artists = [];
@@ -375,16 +379,29 @@
     private readonly List<PendingArtistCreation> _artistCreationQueue = [];
     private readonly List<PendingArtistRedefinition> _artistRedefinitionQueue = [];
     private bool _artistRedefinitionPumpRunning;
+    private bool _loaded;
+    private string? _currentRouteArtistSlug;
     private Timer? _statusTimer;
 
     protected override async Task OnInitializedAsync()
     {
         _artists = await Api.GetArtistsAsync();
         _status = await Api.GetMusicProductionStatusAsync();
-        await LoadTracksAsync();
+        _loaded = true;
+        await ApplyArtistRouteAsync(ArtistSlug);
 
         _statusTimer = new Timer(async _ => await PollStatusAsync(), null,
             TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_loaded || string.Equals(ArtistSlug, _currentRouteArtistSlug, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        await ApplyArtistRouteAsync(ArtistSlug);
     }
 
     private bool IsGenerating(Guid artistId) => _status?.ArtistId == artistId;
@@ -478,9 +495,25 @@
 
     private void GoToPage(int page) => _page = page;
 
-    private async Task SelectArtistAsync(Guid? artistId)
+    private async Task SelectArtistAsync(ArtistDto? artist)
     {
-        _selectedArtistId = artistId;
+        var target = artist is { } selected ? $"/library/artists/{selected.Slug}" : "/library";
+        if (!UriEquals(target))
+        {
+            Navigation.NavigateTo(target);
+            return;
+        }
+
+        await ApplyArtistRouteAsync(artist?.Slug);
+    }
+
+    private async Task ApplyArtistRouteAsync(string? artistSlug)
+    {
+        _currentRouteArtistSlug = artistSlug;
+        var artist = string.IsNullOrWhiteSpace(artistSlug)
+            ? null
+            : _artists.FirstOrDefault(a => string.Equals(a.Slug, artistSlug, StringComparison.OrdinalIgnoreCase));
+        _selectedArtistId = artist?.Id;
         _artistDetail = null;
         _page = 1;
         _deleteTarget = null;
@@ -488,12 +521,18 @@
         _artistDeleteError = null;
         await LoadTracksAsync();
 
-        if (artistId is { } id)
+        if (_selectedArtistId is { } id)
         {
             // Detail fetch writes the biography on first view — may take a moment.
             _ = FetchDetailAsync(id);
         }
     }
+
+    private bool UriEquals(string relativeUri)
+        => string.Equals(
+            Navigation.ToBaseRelativePath(Navigation.Uri).TrimEnd('/'),
+            relativeUri.TrimStart('/').TrimEnd('/'),
+            StringComparison.OrdinalIgnoreCase);
 
     private async Task FetchDetailAsync(Guid id)
     {
@@ -643,7 +682,7 @@
                     _artistCreationQueue.Remove(pending);
                     _artistDeleteError = null;
                     _artists = await Api.GetArtistsAsync();
-                    await SelectArtistAsync(artist.Id);
+                    await SelectArtistAsync(artist);
                     await InvokeAsync(StateHasChanged);
                 }
                 catch (Exception ex)
@@ -784,6 +823,7 @@
             _artistDetail = null;
             _artists = await Api.GetArtistsAsync();
             await LoadTracksAsync();
+            Navigation.NavigateTo("/library");
         }
         finally
         {

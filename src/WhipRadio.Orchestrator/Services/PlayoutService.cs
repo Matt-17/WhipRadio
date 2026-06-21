@@ -23,6 +23,8 @@ public class PlayoutService(
     AudioMixerEngine mixerEngine,
     FfmpegProcessRegistry ffmpegRegistry,
     EncoderHeartbeat heartbeat,
+    IStationMetrics metrics,
+    IStationStatusReporter statusReporter,
     IDbContextFactory<RadioDbContext> dbFactory,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
@@ -31,11 +33,22 @@ public class PlayoutService(
 {
     private const int SilenceChunkMs = 500;
     private static readonly byte[] SilenceChunk = new byte[44100 * 2 * 2 * SilenceChunkMs / 1000];
+    private static readonly TimeSpan ParkReEnablePollInterval = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var stream = streamOptions.Value;
+        var policy = new EncoderResiliencePolicy(
+            window: TimeSpan.FromMinutes(stream.EncoderCrashWindowMinutes),
+            threshold: stream.EncoderCrashThreshold,
+            initialBackoff: TimeSpan.FromSeconds(stream.EncoderInitialBackoffSeconds),
+            maxBackoff: TimeSpan.FromSeconds(stream.EncoderMaxBackoffSeconds),
+            successResetsAfter: TimeSpan.FromSeconds(stream.EncoderSuccessResetsAfterSeconds),
+            nowUtc: DateTime.UtcNow);
+
         while (!stoppingToken.IsCancellationRequested)
         {
+            policy.MarkSessionStart(DateTime.UtcNow);
             try
             {
                 await RunEncoderSessionAsync(stoppingToken);
@@ -46,17 +59,113 @@ public class PlayoutService(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Encoder session ended unexpectedly; restarting in 5 s");
+                metrics.EncoderRestarted();
+
+                var nowUtc = DateTime.UtcNow;
+                if (policy.RecordCrash(nowUtc))
+                {
+                    // Circuit breaker: stop hot-looping ffmpeg into a dead Icecast.
+                    // Park the station (PlayoutEnabled := false) and surface Offline
+                    // until an operator re-enables On Air.
+                    logger.LogCritical(
+                        "Encoder circuit breaker tripped: {Crashes} crashes in {Window} min. " +
+                        "Parking station — re-enable On Air to resume.",
+                        policy.CrashesInWindow, stream.EncoderCrashWindowMinutes);
+                    await ParkStationAsync(stoppingToken);
+                    policy.Reset();
+                    continue;
+                }
+
+                var backoff = policy.NextBackoff();
+                statusReporter.Set(
+                    StationStatus.Reconnecting,
+                    ShortReason(ex),
+                    nowUtc + backoff);
+                logger.LogError(ex,
+                    "Encoder session ended unexpectedly; restarting in {Backoff}s ({Crashes} recent crashes)",
+                    backoff.TotalSeconds, policy.CrashesInWindow);
+
+                reporter.ReportIdle();
+                try
+                {
+                    await Task.Delay(backoff, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Park the station after the circuit breaker trips: persist
+    /// <c>PlayoutEnabled = false</c> so the console switch reflects the parked
+    /// state, surface "Offline" to the UI, then block until an operator
+    /// re-enables On Air. Never throws — a failed persist still leaves us
+    /// waiting on the manual toggle.
+    /// </summary>
+    private async Task ParkStationAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.StationSettings.GetStationSettingsOrDefaultAsync(ct);
+            if (settings.PlayoutEnabled)
+            {
+                settings.PlayoutEnabled = false;
+                await db.SaveChangesAsync(ct);
+                logger.LogWarning("Station parked: PlayoutEnabled set to false by circuit breaker");
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to persist PlayoutEnabled=false while parking; waiting for manual re-enable anyway");
+        }
+
+        statusReporter.Set(
+            StationStatus.Offline,
+            "Encoder circuit breaker tripped — re-enable On Air to resume.");
+        reporter.ReportIdle();
+
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(ParkReEnablePollInterval, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
             }
 
-            reporter.ReportIdle();
-            await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            if (await IsPlayoutEnabledAsync(ct))
+            {
+                logger.LogInformation("Station re-enabled after circuit-breaker park; resuming encoder");
+                return;
+            }
         }
+    }
+
+    private static string ShortReason(Exception ex)
+    {
+        var msg = ex.Message?.Trim();
+        if (string.IsNullOrEmpty(msg))
+        {
+            return ex.GetType().Name;
+        }
+
+        return msg.Length <= 160 ? msg : $"{msg[..157]}...";
     }
 
     private async Task RunEncoderSessionAsync(CancellationToken ct)
     {
         using var encoder = StartEncoder();
+        statusReporter.Set(StationStatus.Online);
         logger.LogInformation(
             "Encoder started, pushing to icecast://{Host}:{Port}{Mount}",
             icecastOptions.Value.Host, icecastOptions.Value.Port, streamOptions.Value.Mount);

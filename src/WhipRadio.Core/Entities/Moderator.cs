@@ -9,6 +9,8 @@ public class Moderator
 
     public string Name { get; set; } = string.Empty;
 
+    public string Slug { get; set; } = string.Empty;
+
     /// <summary>BCP-47 language tag, e.g. "en".</summary>
     public string Language { get; set; } = "en";
 

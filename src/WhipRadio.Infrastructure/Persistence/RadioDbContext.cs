@@ -69,6 +69,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<Artist>(artist =>
         {
             artist.HasIndex(a => a.Name);
+            artist.HasIndex(a => a.Slug).IsUnique();
             artist.HasIndex(a => a.Genre);
             artist.HasMany(a => a.Members)
                 .WithOne(m => m.Artist)
@@ -184,6 +185,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             moderator.Property(m => m.BaselineHumorLevel).HasConversion<string>();
             moderator.Property(m => m.BaselineTalkativeness).HasConversion<string>();
             moderator.Property(m => m.BaselineWarmth).HasConversion<string>();
+            moderator.HasIndex(m => m.Slug).IsUnique();
         });
 
         modelBuilder.Entity<ModeratorMemory>(memory =>

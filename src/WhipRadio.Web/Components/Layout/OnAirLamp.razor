@@ -2,8 +2,8 @@
 @implements IDisposable
 @inject RadioLiveClient Live
 
-<div class="onair @(Live.NowPlaying is not null ? "live" : null)">
-    <span class="lamp"></span> On Air
+<div class="onair @LampClass" title="@LampTitle">
+    <span class="lamp"></span> @LampLabel
 </div>
 
 @code {
@@ -20,4 +20,57 @@
     private void OnChanged() => _ = InvokeAsync(StateHasChanged);
 
     public void Dispose() => Live.Changed -= OnChanged;
+
+    private static readonly Dictionary<string, string> StatusLabel = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Offline"] = "Offline",
+        ["Reconnecting"] = "Reconnecting",
+    };
+
+    private string LampLabel
+    {
+        get
+        {
+            var status = Live.StationStatus?.Status;
+            if (!string.IsNullOrEmpty(status) && StatusLabel.TryGetValue(status, out var label))
+            {
+                return label;
+            }
+
+            return "On Air";
+        }
+    }
+
+    private string? LampClass
+    {
+        get
+        {
+            var status = Live.StationStatus?.Status;
+            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
+            {
+                return "offline";
+            }
+
+            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
+            {
+                return "reconnecting";
+            }
+
+            return Live.NowPlaying is not null ? "live" : null;
+        }
+    }
+
+    private string? LampTitle
+    {
+        get
+        {
+            var status = Live.StationStatus;
+            if (status is null || string.IsNullOrEmpty(status.Reason))
+            {
+                return null;
+            }
+
+            return status.Reason;
+        }
+    }
 }

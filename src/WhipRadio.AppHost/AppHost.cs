@@ -1,4 +1,15 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
 var builder = DistributedApplication.CreateBuilder(args);
+builder.Services.Configure<LoggerFilterOptions>(options =>
+{
+    options.Rules.Add(new LoggerFilterRule(
+        "Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider",
+        categoryName: null,
+        logLevel: LogLevel.None,
+        filter: null));
+});
 
 // --- Parameters -------------------------------------------------------------
 var icecastSourcePassword = builder.AddParameter("icecast-source-password", "hackme-dev");
@@ -28,6 +39,7 @@ var icecastEndpoint = icecast.GetEndpoint("http");
 
 // --- Orchestrator: pipelines + playout -----------------------------------------
 var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestrator")
+    .WithHttpEndpoint(port: 5151, name: "http")
     .WaitFor(icecast)
     .WithEnvironment("Llm__Endpoint", writerRoomEndpoint)
     .WithEnvironment("Radio__DataRoot", dataRoot)

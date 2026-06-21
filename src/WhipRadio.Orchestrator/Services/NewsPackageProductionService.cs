@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
@@ -14,6 +15,7 @@ public sealed class NewsPackageProductionService(
     NewsFeedPollingService feedPolling,
     TimeProvider timeProvider,
     IProductionUpdatePublisher productionUpdates,
+    IStationMetrics metrics,
     ILogger<NewsPackageProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
@@ -24,9 +26,12 @@ public sealed class NewsPackageProductionService(
     {
         while (!stoppingToken.IsCancellationRequested)
         {
+            const string kind = "news";
+            var cycleStart = Stopwatch.GetTimestamp();
             try
             {
                 await RunCycleAsync(stoppingToken);
+                metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -34,6 +39,7 @@ public sealed class NewsPackageProductionService(
             }
             catch (Exception ex)
             {
+                metrics.GenerationFailed(kind);
                 logger.LogError(ex, "News package production cycle failed");
             }
 
@@ -359,6 +365,7 @@ public sealed class NewsPackageProductionService(
                 return await LoadPackageAsync(package.Id, CancellationToken.None);
             }
 
+            metrics.GenerationFailed("news");
             await MarkPackageFailedAsync(
                 package.Id,
                 IsAbortedIoFailure(ex)
@@ -388,6 +395,7 @@ public sealed class NewsPackageProductionService(
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
+            metrics.GenerationFailed("news");
             await MarkPackageFailedAsync(package.Id, $"Production failed during {step}: {FailureDetail(ex)}", items, ct);
             logger.LogWarning(
                 ex,

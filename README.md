@@ -83,6 +83,10 @@ Key settings:
 | `AceStep__GenerationTimeout` | `00:30:00` | ACE-Step generation timeout |
 | `Stream__Bitrate` | `192k` | MP3 bitrate |
 | `Stream__DisplayLatencySeconds` | `5` | delay now-playing/title updates to match listener stream latency |
+| `Stream__EncoderInitialBackoffSeconds` | `5` | first encoder-restart backoff; doubles per rapid crash up to the cap |
+| `Stream__EncoderMaxBackoffSeconds` | `60` | cap for encoder-restart backoff |
+| `Stream__EncoderCrashThreshold` | `5` | circuit breaker: park the station after this many encoder crashes in the window |
+| `Stream__EncoderCrashWindowMinutes` | `5` | rolling window for the encoder crash circuit breaker |
 | `Icecast__SourcePassword` | `hackme-dev` | dev-only default |
 | `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, SQLite |
 

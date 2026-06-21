@@ -48,6 +48,38 @@ public class StreamOptions
     /// the ears, not the encoder. Tune if titles still flip early/late.
     /// </summary>
     public double DisplayLatencySeconds { get; set; } = 8;
+
+    /// <summary>
+    /// Initial delay before restarting the encoder ffmpeg after a crash. Doubles
+    /// on each consecutive rapid crash (5s → 10s → 20s → 40s) up to
+    /// <see cref="EncoderMaxBackoffSeconds"/>, so a sustained Icecast outage
+    /// can't hot-loop ffmpeg crashes. A session that runs longer than
+    /// <see cref="EncoderSuccessResetsAfterSeconds"/> before crashing resets the
+    /// streak (treated as a fresh incident, not a hot-loop).
+    /// </summary>
+    public int EncoderInitialBackoffSeconds { get; set; } = 5;
+
+    /// <summary>Cap for the encoder restart backoff.</summary>
+    public int EncoderMaxBackoffSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// Crashing again only counts as a "rapid" crash if the previous encoder
+    /// session ran shorter than this. A long healthy session clears the crash
+    /// streak so a later, unrelated crash starts the backoff from the floor.
+    /// </summary>
+    public int EncoderSuccessResetsAfterSeconds { get; set; } = 120;
+
+    /// <summary>
+    /// Circuit-breaker threshold: if this many encoder crashes happen inside
+    /// <see cref="EncoderCrashWindowMinutes"/>, the station is parked (PlayoutEnabled
+    /// flipped off, "station offline" surfaced to the UI) and stays parked until
+    /// an operator re-enables On Air. Stops silent ffmpeg crash-loops during a
+    /// sustained Icecast outage.
+    /// </summary>
+    public int EncoderCrashThreshold { get; set; } = 5;
+
+    /// <summary>Rolling window for <see cref="EncoderCrashThreshold"/>.</summary>
+    public int EncoderCrashWindowMinutes { get; set; } = 5;
 }
 
 public class MusicOptions

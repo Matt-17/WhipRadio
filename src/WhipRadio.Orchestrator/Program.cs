@@ -41,7 +41,7 @@ builder.Services.AddHealthChecks()
     .AddCheck<FfmpegHealthCheck>("ffmpeg", tags: ["ready"])
     .AddCheck<RadioDbHealthCheck>("db", tags: ["ready"])
     .AddCheck<OllamaHealthCheck>("ollama", tags: ["ready"])
-    .AddCheck<EncoderHeartbeatHealthCheck>("encoder", tags: ["ready", "live"]);
+    .AddCheck<EncoderHeartbeatHealthCheck>("encoder", tags: ["ready"]);
 
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
@@ -94,6 +94,10 @@ builder.Services.AddSingleton<IPcmSampleReaderFactory, FfmpegPcmSampleReaderFact
 builder.Services.AddSingleton<TimedPlayoutInterruptService>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
 builder.Services.AddSingleton<EncoderHeartbeat>();
+builder.Services.AddSingleton<IStationStatusReporter, StationStatusReporter>();
+builder.Services.AddSingleton<IcecastListenerProbe>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<IcecastListenerProbe>());
+builder.Services.AddSingleton<IStationMetrics, StationMetrics>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 

@@ -54,7 +54,7 @@ public class AudioMixerEngineTests
             var logger = new CollectingLogger();
             var mixer = new AudioMixerEngine(
                 queue, reporter, stateStore, trackDeletions, planner, diagnostics, mixerUpdates,
-                timedInterrupts, readers, new ThrowingDbContextFactory(),
+                timedInterrupts, readers, NullStationMetrics.Instance, new ThrowingDbContextFactory(),
                 collectLogs ? logger : NullLogger<AudioMixerEngine>.Instance);
             return new Fixture(mixer, queue, reporter, trackDeletions, readers, logger);
         }

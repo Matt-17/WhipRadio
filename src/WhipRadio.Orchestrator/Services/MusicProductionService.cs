@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -29,6 +30,7 @@ public class MusicProductionService(
     ArtistVoiceReferenceResolver voiceReferenceResolver,
     IOptions<RadioOptions> radioOptions,
     IOptions<MusicOptions> musicOptions,
+    IStationMetrics metrics,
     ILogger<MusicProductionService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,6 +39,8 @@ public class MusicProductionService(
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            const string kind = "music";
+            var cycleStart = Stopwatch.GetTimestamp();
             try
             {
                 var settings = await GetSettingsAsync(stoppingToken);
@@ -54,9 +58,11 @@ public class MusicProductionService(
                         try
                         {
                             await ProduceOneTrackAsync(settings, artistId, stoppingToken);
+                            metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
                         }
                         catch (Exception ex) when (IsTransientStudioUnavailable(ex) && !stoppingToken.IsCancellationRequested)
                         {
+                            metrics.GenerationFailed(kind);
                             control.RequeueTrackForFront(artistId);
                             logger.LogWarning(ex,
                                 "Recording studio became unavailable while producing requested artist {ArtistId}; keeping the request queued.",
@@ -79,6 +85,7 @@ public class MusicProductionService(
                         try
                         {
                             await ProduceOneTrackAsync(settings, forcedArtistId: null, stoppingToken);
+                            metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
                         }
                         catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
                         {
@@ -100,6 +107,7 @@ public class MusicProductionService(
             }
             catch (Exception ex)
             {
+                metrics.GenerationFailed(kind);
                 logger.LogError(ex,
                     "Music production cycle failed ({Reason}); retrying in {Backoff}s",
                     ex.GetBaseException().Message, backoff.TotalSeconds);

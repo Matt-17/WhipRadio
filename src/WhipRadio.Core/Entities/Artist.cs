@@ -11,6 +11,8 @@ public class Artist
 
     public string Name { get; set; } = string.Empty;
 
+    public string Slug { get; set; } = string.Empty;
+
     public string Genre { get; set; } = string.Empty;
 
     public string Subgenre { get; set; } = string.Empty;

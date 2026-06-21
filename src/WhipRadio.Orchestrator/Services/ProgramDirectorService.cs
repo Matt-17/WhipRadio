@@ -6,6 +6,7 @@ using WhipRadio.Core.Personality;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
+using WhipRadio.Core.Slugs;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -431,6 +432,7 @@ public partial class ProgramDirectorService(
         var moderator = new Moderator
         {
             Name = name,
+            Slug = SlugGenerator.UniqueFromName(name, all.Select(host => host.Slug)),
             Gender = gender,
             Language = language,
             Style = style,

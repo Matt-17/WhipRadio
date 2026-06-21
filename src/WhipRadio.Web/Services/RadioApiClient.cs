@@ -38,6 +38,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<List<QueueItemDto>> GetQueueAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<QueueItemDto>>("/api/queue", ct) ?? [];
 
+    public async Task<StationStatusDto?> GetStationStatusAsync(CancellationToken ct = default)
+        => await SafeGetAsync<StationStatusDto>("/api/station/status", ct);
+
     public async Task<List<TrackDto>> GetLibraryAsync(
         string? sort = null, string? genre = null, Guid? artistId = null, CancellationToken ct = default)
     {

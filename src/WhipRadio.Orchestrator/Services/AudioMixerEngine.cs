@@ -26,6 +26,7 @@ public sealed class AudioMixerEngine(
     IMixerUpdatePublisher mixerUpdates,
     TimedPlayoutInterruptService timedInterrupts,
     IPcmSampleReaderFactory readerFactory,
+    IStationMetrics metrics,
     IDbContextFactory<RadioDbContext> dbFactory,
     ILogger<AudioMixerEngine> logger)
 {
@@ -703,6 +704,7 @@ public sealed class AudioMixerEngine(
                 });
                 await db.SaveChangesAsync(ct);
                 mixerUpdates.Publish();
+                metrics.MixerTransition(entry.Plan.Strategy.ToString(), core.ClipCount - entry.ClipBaseline);
             }
             catch (Exception ex)
             {

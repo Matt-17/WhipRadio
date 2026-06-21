@@ -1,9 +1,11 @@
 @page "/moderators"
+@page "/moderators/{HostSlug}"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
 @inject PlayerState Player
 @inject IJSRuntime Js
+@inject NavigationManager Navigation
 
 <PageTitle>WhipRadio — Hosts</PageTitle>
 
@@ -33,7 +35,7 @@ else
             @foreach (var moderator in RosterHosts)
             {
                 <div class="host-row @(moderator.Id == _selectedId ? "selected" : null) @(moderator.IsActive ? null : "inactive")"
-                     @onclick="() => Select(moderator.Id)">
+                     @onclick="() => Select(moderator)">
                     <PersonAvatar PhotoUrl="@moderator.PhotoUrl" Name="@moderator.Name" Size="thumb" />
                     <div>
                         <div class="host-row-name">@moderator.Name</div>
@@ -348,6 +350,8 @@ else
 </ConfirmDialog>
 
 @code {
+    [Parameter] public string? HostSlug { get; set; }
+
     private List<ModeratorDto>? _moderators;
     private List<PlayLogEntryDto> _talks = [];
     private int? _talksFor;
@@ -384,6 +388,8 @@ else
     private ModeratorUsageDto? _fireUsage;
     private string? _fireError;
     private bool _firingHost;
+    private bool _loaded;
+    private string? _currentRouteHostSlug;
 
     private ModeratorDto? Selected => _moderators?.FirstOrDefault(m => m.Id == _selectedId);
 
@@ -395,9 +401,20 @@ else
     protected override async Task OnInitializedAsync()
     {
         _moderators = SortHosts(await Api.GetModeratorsAsync());
-        _selectedId = RosterHosts.FirstOrDefault()?.Id;
-        _photoUrlEdit = Selected?.PhotoUrl ?? "";
         _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "en";
+        _loaded = true;
+        ApplyHostRoute(HostSlug);
+    }
+
+    protected override Task OnParametersSetAsync()
+    {
+        if (!_loaded || string.Equals(HostSlug, _currentRouteHostSlug, StringComparison.OrdinalIgnoreCase))
+        {
+            return Task.CompletedTask;
+        }
+
+        ApplyHostRoute(HostSlug);
+        return Task.CompletedTask;
     }
 
     private static List<ModeratorDto> SortHosts(IEnumerable<ModeratorDto> hosts)
@@ -406,14 +423,36 @@ else
             .ThenBy(host => host.Id)
             .ToList();
 
-    private void Select(int id)
+    private void Select(ModeratorDto host)
     {
-        _selectedId = id;
+        var target = $"/moderators/{host.Slug}";
+        if (!UriEquals(target))
+        {
+            Navigation.NavigateTo(target);
+            return;
+        }
+
+        ApplyHostRoute(host.Slug);
+    }
+
+    private void ApplyHostRoute(string? hostSlug)
+    {
+        _currentRouteHostSlug = hostSlug;
+        var host = string.IsNullOrWhiteSpace(hostSlug)
+            ? null
+            : _moderators?.FirstOrDefault(m => string.Equals(m.Slug, hostSlug, StringComparison.OrdinalIgnoreCase));
+        _selectedId = host?.Id ?? RosterHosts.FirstOrDefault()?.Id;
         _photoUrlEdit = Selected?.PhotoUrl ?? "";
         _talksFor = null;
         _redesignFor = null;
         _redesigned = null;
     }
+
+    private bool UriEquals(string relativeUri)
+        => string.Equals(
+            Navigation.ToBaseRelativePath(Navigation.Uri).TrimEnd('/'),
+            relativeUri.TrimStart('/').TrimEnd('/'),
+            StringComparison.OrdinalIgnoreCase);
 
     private void OpenHire()
     {
@@ -470,7 +509,7 @@ else
         _newDesigned = null;
         _hireOpen = false;
         _moderators = SortHosts(await Api.GetModeratorsAsync());
-        Select(created.Id);
+        Select(created);
     }
 
     private async Task SetPhotoAsync(int moderatorId)
@@ -581,7 +620,7 @@ else
         _redesignFor = null;
         _redesigned = null;
         _moderators = SortHosts(await Api.GetModeratorsAsync());
-        Select(result.Moderator.Id);
+        Select(result.Moderator);
         CloseFireDialog();
     }
 

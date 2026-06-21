@@ -21,6 +21,8 @@ public class RadioLiveClient(
 
     public NowPlayingDto? NowPlaying { get; private set; }
 
+    public StationStatusDto? StationStatus { get; private set; }
+
     public IReadOnlyList<QueueItemDto> Queue { get; private set; } = [];
 
     public event Action? Changed;
@@ -56,6 +58,12 @@ public class RadioLiveClient(
             _connection.On<NowPlayingDto?>("NowPlayingChanged", dto =>
             {
                 NowPlaying = dto;
+                Changed?.Invoke();
+            });
+
+            _connection.On<StationStatusDto>("StationStatusChanged", status =>
+            {
+                StationStatus = status;
                 Changed?.Invoke();
             });
 
@@ -125,6 +133,7 @@ public class RadioLiveClient(
     {
         NowPlaying = await api.GetNowPlayingAsync();
         Queue = await api.GetQueueAsync();
+        StationStatus = await api.GetStationStatusAsync();
         Changed?.Invoke();
     }
 

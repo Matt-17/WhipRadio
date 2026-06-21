@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Slugs;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -37,6 +38,9 @@ public class ArtistCreationService(
             .OrderBy(a => a.Name)
             .Select(a => a.Name)
             .ToListAsync(ct);
+        var existingSlugs = await db.Artists.AsNoTracking()
+            .Select(a => a.Slug)
+            .ToListAsync(ct);
 
         var plan = await copywriter.DesignArtistAsync(hint, genre, subgenre, existingNames, ct);
         var name = EnsureUniqueName(plan.Name, existingNames);
@@ -48,6 +52,7 @@ public class ArtistCreationService(
             CreatedAt = now,
         };
         ApplyProfileFields(artist, plan, name, plan.Hint);
+        artist.Slug = SlugGenerator.UniqueFromName(name, existingSlugs);
         foreach (var member in CreateProfileMembers(plan))
         {
             artist.Members.Add(member);

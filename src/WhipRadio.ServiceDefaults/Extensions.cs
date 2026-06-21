@@ -20,6 +20,12 @@ public static class Extensions
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
+        // The Windows EventLog provider can throw when running as a normal user
+        // in local dev. Console + OpenTelemetry keep logs visible without
+        // turning log writes into host-fatal exceptions.
+        builder.Logging.ClearProviders();
+        builder.Logging.AddConsole();
+
         builder.ConfigureOpenTelemetry();
 
         builder.AddDefaultHealthChecks();
@@ -57,7 +63,16 @@ public static class Extensions
             {
                 metrics.AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation();
+                    .AddRuntimeInstrumentation()
+                    // Station-specific meters (queue depth, encoder restarts,
+                    // generation failures/latency, mixer transitions, listener
+                    // counts). The meter name "WhipRadio" is defined in
+                    // WhipRadio.Orchestrator.Services.StationMetrics; kept as a
+                    // literal here to avoid a project reference from this shared
+                    // defaults project back into the Orchestrator.
+                    .AddMeter("WhipRadio")
+                    // Expose metrics for Prometheus scraping at /metrics.
+                    .AddPrometheusExporter();
             })
             .WithTracing(tracing =>
             {
@@ -86,6 +101,11 @@ public static class Extensions
         {
             builder.Services.AddOpenTelemetry().UseOtlpExporter();
         }
+
+        // The Prometheus exporter is configured in ConfigureOpenTelemetry (via
+        // AddPrometheusExporter); the scraping endpoint is mapped in
+        // MapDefaultEndpoints so operators can scrape /metrics without running a
+        // separate OTLP collector.
 
         // Uncomment the following lines to enable the Azure Monitor exporter (requires the Azure.Monitor.OpenTelemetry.AspNetCore package)
         //if (!string.IsNullOrEmpty(builder.Configuration["APPLICATIONINSIGHTS_CONNECTION_STRING"]))
@@ -120,6 +140,11 @@ public static class Extensions
         {
             Predicate = r => r.Tags.Contains("live")
         });
+
+        // Prometheus scrape endpoint — always mapped so operators can point
+        // Prometheus/Grafana at /metrics without a separate OTLP collector.
+        // Gate behind auth/network policy if exposed publicly.
+        app.MapPrometheusScrapingEndpoint();
 
         return app;
     }

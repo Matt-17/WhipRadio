@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Personality;
+using WhipRadio.Core.Slugs;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
@@ -38,6 +39,9 @@ public sealed class SpecialistHostCreationService(
         var existingNames = await db.Moderators.AsNoTracking()
             .Select(m => m.Name)
             .ToListAsync(ct);
+        var existingSlugs = await db.Moderators.AsNoTracking()
+            .Select(m => m.Slug)
+            .ToListAsync(ct);
 
         var plan = await PlanAsync(role, settings, existingNames, hint, ct);
         var hintedName = ExtractNameFromHint(hint);
@@ -51,6 +55,7 @@ public sealed class SpecialistHostCreationService(
         var moderator = new Moderator
         {
             Name = name,
+            Slug = SlugGenerator.UniqueFromName(name, existingSlugs),
             Language = StationLanguages.Normalize(settings.DefaultLanguage),
             Gender = gender,
             TtsEngine = TtsEngines.Qwen,

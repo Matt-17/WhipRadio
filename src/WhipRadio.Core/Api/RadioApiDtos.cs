@@ -20,6 +20,13 @@ public sealed record QueueItemDto(
     string Title,
     double DurationSeconds);
 
+/// <summary>
+/// Encoder/stream health surfaced to the console lamp: "Online", "Reconnecting"
+/// (encoder crashed, backing off before restart, <see cref="NextAttemptUtc"/> set),
+/// or "Offline" (circuit breaker tripped — station parked until On Air re-enabled).
+/// </summary>
+public sealed record StationStatusDto(string Status, string? Reason, DateTime? NextAttemptUtc);
+
 public sealed record TrackDto(
     Guid Id,
     string Title,
@@ -45,6 +52,7 @@ public sealed record TrackDto(
 public sealed record ArtistDto(
     Guid Id,
     string Name,
+    string Slug,
     string Genre,
     string Subgenre,
     string StyleDescriptor,
@@ -126,6 +134,7 @@ public sealed record EmergencyTalkBreakDto(
 public sealed record ModeratorDto(
     int Id,
     string Name,
+    string Slug,
     string Language,
     string Gender,
     string TtsEngine,

@@ -211,6 +211,28 @@ collect name or gender for specialist hiring; if no suitable specialist exists w
 production needs one, the director creates and assigns one instead of skipping the
 desk by default.
 
+## Encoder / Icecast resilience
+
+PlayoutService no longer hot-loops ffmpeg into a dead Icecast mount. The restart
+loop now uses exponential backoff (5s → 10s → 20s → 40s → 60s cap by default,
+configurable via `Stream__EncoderInitialBackoffSeconds` /
+`Stream__EncoderMaxBackoffSeconds`) and a crash-rate circuit breaker: after
+`Stream__EncoderCrashThreshold` (default 5) encoder crashes inside a
+`Stream__EncoderCrashWindowMinutes` (default 5) rolling window, the station is
+**parked** — `PlayoutEnabled` is flipped to false and a `StationStatus.Offline`
+state is pushed to the UI lamp — and stays parked until an operator re-enables
+On Air. A session that runs longer than
+`Stream__EncoderSuccessResetsAfterSeconds` (default 120) before crashing clears
+the streak, so an unrelated late crash is treated as a fresh incident rather than
+a hot-loop.
+
+The derived encoder/stream state (`Online` / `Reconnecting` / `Offline`) is held
+in `IStationStatusReporter`, pushed to the web app via the `StationStatusChanged`
+RadioHub event and snapshotted at `GET /api/station/status`. The On Air lamp
+reflects it (green-red live, amber reconnecting, fast-red offline). This is
+distinct from `PlayoutEnabled` (operator intent) and the `EncoderHeartbeat`
+liveness probe.
+
 ## Standing Constraints
 
 - Never break the live stream; risky subsystems ship behind flags or queues.

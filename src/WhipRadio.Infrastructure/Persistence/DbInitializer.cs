@@ -3,6 +3,7 @@ using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
+using WhipRadio.Core.Slugs;
 
 namespace WhipRadio.Infrastructure.Persistence;
 
@@ -369,6 +370,7 @@ public static class DbInitializer
             if (newsPresenter is not null)
             {
                 newsPresenter.Name = SeedNewsPresenterName;
+                newsPresenter.Slug = SlugGenerator.FromName(SeedNewsPresenterName);
                 newsPresenter.PersonaPrompt = SeedNewsPresenter().PersonaPrompt;
             }
         }
@@ -422,83 +424,94 @@ public static class DbInitializer
         await db.SaveChangesAsync(ct);
     }
 
-    private static Moderator[] SeedModerators() =>
-    [
-        new()
+    private static Moderator[] SeedModerators()
+    {
+        var moderators = new[]
         {
-            Name = "Lena Spark",
-            Language = "en",
-            Gender = ModeratorGenders.Female,
-            TtsEngine = TtsEngines.Kokoro,
-            VoiceId = "af_heart",
-            SpeechRate = 1.15,
-            Style = "fast-energetic",
-            Talkativeness = 0.8,
-            BaselineEnergy = Energy.High,
-            BaselineFormality = Formality.Casual,
-            BaselineHumorLevel = HumorLevel.High,
-            BaselineTalkativeness = Talkativeness.High,
-            BaselineWarmth = Warmth.High,
-            PersonaPrompt =
-                "You are Lena Spark, a young, bubbly radio host. You talk fast, with infectious " +
-                "enthusiasm and boundless energy. You live for driving beats and celebrate every " +
-                "new discovery like it's the hit of the year.",
-            PrefersVocals = true,
-            PreferredGenres = "indie rock,electronic",
-            IsActive = true,
-        },
-        new()
+            new Moderator
+            {
+                Name = "Lena Spark",
+                Language = "en",
+                Gender = ModeratorGenders.Female,
+                TtsEngine = TtsEngines.Kokoro,
+                VoiceId = "af_heart",
+                SpeechRate = 1.15,
+                Style = "fast-energetic",
+                Talkativeness = 0.8,
+                BaselineEnergy = Energy.High,
+                BaselineFormality = Formality.Casual,
+                BaselineHumorLevel = HumorLevel.High,
+                BaselineTalkativeness = Talkativeness.High,
+                BaselineWarmth = Warmth.High,
+                PersonaPrompt =
+                    "You are Lena Spark, a young, bubbly radio host. You talk fast, with infectious " +
+                    "enthusiasm and boundless energy. You live for driving beats and celebrate every " +
+                    "new discovery like it's the hit of the year.",
+                PrefersVocals = true,
+                PreferredGenres = "indie rock,electronic",
+                IsActive = true,
+            },
+            new Moderator
+            {
+                Name = "Herbert Nightwave",
+                Language = "en",
+                Gender = ModeratorGenders.Male,
+                TtsEngine = TtsEngines.Kokoro,
+                VoiceId = "am_michael",
+                SpeechRate = 0.85,
+                Style = "slow-thoughtful",
+                Talkativeness = 0.5,
+                BaselineEnergy = Energy.Low,
+                BaselineFormality = Formality.Formal,
+                BaselineHumorLevel = HumorLevel.Medium,
+                BaselineTalkativeness = Talkativeness.Medium,
+                BaselineWarmth = Warmth.High,
+                PersonaPrompt =
+                    "You are Herbert Nightwave, a measured, older radio host with a warm voice. " +
+                    "You speak slowly, love a well-placed pause, and sometimes drift into nostalgic " +
+                    "thoughts about the golden age of radio.",
+                PrefersVocals = false,
+                PreferredGenres = "lofi,jazz",
+                IsWeatherSpecialist = true,
+                IsActive = true,
+            },
+            new Moderator
+            {
+                Name = "Charlie Wave",
+                Language = "en",
+                Gender = ModeratorGenders.Male,
+                TtsEngine = TtsEngines.Kokoro,
+                VoiceId = "bm_george",
+                SpeechRate = 1.0,
+                Style = "laid-back",
+                Talkativeness = 0.35,
+                BaselineEnergy = Energy.Low,
+                BaselineFormality = Formality.Casual,
+                BaselineHumorLevel = HumorLevel.High,
+                BaselineTalkativeness = Talkativeness.Low,
+                BaselineWarmth = Warmth.Medium,
+                PersonaPrompt =
+                    "You are Charlie Wave, a laid-back international host with a dry sense of humor. " +
+                    "You keep things smooth and casual, drop the occasional pun, and sound like you " +
+                    "are broadcasting from a beach bar at sunset.",
+                PrefersVocals = null,
+                PreferredGenres = "electronic,indie rock",
+                IsActive = true,
+            },
+        };
+
+        foreach (var moderator in moderators)
         {
-            Name = "Herbert Nightwave",
-            Language = "en",
-            Gender = ModeratorGenders.Male,
-            TtsEngine = TtsEngines.Kokoro,
-            VoiceId = "am_michael",
-            SpeechRate = 0.85,
-            Style = "slow-thoughtful",
-            Talkativeness = 0.5,
-            BaselineEnergy = Energy.Low,
-            BaselineFormality = Formality.Formal,
-            BaselineHumorLevel = HumorLevel.Medium,
-            BaselineTalkativeness = Talkativeness.Medium,
-            BaselineWarmth = Warmth.High,
-            PersonaPrompt =
-                "You are Herbert Nightwave, a measured, older radio host with a warm voice. " +
-                "You speak slowly, love a well-placed pause, and sometimes drift into nostalgic " +
-                "thoughts about the golden age of radio.",
-            PrefersVocals = false,
-            PreferredGenres = "lofi,jazz",
-            IsWeatherSpecialist = true,
-            IsActive = true,
-        },
-        new()
-        {
-            Name = "Charlie Wave",
-            Language = "en",
-            Gender = ModeratorGenders.Male,
-            TtsEngine = TtsEngines.Kokoro,
-            VoiceId = "bm_george",
-            SpeechRate = 1.0,
-            Style = "laid-back",
-            Talkativeness = 0.35,
-            BaselineEnergy = Energy.Low,
-            BaselineFormality = Formality.Casual,
-            BaselineHumorLevel = HumorLevel.High,
-            BaselineTalkativeness = Talkativeness.Low,
-            BaselineWarmth = Warmth.Medium,
-            PersonaPrompt =
-                "You are Charlie Wave, a laid-back international host with a dry sense of humor. " +
-                "You keep things smooth and casual, drop the occasional pun, and sound like you " +
-                "are broadcasting from a beach bar at sunset.",
-            PrefersVocals = null,
-            PreferredGenres = "electronic,indie rock",
-            IsActive = true,
-        },
-    ];
+            moderator.Slug = SlugGenerator.FromName(moderator.Name);
+        }
+
+        return moderators;
+    }
 
     private static Moderator SeedNewsPresenter() => new()
     {
         Name = SeedNewsPresenterName,
+        Slug = SlugGenerator.FromName(SeedNewsPresenterName),
         Language = "en",
         Gender = ModeratorGenders.Female,
         TtsEngine = TtsEngines.Kokoro,

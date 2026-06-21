@@ -10,6 +10,7 @@ using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
+using WhipRadio.Core.Slugs;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
@@ -30,6 +31,7 @@ public static class RadioApiEndpoints
         var api = app.MapGroup("/api");
 
         MapNowPlaying(api);
+        MapStationStatus(api);
         MapLibrary(api);
         MapArtistPosts(api);
         MapPlayLog(api);
@@ -111,6 +113,18 @@ public static class RadioApiEndpoints
                 .ToList()));
     }
 
+    private static void MapStationStatus(RouteGroupBuilder api)
+    {
+        // Snapshot of the encoder/stream health the On Air lamp reflects. The live
+        // value is pushed over SignalR ("StationStatusChanged"); this endpoint
+        // backs the initial HTTP snapshot a page loads on connect.
+        api.MapGet("/station/status", (IStationStatusReporter reporter) =>
+        {
+            var info = reporter.Current;
+            return Results.Ok(new StationStatusDto(info.Status.ToString(), info.Reason, info.NextAttemptUtc));
+        });
+    }
+
     private static void MapLibrary(RouteGroupBuilder api)
     {
         api.MapGet("/library", async (
@@ -158,7 +172,7 @@ public static class RadioApiEndpoints
             return Results.Ok(artists.Select(a =>
             {
                 var agg = aggregates.GetValueOrDefault(a.Id);
-                return new ArtistDto(a.Id, a.Name, a.Genre, a.Subgenre, a.StyleDescriptor,
+                return new ArtistDto(a.Id, a.Name, a.Slug, a.Genre, a.Subgenre, a.StyleDescriptor,
                     agg?.Count ?? 0, agg?.Up ?? 0, agg?.Down ?? 0, a.IsRetired, a.Biography,
                     a.Type, a.Origin, a.FormationYear, a.PromotionText, Language: a.Language);
             }).ToList());
@@ -195,7 +209,7 @@ public static class RadioApiEndpoints
                 .ToListAsync(ct);
 
             return Results.Ok(new ArtistDto(
-                artist.Id, artist.Name, artist.Genre, artist.Subgenre, artist.StyleDescriptor,
+                artist.Id, artist.Name, artist.Slug, artist.Genre, artist.Subgenre, artist.StyleDescriptor,
                 0, 0, 0, artist.IsRetired, artist.Biography,
                 artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText, members, artist.Language));
         });
@@ -271,7 +285,7 @@ public static class RadioApiEndpoints
                 .Select(g => new { Count = g.Count(), Up = g.Sum(t => t.UpVotes), Down = g.Sum(t => t.DownVotes) })
                 .FirstOrDefaultAsync(ct);
 
-            return Results.Ok(new ArtistDto(artist.Id, artist.Name, artist.Genre, artist.Subgenre,
+            return Results.Ok(new ArtistDto(artist.Id, artist.Name, artist.Slug, artist.Genre, artist.Subgenre,
                 artist.StyleDescriptor, stats?.Count ?? 0, stats?.Up ?? 0, stats?.Down ?? 0,
                 artist.IsRetired, artist.Biography,
                 artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText,
@@ -569,10 +583,14 @@ public static class RadioApiEndpoints
             var stationLanguage = StationLanguages.Normalize(
                 (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).DefaultLanguage);
             var baselineTraits = ParseBaselineTraits(request.BaselineTraits, request.Style, request.Talkativeness);
+            var existingSlugs = await db.Moderators.AsNoTracking()
+                .Select(m => m.Slug)
+                .ToListAsync(ct);
 
             var moderator = new Moderator
             {
                 Name = request.Name.Trim(),
+                Slug = SlugGenerator.UniqueFromName(request.Name, existingSlugs),
                 Language = stationLanguage,
                 Gender = request.Gender == ModeratorGenders.Male ? ModeratorGenders.Male : ModeratorGenders.Female,
                 TtsEngine = TtsEngines.Qwen,
@@ -1494,7 +1512,7 @@ public static class RadioApiEndpoints
         api.MapPut("/mixer/settings", async (
             MixerSettingsDto request,
             RadioDbContext db,
-            MixerUpdatePublisher mixerUpdates,
+            IMixerUpdatePublisher mixerUpdates,
             CancellationToken ct) =>
         {
             if (!WhipRadio.Core.Audio.MixPlanner.TryValidateWeightsJson(request.StrategyWeightsJson, out var error))
@@ -1533,7 +1551,7 @@ public static class RadioApiEndpoints
         // service picks them up on its next cycle.
         api.MapPost("/mixer/backfill", async (
             RadioDbContext db,
-            MixerUpdatePublisher mixerUpdates,
+            IMixerUpdatePublisher mixerUpdates,
             CancellationToken ct) =>
         {
             var removed = await db.MediaAnalyses.Where(a => a.AnalyzerVersion == 0).ExecuteDeleteAsync(ct);
@@ -1964,6 +1982,7 @@ public static class RadioApiEndpoints
         => new(
             artist.Id,
             artist.Name,
+            artist.Slug,
             artist.Genre,
             artist.Subgenre,
             artist.StyleDescriptor,
@@ -2000,7 +2019,7 @@ public static class RadioApiEndpoints
                 : TalkBreakPriority.Emergency;
 
     private static ModeratorDto ToDto(Moderator m, DateTimeOffset localNow) => new(
-        m.Id, m.Name, m.Language, m.Gender, m.TtsEngine, m.VoiceId, m.SpeechRate, m.Style,
+        m.Id, m.Name, m.Slug, m.Language, m.Gender, m.TtsEngine, m.VoiceId, m.SpeechRate, m.Style,
         m.PersonaPrompt, m.PrefersVocals, m.PreferredGenres, m.IsActive, m.IsAutoGenerated,
         m.Talkativeness, m.IsWeatherSpecialist, m.IsNewsSpecialist, m.PhotoUrl, ToDto(MoodEngine.Baseline(m)), ToDto(MoodEngine.Current(m, localNow)),
         ToDto(HostTalkProfile.FromModerator(m)));

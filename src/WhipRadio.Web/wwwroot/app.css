@@ -157,6 +157,22 @@ h1, h2, h3 { margin: 0; font-weight: 400; }
     animation: lamp-pulse 1.6s ease-in-out infinite;
 }
 
+/* Encoder crashed, backing off before restart. */
+.onair.reconnecting { color: var(--amber); box-shadow: inset 0 0 18px rgba(255, 180, 84, 0.10); }
+.onair.reconnecting .lamp {
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber), 0 0 22px rgba(255, 180, 84, 0.5);
+    animation: lamp-pulse 1.1s ease-in-out infinite;
+}
+
+/* Circuit breaker tripped — station parked until On Air is re-enabled. */
+.onair.offline { color: var(--red); border-color: rgba(255, 67, 57, 0.4); box-shadow: inset 0 0 18px rgba(255, 67, 57, 0.18); }
+.onair.offline .lamp {
+    background: var(--red);
+    box-shadow: 0 0 10px var(--red), 0 0 26px rgba(255, 67, 57, 0.7);
+    animation: lamp-pulse 0.7s ease-in-out infinite;
+}
+
 @keyframes lamp-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: .45; }
