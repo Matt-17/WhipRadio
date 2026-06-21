@@ -44,7 +44,7 @@ Recent history uses concise conventional-style prefixes such as `fix:`, `feat:`,
 
 ## Security & Configuration Tips
 
-Do not commit secrets, local model caches, generated data roots, or production credentials. Development defaults such as `Icecast__SourcePassword=hackme-dev` are for local use only. Prefer user secrets or environment variables for API keys and machine-specific paths.
+Do not commit secrets, local model caches, generated data roots, or production credentials. Icecast passwords and API keys live in `.env` (gitignored; copy from `.env.example`) or real environment variables — there are no baked-in dev defaults in committed code. The Aspire AppHost loads `.env` at startup on every platform (Windows/Linux/macOS/WSL) and seeds the environment for all resources; real env vars always override `.env`.
 
 ## Third-Party Licenses
 

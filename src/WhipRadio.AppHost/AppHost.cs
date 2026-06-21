@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+WhipRadio.AppHost.DotEnv.Load();
+
 var builder = DistributedApplication.CreateBuilder(args);
 builder.Services.Configure<LoggerFilterOptions>(options =>
 {
@@ -12,8 +14,19 @@ builder.Services.Configure<LoggerFilterOptions>(options =>
 });
 
 // --- Parameters -------------------------------------------------------------
-var icecastSourcePassword = builder.AddParameter("icecast-source-password", "hackme-dev");
-var icecastAdminPassword = builder.AddParameter("icecast-admin-password", "hackme-admin");
+// Icecast passwords are secrets — never committed with a dev fallback. They
+// come from the environment (real env var, or .env loaded by DotEnv.Load).
+// Fail fast with a clear message instead of silently using a baked-in default.
+var icecastSourcePassword = RequiredSecret("ICECAST_SOURCE_PASSWORD");
+var icecastAdminPassword = RequiredSecret("ICECAST_ADMIN_PASSWORD");
+var icecastRelayPassword =
+    Environment.GetEnvironmentVariable("ICECAST_RELAY_PASSWORD") ?? icecastSourcePassword;
+
+static string RequiredSecret(string key) =>
+    Environment.GetEnvironmentVariable(key)
+    ?? throw new InvalidOperationException(
+        $"Required secret '{key}' is not set. Copy .env.example to .env and fill in the values, "
+        + "or set the environment variable directly.");
 
 // Shared data root: SQLite db + generated audio. The .NET projects run as local
 // processes in dev, so a plain folder under the repo root works on Windows.
@@ -27,7 +40,7 @@ var icecast = builder.AddContainer("icecast", "libretime/icecast", "latest")
     .WithLifetime(ContainerLifetime.Persistent)
     .WithEnvironment("ICECAST_SOURCE_PASSWORD", icecastSourcePassword)
     .WithEnvironment("ICECAST_ADMIN_PASSWORD", icecastAdminPassword)
-    .WithEnvironment("ICECAST_RELAY_PASSWORD", "hackme-relay")
+    .WithEnvironment("ICECAST_RELAY_PASSWORD", icecastRelayPassword)
     .WithEnvironment("ICECAST_MAX_SOURCES", "2")
     .WithHttpEndpoint(port: 8000, targetPort: 8000, name: "http");
 var icecastEndpoint = icecast.GetEndpoint("http");

@@ -24,11 +24,13 @@ public class IcecastOptions
 
     public string SourceUser { get; set; } = "source";
 
-    public string SourcePassword { get; set; } = "hackme-dev";
+    /// <summary>Secret — set via <c>ICECAST_SOURCE_PASSWORD</c> env var / <c>.env</c>. Never committed.</summary>
+    public string SourcePassword { get; set; } = "";
 
     public string AdminUser { get; set; } = "admin";
 
-    public string AdminPassword { get; set; } = "hackme-admin";
+    /// <summary>Secret — set via <c>ICECAST_ADMIN_PASSWORD</c> env var / <c>.env</c>. Never committed.</summary>
+    public string AdminPassword { get; set; } = "";
 }
 
 public class StreamOptions

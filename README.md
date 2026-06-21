@@ -87,8 +87,18 @@ Key settings:
 | `Stream__EncoderMaxBackoffSeconds` | `60` | cap for encoder-restart backoff |
 | `Stream__EncoderCrashThreshold` | `5` | circuit breaker: park the station after this many encoder crashes in the window |
 | `Stream__EncoderCrashWindowMinutes` | `5` | rolling window for the encoder crash circuit breaker |
-| `Icecast__SourcePassword` | `hackme-dev` | dev-only default |
+| `Icecast__SourcePassword` | _required_ | Icecast source push password; set via `.env` / `ICECAST_SOURCE_PASSWORD` |
 | `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, SQLite |
+
+### Secrets
+
+Icecast passwords and any API keys are **never committed**. Copy `.env.example`
+to `.env` (gitignored) and fill in the values — the Aspire AppHost loads it on
+every platform (Windows / Linux / macOS / WSL) and seeds the environment for
+itself, the Orchestrator, the Web app, and the Icecast container. Real
+environment variables always override `.env`, so CI/production can inject
+secrets without a file. Required keys: `ICECAST_SOURCE_PASSWORD`,
+`ICECAST_ADMIN_PASSWORD`, `ICECAST_RELAY_PASSWORD`.
 
 Station-level settings live in the database and are editable in the web app.
 New stations default generated tracks to 150-480 seconds.

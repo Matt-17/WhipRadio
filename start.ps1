@@ -16,6 +16,12 @@ if (Get-Process -Name "WhipRadio.AppHost" -ErrorAction SilentlyContinue) {
     exit 1
 }
 
+$envFile = Join-Path $root ".env"
+if (-not (Test-Path -LiteralPath $envFile)) {
+    Write-Host ".env not found - copying from .env.example. Edit it and set real Icecast passwords." -ForegroundColor Yellow
+    Copy-Item (Join-Path $root ".env.example") $envFile
+}
+
 try {
     Invoke-RestMethod -Uri "http://localhost:11434/api/version" -TimeoutSec 2 | Out-Null
 }

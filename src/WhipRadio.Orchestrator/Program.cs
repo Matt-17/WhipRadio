@@ -126,6 +126,18 @@ builder.Services.AddHostedService<ConsoleLogBroadcaster>();
 
 var app = builder.Build();
 
+// Fail fast if the Icecast source password is missing — without it ffmpeg's
+// push is rejected and the encoder hot-loops. In dev it arrives via .env
+// (loaded by the AppHost) as the Icecast__SourcePassword env var; for
+// standalone runs set the env var or use dotnet user-secrets.
+var icecastOpts = app.Services.GetRequiredService<IOptions<IcecastOptions>>().Value;
+if (string.IsNullOrWhiteSpace(icecastOpts.SourcePassword))
+{
+    throw new InvalidOperationException(
+        "Icecast:SourcePassword is not set. Set the Icecast__SourcePassword environment variable "
+        + "(or copy .env.example to .env) before starting the station.");
+}
+
 app.MapDefaultEndpoints();
 app.MapRadioApi();
 app.MapGreetingsApi();
