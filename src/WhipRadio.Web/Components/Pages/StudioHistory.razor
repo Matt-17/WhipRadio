@@ -95,7 +95,10 @@
                         <tbody>
                             @foreach (var entry in _entries)
                             {
-                                <tr class="@SelectedClass(entry)" @onclick="() => Select(entry)">
+                                <tr class="@SelectedClass(entry)" role="button" tabindex="0"
+                                    title="select @entry.Operation — @entry.StudioName"
+                                    @onclick="() => Select(entry)"
+                                    @onkeydown="@(args => HistoryRowKeyDown(args, entry))">
                                     <td style="width:94px" class="dim">@LocalStamp(entry.StartedAtUtc)</td>
                                     <td style="width:92px"><StatusBadge Text="@StatusLabel(entry.Status)" /></td>
                                     <td style="width:150px">
@@ -384,6 +387,14 @@
 
     private void Select(StudioHistoryEntryDto entry)
         => _selected = entry;
+
+    private void HistoryRowKeyDown(KeyboardEventArgs args, StudioHistoryEntryDto entry)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            Select(entry);
+        }
+    }
 
     private void OnStudiosChanged()
         => _ = InvokeAsync(() => QueueRefresh(delayMs: 80));

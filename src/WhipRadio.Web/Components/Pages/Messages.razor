@@ -33,16 +33,17 @@
     }
     else
     {
+        <div class="console-table-wrap">
         <table class="console-table">
             <thead>
                 <tr>
-                    <th style="width:36px" title="Kind"></th>
+                    <th style="width:36px" title="Kind" aria-label="Kind"></th>
                     <th style="width:120px">From</th>
                     <th>Message</th>
                     <th style="width:110px">Status</th>
-                    <th style="width:60px" class="num" title="Received"><Icon Name="inbox" /></th>
-                    <th style="width:60px" class="num" title="On air"><Icon Name="antenna" /></th>
-                    <th style="width:170px"></th>
+                    <th style="width:60px" class="num" title="Received" aria-label="Received"><Icon Name="inbox" /></th>
+                    <th style="width:60px" class="num" title="On air" aria-label="On air"><Icon Name="antenna" /></th>
+                    <th style="width:170px" aria-label="Actions"></th>
                 </tr>
             </thead>
             <tbody>
@@ -97,6 +98,7 @@
                 }
             </tbody>
         </table>
+        </div>
 
         <div class="btn-row" style="margin-top:14px">
             <button class="btn small" disabled="@(_pageNumber <= 1)" @onclick="() => GoToPageAsync(_pageNumber - 1)">‹ newer</button>

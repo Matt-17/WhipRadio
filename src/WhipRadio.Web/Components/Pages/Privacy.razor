@@ -9,7 +9,11 @@
 <h1 class="stage-title">Privacy</h1>
 <div class="stage-sub">external HTTP request audit - memory-only - sanitized at capture</div>
 
-@if (_report is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_report is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> checking the outbound patch bay...</div></div>
 }
@@ -118,6 +122,7 @@ else
             <span class="tag">memory only</span>
         </div>
 
+        <div class="console-table-wrap">
         <table class="console-table privacy-request-table">
             <thead>
                 <tr>
@@ -156,6 +161,7 @@ else
                 }
             </tbody>
         </table>
+        </div>
     </div>
 }
 
@@ -167,6 +173,7 @@ else
     private string _sourceFilter = All;
     private string _search = "";
     private bool _refreshing;
+    private string? _loadError;
 
     protected override async Task OnInitializedAsync()
         => await LoadAsync();
@@ -182,6 +189,9 @@ else
         try
         {
             _report = await Api.GetPrivacyAsync();
+            _loadError = _report is null
+                ? "Failed to load privacy audit — backend unreachable."
+                : null;
         }
         finally
         {

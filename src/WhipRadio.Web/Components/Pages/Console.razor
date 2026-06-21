@@ -13,7 +13,7 @@
     <div class="console-toolbar reveal">
         <div class="console-filter-block">
             <div class="panel-label">Level</div>
-            <div class="seg" role="radiogroup">
+            <div class="seg" role="radiogroup" aria-label="Level filter">
                 @foreach (var level in _levels)
                 {
                     <button type="button"
@@ -77,11 +77,11 @@
                 <span>@filtered.Count of @lines.Count lines</span>
                 @if (_paused)
                 {
-                    <span class="tag amber">paused</span>
+                    <StatusBadge Text="paused" Tone="StatusBadgeTone.Amber" />
                 }
                 @if (_hiddenBeforeUtc is not null)
                 {
-                    <span class="tag">view cleared</span>
+                    <StatusBadge Text="view cleared" />
                 }
             </div>
 

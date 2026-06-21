@@ -124,7 +124,7 @@
                         <div class="artist-actions">
                             @if (!artist.IsRetired)
                             {
-                                <button class="btn primary" @onclick="CreateSongAsync">+ Record new song</button>
+                                <button class="btn small primary" @onclick="CreateSongAsync">+ Record new song</button>
                             }
                             @{ var queuedCount = QueuedCount(selectedId); }
                             @if (queuedCount > 0)
@@ -200,7 +200,7 @@
                         @if (showRecRow)
                         {
                             <div class="library-song-grid library-song-item generating-row">
-                                <div class="library-action-cell"><span class="rec-cell" title="Recording" aria-label="Recording"><span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span></span></div>
+                                <div class="library-action-cell"><StatusBadge Text="REC" Pulse="true" /></div>
                                 <div class="library-title-line" title="@(_status?.TrackTitle ?? "a new song…")">
                                     <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "a new song…")</span>
                                 </div>

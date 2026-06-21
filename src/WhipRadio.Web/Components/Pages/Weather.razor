@@ -10,7 +10,11 @@
 <h1 class="stage-title">Weather</h1>
 <div class="stage-sub">forecast host assignment and location</div>
 
-@if (_weather is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_weather is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading weather production...</div></div>
 }
@@ -81,8 +85,9 @@ else
 
 <SpecialistHostModal Visible="@_specialistModalOpen"
                      Role="Weather"
-                     OnClose="() => _specialistModalOpen = false"
-                     HostRequested="CreateWeatherHostAsync" />
+                     OnClose="() => { _specialistModalOpen = false; _error = null; }"
+                     HostRequested="CreateWeatherHostAsync"
+                     Error="@_error" />
 
 @code {
     private WeatherProductionDto? _weather;
@@ -97,6 +102,7 @@ else
     private string? _error;
     private bool _specialistModalOpen;
     private bool _creatingHost;
+    private string? _loadError;
 
     private IEnumerable<ModeratorDto> WeatherHosts
         => _moderators.Where(host => host is { IsActive: true, IsWeatherSpecialist: true }).OrderBy(host => host.Name);
@@ -115,9 +121,11 @@ else
         _weather = await Api.GetWeatherProductionAsync();
         if (_weather is null)
         {
+            _loadError = "Failed to load weather production — backend unreachable.";
             return;
         }
 
+        _loadError = null;
         _enabled = _weather.WeatherEnabled;
         _hostId = _weather.WeatherSpecialistModeratorId?.ToString() ?? "";
         _fullHandoverEnabled = _weather.WeatherFullHandoverEnabled;

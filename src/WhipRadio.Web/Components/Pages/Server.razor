@@ -10,7 +10,11 @@
 <h1 class="stage-title">Server Stats</h1>
 <div class="stage-sub">hardware &amp; storage · for the engineer in the booth · refreshes every 5 s</div>
 
-@if (_stats is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_stats is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> probing the rack…</div></div>
 }
@@ -85,6 +89,7 @@ else
 @code {
     private ServerStatsDto? _stats;
     private Timer? _timer;
+    private string? _loadError;
 
     private double MemoryPercent => _stats is { MemoryTotalMb: > 0 }
         ? SafePercent(_stats.MemoryUsedMb, _stats.MemoryTotalMb) : 0;
@@ -100,9 +105,23 @@ else
     protected override async Task OnInitializedAsync()
     {
         _stats = await Api.GetServerStatsAsync();
+        if (_stats is null)
+        {
+            _loadError = "Failed to probe the rack — backend unreachable.";
+        }
+        else
+        {
+            _loadError = null;
+        }
+
         _timer = new Timer(async _ =>
         {
-            _stats = await Api.GetServerStatsAsync();
+            var fresh = await Api.GetServerStatsAsync();
+            if (fresh is not null)
+            {
+                _stats = fresh;
+                _loadError = null;
+            }
             await InvokeAsync(StateHasChanged);
         }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
     }

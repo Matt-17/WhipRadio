@@ -8,7 +8,11 @@
 <h1 class="stage-title">Station Settings</h1>
 <div class="stage-sub">turn the big knobs carefully</div>
 
-@if (_settings is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_settings is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> reading the console memory…</div></div>
 }
@@ -46,6 +50,7 @@ else
 @code {
     private StationSettingsDto? _settings;
     private bool _saved;
+    private string? _loadError;
 
     private string _defaultLanguage = "en";
     private double _frequencyMhz = 104.4;
@@ -54,12 +59,16 @@ else
     protected override async Task OnInitializedAsync()
     {
         _settings = await Api.GetSettingsAsync();
-        if (_settings is not null)
+        if (_settings is null)
         {
-            _defaultLanguage = _settings.DefaultLanguage;
-            _frequencyMhz = _settings.FrequencyMhz;
-            _firstDayOfWeek = _settings.FirstDayOfWeek;
+            _loadError = "Failed to read station settings — backend unreachable.";
+            return;
         }
+
+        _loadError = null;
+        _defaultLanguage = _settings.DefaultLanguage;
+        _frequencyMhz = _settings.FrequencyMhz;
+        _firstDayOfWeek = _settings.FirstDayOfWeek;
     }
 
     private async Task SaveAsync()

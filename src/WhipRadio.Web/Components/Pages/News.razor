@@ -10,7 +10,11 @@
 <h1 class="stage-title">News</h1>
 <div class="stage-sub">news host assignment and editable RSS sources</div>
 
-@if (_news is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_news is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading news production...</div></div>
 }
@@ -46,14 +50,14 @@ else
                 </button>
             </div>
             <div class="field">
+                <label>Category order</label>
+                <input @bind="_categoryOrderText" placeholder="general,business,technology,sports,culture,regional" />
+            </div>
+            <div class="field">
                 <label>Article extraction</label>
                 <UiSwitch Value="@_extractEnabled"
                           ValueChanged="ToggleNewsExtractionAsync"
                           Title="@(_extractEnabled ? "Article extraction enabled" : "Article extraction disabled")" />
-            </div>
-            <div class="field">
-                <label>Category order</label>
-                <input @bind="_categoryOrderText" placeholder="general,business,technology,sports,culture,regional" />
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_news.WarningText))
@@ -88,7 +92,7 @@ else
                 <thead>
                     <tr>
                         <th>Feed</th>
-                        <th style="width:50px"></th>
+                        <th style="width:50px" aria-label="Edit"></th>
                         <th style="width:72px">Active</th>
                     </tr>
                 </thead>
@@ -162,8 +166,9 @@ else
 
 <SpecialistHostModal Visible="@_specialistModalOpen"
                      Role="News"
-                     OnClose="() => _specialistModalOpen = false"
-                     HostRequested="CreateNewsHostAsync" />
+                     OnClose="() => { _specialistModalOpen = false; _error = null; }"
+                     HostRequested="CreateNewsHostAsync"
+                     Error="@_error" />
 
 <ConfirmDialog Visible="@(_deleteTarget is not null)"
                Title="Delete news feed"
@@ -192,6 +197,7 @@ else
     private bool _creatingHost;
     private bool _savingFeed;
     private bool _deletingFeed;
+    private string? _loadError;
 
     private bool _newsEnabled = true;
     private bool _extractEnabled = true;
@@ -225,9 +231,11 @@ else
         _news = await Api.GetNewsProductionAsync();
         if (_news is null)
         {
+            _loadError = "Failed to load news production — backend unreachable.";
             return;
         }
 
+        _loadError = null;
         _newsEnabled = _news.NewsEnabled;
         _extractEnabled = _news.NewsExtractionEnabled;
         _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";

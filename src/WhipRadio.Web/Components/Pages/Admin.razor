@@ -10,7 +10,11 @@
 <h1 class="stage-title">Master Control</h1>
 <div class="stage-sub">the big red buttons • use responsibly</div>
 
-@if (_settings is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_settings is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> unlocking the control room…</div></div>
 }
@@ -106,6 +110,7 @@ else
     private int _settings_MaxDuration;
 
     private StationStatusDto? _runtimeStatus;
+    private string? _loadError;
 
     private string RuntimeStatusLabel
     {
@@ -151,13 +156,17 @@ else
         await Live.EnsureStartedAsync();
         _runtimeStatus = Live.StationStatus;
         _settings = await Api.GetSettingsAsync();
-        if (_settings is not null)
+        if (_settings is null)
         {
-            _settings_TargetQueueLength = _settings.TargetQueueLength;
-            _settings_MaxLibrarySize = _settings.MaxLibrarySize;
-            _settings_MinDuration = _settings.MinTrackDurationSeconds;
-            _settings_MaxDuration = _settings.MaxTrackDurationSeconds;
+            _loadError = "Failed to unlock the control room — backend unreachable.";
+            return;
         }
+
+        _loadError = null;
+        _settings_TargetQueueLength = _settings.TargetQueueLength;
+        _settings_MaxLibrarySize = _settings.MaxLibrarySize;
+        _settings_MinDuration = _settings.MinTrackDurationSeconds;
+        _settings_MaxDuration = _settings.MaxTrackDurationSeconds;
     }
 
     private void OnLiveChanged() => _ = InvokeAsync(() =>

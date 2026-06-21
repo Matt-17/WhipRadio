@@ -9,7 +9,7 @@
              @ref="_panel" @onclick:stopPropagation @onkeydown="KeyDownAsync">
             <div class="modal-head">
                 <span class="modal-title">@Title</span>
-                <button class="modal-close" title="close" @onclick="CloseAsync">✕</button>
+                <button class="modal-close" title="close" aria-label="close" @onclick="CloseAsync">✕</button>
             </div>
             <div class="modal-body">@ChildContent</div>
             @if (Footer is not null)

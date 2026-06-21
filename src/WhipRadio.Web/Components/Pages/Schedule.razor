@@ -10,7 +10,11 @@
 <div class="stage-sub">planned by the AI program director - spots fill in over time</div>
 
 <div class="panel reveal">
-    @if (_slots is null)
+    @if (_loadError is not null)
+    {
+        <div class="empty-state text-danger">@_loadError</div>
+    }
+    else if (_slots is null)
     {
         <div class="empty-state"><span class="blink">?</span> reading the program board...</div>
     }
@@ -65,6 +69,7 @@
     private List<ProgramSlotDto>? _slots;
     private int[] _dayOrder = [1, 2, 3, 4, 5, 6, 0];
     private System.Threading.Timer? _clockTimer;
+    private string? _loadError;
 
     protected override async Task OnInitializedAsync()
     {
@@ -73,6 +78,14 @@
             ? [0, 1, 2, 3, 4, 5, 6]
             : [1, 2, 3, 4, 5, 6, 0];
         _slots = await Api.GetScheduleAsync();
+        if (_slots is null)
+        {
+            _loadError = "Failed to load the program board — backend unreachable.";
+        }
+        else
+        {
+            _loadError = null;
+        }
         _clockTimer = new System.Threading.Timer(
             _ => _ = InvokeAsync(StateHasChanged),
             null,

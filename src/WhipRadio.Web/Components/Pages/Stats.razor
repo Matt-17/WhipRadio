@@ -9,7 +9,11 @@
 <h1 class="stage-title">Station Statistics</h1>
 <div class="stage-sub">for the nerds · refreshes every 10 seconds</div>
 
-@if (_stats is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_stats is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> counting everything…</div></div>
 }
@@ -67,13 +71,21 @@ else
 @code {
     private StatsDto? _stats;
     private Timer? _timer;
+    private string? _loadError;
 
     protected override async Task OnInitializedAsync()
     {
         _stats = await Api.GetStatsAsync();
+        _loadError = _stats is null ? "Failed to load station statistics — backend unreachable." : null;
+
         _timer = new Timer(async _ =>
         {
-            _stats = await Api.GetStatsAsync();
+            var fresh = await Api.GetStatsAsync();
+            if (fresh is not null)
+            {
+                _stats = fresh;
+                _loadError = null;
+            }
             await InvokeAsync(StateHasChanged);
         }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }

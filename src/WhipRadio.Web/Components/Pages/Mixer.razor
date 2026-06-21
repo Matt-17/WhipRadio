@@ -10,7 +10,11 @@
 <h1 class="stage-title">Mixer</h1>
 <div class="stage-sub">intelligent transitions - crossfades, beat-aligned blends and talk-overs</div>
 
-@if (_mixer is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_mixer is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading mixer state...</div></div>
 }
@@ -152,6 +156,7 @@ else
         }
         else
         {
+            <div class="console-table-wrap">
             <table class="console-table">
                 <thead>
                     <tr>
@@ -186,12 +191,14 @@ else
                     }
                 </tbody>
             </table>
+            </div>
         }
     </div>
 }
 
 @code {
     private MixerOverviewDto? _mixer;
+    private string? _loadError;
     private bool _mixerSaved;
     private bool _backfillKicked;
     private string? _mixerError;
@@ -238,6 +245,10 @@ else
         MixerLive.Changed += OnMixerChanged;
         await MixerLive.EnsureStartedAsync();
         ApplySnapshot(MixerLive.Snapshot, syncSettings: true);
+        if (_mixer is null)
+        {
+            _loadError = "Failed to load mixer state — backend unreachable.";
+        }
 
         _clockCts = new CancellationTokenSource();
         _ = RunClockAsync(_clockCts.Token);

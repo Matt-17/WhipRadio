@@ -35,13 +35,17 @@ else
             @foreach (var moderator in RosterHosts)
             {
                 <div class="host-row @(moderator.Id == _selectedId ? "selected" : null) @(moderator.IsActive ? null : "inactive")"
-                     @onclick="() => Select(moderator)">
+                     role="button"
+                     tabindex="0"
+                     title="select @moderator.Name"
+                     @onclick="() => Select(moderator)"
+                     @onkeydown="@(args => HostRowKeyDown(args, moderator))">
                     <PersonAvatar PhotoUrl="@moderator.PhotoUrl" Name="@moderator.Name" Size="thumb" />
                     <div>
                         <div class="host-row-name">@moderator.Name</div>
                         <div class="host-row-sub">@TalkLabel(moderator.Talkativeness) · @MoodSummary(moderator.CurrentTraits)</div>
                     </div>
-                    <span class="status-dot @(moderator.IsActive ? "on" : null)"
+                    <span class="status-dot @(moderator.IsActive ? "on" : null)" aria-hidden="true"
                           title="@(moderator.IsActive ? "on roster" : "off roster")"></span>
                 </div>
             }
@@ -158,7 +162,7 @@ else
                         @foreach (var talk in _talks)
                         {
                             <div class="talk-row">
-                                <button class="btn small" @onclick="() => PlayTalkAsync(talk.ItemId)">▶</button>
+                                <button class="btn small" title="play talk" aria-label="play talk" @onclick="() => PlayTalkAsync(talk.ItemId)">▶</button>
                                 <span class="tag">@talk.Title</span>
                                 <span class="dim">@talk.PlayedAt.ToLocalTime().ToString("dd.MM. HH:mm") · @FormatClock(TimeSpan.FromSeconds(talk.DurationSeconds))</span>
                             </div>
@@ -429,6 +433,14 @@ else
         }
 
         ApplyHostRoute(host.Slug);
+    }
+
+    private void HostRowKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs args, ModeratorDto host)
+    {
+        if (args.Key is "Enter" or " ")
+        {
+            Select(host);
+        }
     }
 
     private void ApplyHostRoute(string? hostSlug)

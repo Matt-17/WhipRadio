@@ -139,7 +139,7 @@ else
     private RenderFragment StudioForm => __builder =>
     {
         <div class="studio-form">
-            <div class="seg" role="radiogroup" style="margin-bottom:12px">
+            <div class="seg" role="radiogroup" aria-label="Studio source" style="margin-bottom:12px">
                 <button type="button" class="seg-btn @(_formSource == "local" ? "active" : null)"
                         @onclick="@(() => SetSource("local"))">Local container</button>
                 <button type="button" class="seg-btn @(_formSource == "api" ? "active" : null)"
@@ -176,12 +176,13 @@ else
             </div>
             <div class="btn-row">
                 <button class="btn" @onclick="TestAsync">
-                    <span class="test-dot @(_testResult is null ? "" : _testResult.Ok ? "ok" : "fail")">●</span>
                     Test
                 </button>
                 @if (_testResult is not null)
                 {
-                    <span class="@(_testResult.Ok ? "flash" : "text-danger")">@(_testResult.Detail ?? (_testResult.Ok ? "connected" : "failed"))</span>
+                    <StatusBadge Text="@(_testResult.Ok ? "connected" : "failed")"
+                                 Tone="@(_testResult.Ok ? StatusBadgeTone.Green : StatusBadgeTone.Red)"
+                                 Title="@_testResult.Detail" />
                 }
                 <button class="btn primary" disabled="@(!(_testResult?.Ok ?? false))" @onclick="SaveAsync">
                     @(_editId is null ? "Create" : "Save")

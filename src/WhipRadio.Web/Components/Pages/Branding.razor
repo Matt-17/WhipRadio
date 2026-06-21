@@ -11,7 +11,11 @@
 <h1 class="stage-title">Branding</h1>
 <div class="stage-sub">station identity, mission and sonic labels</div>
 
-@if (_branding is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_branding is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">?</span> loading station identity...</div></div>
 }
@@ -90,7 +94,7 @@ else
                         <div class="library-action-cell">
                             @if (item.State == JingleQueueState.Recording)
                             {
-                                <span class="rec-cell" title="Recording" aria-label="Recording"><span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span></span>
+                                <StatusBadge Text="REC" Pulse="true" />
                             }
                         </div>
                         <div class="library-title-line" title="@item.Label">
@@ -182,6 +186,7 @@ else
     private string _stationSlogan = "";
     private string _stationVision = "";
     private string _stationMission = "";
+    private string? _loadError;
 
     private string _jingleLabel = "Station ID";
     private string _jingleStyle = "warm analog FM, memorable sonic logo, tight drums, bright synth tag";
@@ -213,9 +218,11 @@ else
         _branding = await Api.GetBrandingAsync();
         if (_branding is null)
         {
+            _loadError = "Failed to load station identity — backend unreachable.";
             return;
         }
 
+        _loadError = null;
         _stationName = _branding.StationName;
         _stationSlogan = _branding.StationSlogan;
         _stationVision = _branding.StationVision;

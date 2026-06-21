@@ -1301,6 +1301,10 @@ table.console-table {
     color: var(--red);
 }
 
+.specialist-modal-error {
+    margin-top: 12px;
+}
+
 /* segmented radio panel (message kind picker) */
 .seg {
     display: inline-flex;
@@ -2208,6 +2212,10 @@ table.console-table {
 }
 
 .studio-table-wrap {
+    overflow-x: auto;
+}
+
+.console-table-wrap {
     overflow-x: auto;
 }
 
@@ -3557,6 +3565,24 @@ table.console-table {
         grid-column: 1 / -1;
         padding-left: 0;
     }
+
+    .masthead {
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 14px 16px 10px;
+    }
+
+    .masthead .freq-readout {
+        display: none;
+    }
+
+    .history-detail-facts {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vfd .vfd-meta {
+    min-height: 24px;
 }
 
 /* ---------- misc additions ---------- */

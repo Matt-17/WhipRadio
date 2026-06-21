@@ -11,7 +11,11 @@
 <h1 class="stage-title">Production</h1>
 <div class="stage-sub">top-of-hour package timing, blocks, and recent package control</div>
 
-@if (_news is null || _weather is null)
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_news is null || _weather is null)
 {
     <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading production...</div></div>
 }
@@ -157,6 +161,7 @@ else
 
     private NewsProductionDto? _news;
     private WeatherProductionDto? _weather;
+    private string? _loadError;
     private bool _newsEnabled = true;
     private bool _weatherEnabled = true;
     private int _newsCadence = 60;
@@ -181,6 +186,15 @@ else
     {
         _news = await Api.GetNewsProductionAsync();
         _weather = await Api.GetWeatherProductionAsync();
+        if (_news is null || _weather is null)
+        {
+            _loadError = "Failed to load production state — backend unreachable.";
+        }
+        else
+        {
+            _loadError = null;
+        }
+
         if (_news is not null)
         {
             _newsEnabled = _news.NewsEnabled;

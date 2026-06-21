@@ -9,6 +9,10 @@
                 <textarea @bind="_hint" rows="5" placeholder="@HintPlaceholder"></textarea>
             </div>
         </div>
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="text-danger specialist-modal-error">@Error</div>
+        }
     </ChildContent>
     <Footer>
         <button class="btn small" @onclick="CloseAsync">Cancel</button>
@@ -26,6 +30,8 @@
     [Parameter] public EventCallback OnClose { get; set; }
 
     [Parameter] public EventCallback<string?> HostRequested { get; set; }
+
+    [Parameter] public string? Error { get; set; }
 
     private string _hint = "";
     private bool _submitting;
