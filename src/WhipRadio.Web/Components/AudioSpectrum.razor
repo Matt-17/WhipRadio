@@ -1,0 +1,47 @@
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+<div class="audio-spectrum" @ref="_root" aria-hidden="true">
+    @for (var i = 0; i < BarCount; i++)
+    {
+        <span class="audio-spectrum-bar" style="@InitialBarStyle(i)"></span>
+    }
+</div>
+
+@code {
+    private const int BarCount = 28;
+    private ElementReference _root;
+    private bool _attached;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await Js.InvokeVoidAsync("whipRadio.attachSpectrum", _root, new { bars = BarCount });
+            _attached = true;
+        }
+    }
+
+    private static string InitialBarStyle(int index)
+    {
+        var idle = 0.07 + index % 5 * 0.012;
+        return $"--level:{idle.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_attached)
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("whipRadio.detachSpectrum", _root);
+        }
+        catch (JSDisconnectedException)
+        {
+            // The circuit can be gone during navigation or shutdown.
+        }
+    }
+}

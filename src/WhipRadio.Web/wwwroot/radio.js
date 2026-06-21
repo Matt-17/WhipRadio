@@ -7,6 +7,13 @@ window.whipRadio = {
   _volumeKey: "whipradio.volume",
   _playStateKey: "whipradio.playState",
   _serverReconnectReloadKey: "whipradio.serverReconnectReload",
+  _spectrumRoots: new Set(),
+  _spectrumFrame: null,
+  _spectrumContext: null,
+  _spectrumAnalyser: null,
+  _spectrumSource: null,
+  _spectrumData: null,
+  _spectrumWarned: false,
 
   _normalizeVolume(value) {
     const volume = Number(value);
@@ -37,6 +44,127 @@ window.whipRadio = {
 
   _isPlaying() {
     return !!(this._audio && !this._audio.paused && !this._audio.ended);
+  },
+
+  _idleSpectrumLevel(index) {
+    return 0.055 + (index % 6) * 0.011;
+  },
+
+  _setSpectrumRoot(root, active, values) {
+    if (!root) {
+      return;
+    }
+
+    root.classList.toggle("active", active);
+    const bars = root._whipSpectrumBars || Array.from(root.querySelectorAll(".audio-spectrum-bar"));
+    root._whipSpectrumBars = bars;
+    for (let i = 0; i < bars.length; i++) {
+      const level = values ? values[i % values.length] : this._idleSpectrumLevel(i);
+      bars[i].style.setProperty("--level", level.toFixed(3));
+    }
+  },
+
+  _renderSpectrumFrame() {
+    this._spectrumFrame = null;
+    const active = this._isPlaying() && this._spectrumAnalyser && this._spectrumContext?.state === "running";
+    let levels = null;
+
+    if (active) {
+      this._spectrumAnalyser.getByteFrequencyData(this._spectrumData);
+      const visualBars = 28;
+      levels = [];
+      for (let i = 0; i < visualBars; i++) {
+        const start = Math.floor(i * this._spectrumData.length / visualBars);
+        const end = Math.max(start + 1, Math.floor((i + 1) * this._spectrumData.length / visualBars));
+        let total = 0;
+        for (let j = start; j < end; j++) {
+          total += this._spectrumData[j];
+        }
+
+        const normalized = total / (end - start) / 255;
+        levels.push(Math.max(0.075, Math.min(1, Math.pow(normalized, 0.72) * 1.2)));
+      }
+    }
+
+    for (const root of this._spectrumRoots) {
+      this._setSpectrumRoot(root, !!levels, levels);
+    }
+
+    if (this._spectrumRoots.size > 0) {
+      this._spectrumFrame = requestAnimationFrame(() => this._renderSpectrumFrame());
+    }
+  },
+
+  _startSpectrumLoop() {
+    if (!this._spectrumFrame && this._spectrumRoots.size > 0) {
+      this._spectrumFrame = requestAnimationFrame(() => this._renderSpectrumFrame());
+    }
+  },
+
+  async _ensureSpectrumGraph() {
+    if (!this._audio || this._spectrumAnalyser) {
+      return !!this._spectrumAnalyser;
+    }
+
+    try {
+      const AudioContextType = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextType) {
+        return false;
+      }
+
+      this._spectrumContext = this._spectrumContext || new AudioContextType();
+      this._spectrumSource = this._spectrumSource || this._spectrumContext.createMediaElementSource(this._audio);
+      this._spectrumAnalyser = this._spectrumContext.createAnalyser();
+      this._spectrumAnalyser.fftSize = 256;
+      this._spectrumAnalyser.smoothingTimeConstant = 0.78;
+      this._spectrumData = new Uint8Array(this._spectrumAnalyser.frequencyBinCount);
+      this._spectrumSource.connect(this._spectrumAnalyser);
+      this._spectrumAnalyser.connect(this._spectrumContext.destination);
+    } catch (e) {
+      if (!this._spectrumWarned) {
+        console.warn("whipRadio: spectrum unavailable", e);
+        this._spectrumWarned = true;
+      }
+      this._spectrumAnalyser = null;
+      return false;
+    }
+
+    return true;
+  },
+
+  async _resumeSpectrumContext() {
+    if (await this._ensureSpectrumGraph() && this._spectrumContext.state === "suspended") {
+      try {
+        await this._spectrumContext.resume();
+      } catch (e) {
+        if (!this._spectrumWarned) {
+          console.warn("whipRadio: spectrum context blocked", e);
+          this._spectrumWarned = true;
+        }
+      }
+    }
+  },
+
+  attachSpectrum(element) {
+    if (!element) {
+      return;
+    }
+
+    this._spectrumRoots.add(element);
+    this._setSpectrumRoot(element, false, null);
+    this._startSpectrumLoop();
+  },
+
+  detachSpectrum(element) {
+    if (!element) {
+      return;
+    }
+
+    this._spectrumRoots.delete(element);
+    if (this._spectrumRoots.size === 0 && this._spectrumFrame) {
+      cancelAnimationFrame(this._spectrumFrame);
+      this._spectrumFrame = null;
+    }
   },
 
   _readPlayState() {
@@ -152,6 +280,7 @@ window.whipRadio = {
       audio.src = fresh;
       audio.load();
       await audio.play();
+      await this._resumeSpectrumContext();
       return true;
     } catch (e) {
       console.warn("whipRadio: play failed", e);
@@ -200,6 +329,7 @@ window.whipRadio = {
         audio.src = url;
       }
       await audio.play();
+      await this._resumeSpectrumContext();
       this._storePlayState("track", true);
       return true;
     } catch (e) {
@@ -214,6 +344,7 @@ window.whipRadio = {
       this._wantLive = false;
       try {
         await this._audio.play();
+        await this._resumeSpectrumContext();
         this._storePlayState("track", true);
         return true;
       } catch (e) {

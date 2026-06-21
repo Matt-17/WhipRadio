@@ -12,10 +12,6 @@
 <h1 class="stage-title">Live Broadcast</h1>
 <div class="stage-sub">
     studio 1 • fully local • ai operated
-    @if (Live.NowPlaying?.FormatName is { } format)
-    {
-        <span> • now: <span style="color:var(--amber)">@format</span></span>
-    }
 </div>
 
 <div class="panel reveal">
@@ -30,7 +26,7 @@
         }
         else
         {
-            <div class="vfd-kind">@(Live.NowPlaying.ItemType == "Track" ? "Track" : $"On the mic — {Live.NowPlaying.Title}")</div>
+            <div class="vfd-kind">@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(Live.NowPlaying.DurationSeconds))</div>
             <div class="vfd-title">
                 @if (Live.NowPlaying.ItemType == "Track")
                 {
@@ -44,25 +40,28 @@
             <div class="vfd-meta">
                 @if (Live.NowPlaying.ArtistName is not null)
                 {
-                    <span>by <strong>@Live.NowPlaying.ArtistName</strong> • </span>
+                    <span class="vfd-meta-item">by <strong>@Live.NowPlaying.ArtistName</strong></span>
+                }
+                @if (Live.NowPlaying.FormatName is not null)
+                {
+                    <span class="vfd-meta-item">now <strong>@Live.NowPlaying.FormatName</strong></span>
                 }
                 @if (Live.NowPlaying.ModeratorName is not null && Live.NowPlaying.ItemType == "Track")
                 {
-                    <span>host <strong>@Live.NowPlaying.ModeratorName</strong> • </span>
+                    <span class="vfd-meta-item">host <strong>@Live.NowPlaying.ModeratorName</strong></span>
                 }
-                <span>@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(Live.NowPlaying.DurationSeconds))</span>
+                @if (Live.NowPlaying.ItemType != "Track")
+                {
+                    <span class="vfd-meta-item">@Live.NowPlaying.Title</span>
+                }
             </div>
         }
-        <div class="tuner" title="track position">
-            <div class="needle" style="left: @($"{Progress:F1}%")"></div>
+        <AudioSpectrum />
+        <div class="tuner" title="elapsed position" role="progressbar"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="@ProgressValue">
+            <div class="tuner-fill" style="width: @ProgressPercent"></div>
+            <div class="needle" style="left: @ProgressPercent"></div>
         </div>
-    </div>
-
-    <div class="vu @(Live.NowPlaying is not null ? null : "idle")" aria-hidden="true">
-        @for (var i = 0; i < 12; i++)
-        {
-            <span></span>
-        }
     </div>
 </div>
 
@@ -150,6 +149,10 @@
     private double Progress => Live.NowPlaying is { } np && np.DurationSeconds > 0
         ? Math.Clamp(Elapsed.TotalSeconds / np.DurationSeconds * 100, 0, 100)
         : 0;
+
+    private string ProgressValue => Math.Round(Progress).ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+    private string ProgressPercent => $"{Progress.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)}%";
 
     protected override void OnInitialized()
     {
