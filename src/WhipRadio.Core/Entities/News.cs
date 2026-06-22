@@ -12,6 +12,7 @@ public enum NewsItemStatus
 public enum NewsPackageStatus
 {
     Pending,
+    Retrying,
     Ready,
     Queued,
     Played,
@@ -107,6 +108,8 @@ public class NewsPackage
     public DateTime? PlayedAtUtc { get; set; }
 
     public string? FailureReason { get; set; }
+
+    public string? ProductionState { get; set; }
 
     public string? SourceSummary { get; set; }
 }

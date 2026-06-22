@@ -1,0 +1,31 @@
+@* Floating bottom-right panel that shows live announcement transcripts and
+   song lyrics. Anchored above the footer player, stretches toward the masthead.
+   Rendered inside FooterPlayer so it shares the footer's fixed-position context. *@
+
+<div class="transcript-panel @(Open ? "open" : null)" role="region" aria-label="Live transcript">
+    <div class="transcript-panel-head">
+        <span class="transcript-panel-label">@HeaderLabel</span>
+        @if (Byline is { } byline)
+        {
+            <span class="transcript-panel-byline">@byline</span>
+        }
+        <button class="btn icon-only transcript-panel-close" @onclick="OnClose" title="close (T)" aria-label="Close transcript panel">
+            <Icon Name="close" Size="16" />
+        </button>
+    </div>
+    <div class="transcript-panel-body">
+        <div class="transcript">@Body</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool Open { get; set; }
+
+    [Parameter] public string HeaderLabel { get; set; } = "";
+
+    [Parameter] public string? Byline { get; set; }
+
+    [Parameter] public string Body { get; set; } = "";
+
+    [Parameter] public EventCallback OnClose { get; set; }
+}

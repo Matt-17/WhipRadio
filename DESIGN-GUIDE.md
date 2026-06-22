@@ -131,7 +131,8 @@ Behavior and accessibility:
 
 Use a select when the value has more than two options. Boolean settings that
 currently use `enabled/disabled`, `on/off`, or `true/false` selects should move
-to immediate switches in a cleanup pass.
+to immediate switches — **unless** they live in a staged form panel with an
+Apply button, in which case they stay as selects.
 
 ### Segmented Controls
 
@@ -185,6 +186,10 @@ backend enablement.
 - Numeric columns should use `num` and tabular alignment.
 - Use custom named grids for high-density non-table content such as library
   tracks, schedule blocks, host rosters, and history panes.
+- In the Record Collection artist track grid and Branding jingle library, the
+  in-progress recording row's action cell is the exception to the `StatusBadge`
+  rule: it must use the compact red-dot `rec-cell` indicator, with no `REC`
+  text, and match the exact size of the play buttons in rows below.
 - Empty/loading states should use `empty-state`; add a blinking glyph only when
   it fits the console/radio language.
 
@@ -274,16 +279,20 @@ the next design cleanup:
 
 - Immediate service switches: Admin playout, music production, greetings, Mixer
   enablement, and row-level studio/feed/format toggles save immediately.
-- Staged service switches: News and Weather package enablement use the same big
-  switch visual but are saved by an Apply button. These should become standard
-  immediate switches.
+- Staged settings selects: News and Weather production pages use on/off selects
+  for enablement and extraction/handover because those fields are saved by an
+  Apply button. This is intentional — a switch must never sit in a staged form.
 - Boolean selects: Settings and some production forms use `off/on` or
-  `disabled/enabled` selects for boolean settings. These should become
-  switches.
-- Active buttons as toggles: footer transcripts, jingle active/off, Console
-  pause/order, and some row expanders use button active state instead of a
-  switch. Jingle active/off should become a switch. Footer transcript may stay
-  as-is for now. Pause/resume and sort/order controls remain toggle buttons.
+  `disabled/enabled` selects for boolean settings outside staged forms. These
+  should become switches.
+- Active buttons as toggles: footer transcript toggle, Console pause/order, and
+  some row expanders use button active state instead of a switch. The footer
+  transcript toggle stays as a button because the transcript icon communicates
+  purpose more clearly than a bare switch would — a switch needs text to
+  explain what it controls, while the icon-only button does not. The checked
+  state uses a bright amber fill so on/off is visually obvious. Pause/resume
+  and sort/order controls remain toggle buttons. Jingle active/off uses a
+  switch.
 - Status badge drift: active, pending, queued, REC/recording, failed, and
   offline states are hand-coded with raw `tag` spans across pages. These should
   be consolidated into `StatusBadge`.
@@ -306,11 +315,11 @@ the next design cleanup:
 These are guidance points for a later unification pass, not changes to make
 while only updating this guide:
 
-- Normalize all switch markup to the same accessible pattern used by the News
-  feed switches, with explicit `SwitchSize` and optional tone.
+- Normalize all switch markup to the same accessible pattern, with explicit
+  `SwitchSize` and optional tone.
 - Remove page-local inline styles when a reusable CSS class would preserve the
   same layout.
-- Convert staged service switches and boolean selects to immediate switches.
+- Convert boolean selects to immediate switches **outside** staged form panels.
 - Convert jingle active/off from an active button to a switch.
 - Introduce `StatusBadge` and replace page-local status/state tag spans with it.
 - Normalize action rows to one button size per row.

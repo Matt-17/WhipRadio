@@ -3,6 +3,8 @@ using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
@@ -216,6 +218,14 @@ public class PlayoutService(
                 continue;
             }
 
+            if (queue.PeekNext() is { ItemType: PlayoutItemType.Track }
+                && await ShouldHoldTrackForTopOfHourPackageAsync(ct))
+            {
+                await encoderInput.WriteAsync(SilenceChunk, ct);
+                await encoderInput.FlushAsync(ct);
+                continue;
+            }
+
             var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
             if (item is null)
             {
@@ -236,6 +246,42 @@ public class PlayoutService(
                 stateStore.Complete(item);
                 await trackDeletions.MarkPlaybackCompletedAsync(item, ct);
             }
+        }
+    }
+
+    private async Task<bool> ShouldHoldTrackForTopOfHourPackageAsync(CancellationToken ct)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            if (!settings.NewsEnabled && !settings.WeatherEnabled)
+            {
+                return false;
+            }
+
+            var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
+            var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
+            var minTarget = now.AddSeconds(-lateWindow);
+            var maxTarget = now.AddSeconds(introGrace);
+            return await db.NewsPackages.AsNoTracking()
+                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc >= minTarget
+                    && package.TargetUtc <= maxTarget
+                    && (package.Status == NewsPackageStatus.Pending
+                        || package.Status == NewsPackageStatus.Retrying
+                        || package.Status == NewsPackageStatus.Ready
+                        || package.Status == NewsPackageStatus.Queued), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not evaluate top-of-hour legacy playout guard");
+            return false;
         }
     }
 

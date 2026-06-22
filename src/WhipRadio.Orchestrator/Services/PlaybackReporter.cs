@@ -96,6 +96,8 @@ public class PlaybackReporter(
 
         string? artistName = null;
         string? transcript = null;
+        string? lyrics = null;
+        string? announcementKind = null;
         var upVotes = 0;
         var downVotes = 0;
 
@@ -111,6 +113,7 @@ public class PlaybackReporter(
             artistName = track?.Artist?.Name;
             upVotes = track?.UpVotes ?? 0;
             downVotes = track?.DownVotes ?? 0;
+            lyrics = track?.Lyrics;
         }
         else
         {
@@ -126,10 +129,12 @@ public class PlaybackReporter(
                 .Where(p => p.AnnouncementId == item.ItemId)
                 .ExecuteUpdateAsync(s => s.SetProperty(p => p.Status, TalkPartStatus.Played), ct);
 
-            var voicedText = (await db.Announcements.AsNoTracking()
-                .FirstOrDefaultAsync(a => a.Id == item.ItemId, ct))?.VoicedText;
+            var announcement = await db.Announcements.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == item.ItemId, ct);
+            var voicedText = announcement?.VoicedText;
             // Transcripts show the bare spoken text — never the speech markup.
             transcript = voicedText is null ? null : Core.Speech.SpeechMarkerNormalizer.ToPlainText(voicedText);
+            announcementKind = announcement?.Kind.ToString();
         }
 
         await db.SaveChangesAsync(ct);
@@ -158,7 +163,7 @@ public class PlaybackReporter(
 
         var dto = new NowPlayingDto(
             item.ItemType.ToString(), item.ItemId, item.Title, visibleStartedAtUtc, item.DurationSeconds,
-            moderatorName, artistName, transcript, upVotes, downVotes, formatName);
+            moderatorName, artistName, transcript, upVotes, downVotes, formatName, lyrics, announcementKind);
 
         await PublishAsync(dto, ct);
         await PushIcecastMetadataAsync(item, artistName, moderatorName, ct);

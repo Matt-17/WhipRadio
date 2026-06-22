@@ -33,6 +33,7 @@ public static class DbInitializer
     {
         await db.Database.MigrateAsync(ct);
         await MarkAbandonedStudioHistoryAsync(db, ct);
+        await PatchPackageAnnouncementPlayoutIntentAsync(db, ct);
 
         if (!await db.Moderators.AnyAsync(ct))
         {
@@ -145,6 +146,25 @@ public static class DbInitializer
                 .SetProperty(x => x.Status, StudioHistoryStatus.Failed)
                 .SetProperty(x => x.CompletedAtUtc, now)
                 .SetProperty(x => x.Error, abandonedMessage), ct);
+    }
+
+    private static async Task PatchPackageAnnouncementPlayoutIntentAsync(RadioDbContext db, CancellationToken ct)
+    {
+        var packageAnnouncementIds = await db.NewsPackages.AsNoTracking()
+            .Where(package => package.AnnouncementId != null)
+            .Select(package => package.AnnouncementId!.Value)
+            .ToListAsync(ct);
+        if (packageAnnouncementIds.Count == 0)
+        {
+            return;
+        }
+
+        await db.Announcements
+            .Where(announcement => packageAnnouncementIds.Contains(announcement.Id)
+                && announcement.PlayoutIntent != AnnouncementPlayoutIntent.ScheduledOnly)
+            .ExecuteUpdateAsync(s => s.SetProperty(
+                announcement => announcement.PlayoutIntent,
+                AnnouncementPlayoutIntent.ScheduledOnly), ct);
     }
 
     /// <summary>

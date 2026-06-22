@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -33,18 +34,23 @@ public class AudioMixerEngineTests
         FakeReporter Reporter,
         TrackDeletionService TrackDeletions,
         FakeReaderFactory Readers,
+        TimedPlayoutInterruptService TimedInterrupts,
         CollectingLogger Logger)
     {
-        public static Fixture Create(Func<PlayoutItem, double>? audioDuration = null, bool collectLogs = false)
+        public static Fixture Create(
+            Func<PlayoutItem, double>? audioDuration = null,
+            bool collectLogs = false,
+            IDbContextFactory<RadioDbContext>? dbFactory = null)
         {
             var root = Path.Combine(Path.GetTempPath(), "whipradio-mixer-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
+            dbFactory ??= new ThrowingDbContextFactory();
             var radioOptions = Options.Create(new RadioOptions { DataRoot = root });
             var queue = new FakeQueue();
             var reporter = new FakeReporter();
             var stateStore = new PlayoutStateStore(radioOptions, TimeProvider.System,
                 NullLogger<PlayoutStateStore>.Instance);
-            var trackDeletions = new TrackDeletionService(new ThrowingDbContextFactory(), radioOptions,
+            var trackDeletions = new TrackDeletionService(dbFactory, radioOptions,
                 NullLogger<TrackDeletionService>.Instance);
             var planner = new MixPlanner(new SystemRandomSource(seed: 42));
             var diagnostics = new MixerDiagnostics();
@@ -54,9 +60,9 @@ public class AudioMixerEngineTests
             var logger = new CollectingLogger();
             var mixer = new AudioMixerEngine(
                 queue, reporter, stateStore, trackDeletions, planner, diagnostics, mixerUpdates,
-                timedInterrupts, readers, NullStationMetrics.Instance, new ThrowingDbContextFactory(),
+                timedInterrupts, readers, NullStationMetrics.Instance, dbFactory,
                 collectLogs ? logger : NullLogger<AudioMixerEngine>.Instance);
-            return new Fixture(mixer, queue, reporter, trackDeletions, readers, logger);
+            return new Fixture(mixer, queue, reporter, trackDeletions, readers, timedInterrupts, logger);
         }
     }
 
@@ -182,6 +188,122 @@ public class AudioMixerEngineTests
         Assert.False(fix.TrackDeletions.IsTrackActive(item.ItemId));
         Assert.Contains(fix.Logger.Entries,
             e => e.Level == LogLevel.Warning && e.Message.Contains("shorter than duration"));
+    }
+
+    [TestMethod]
+    public async Task TimedPackage_CanStartInsideIntroGraceBeforeTarget()
+    {
+        var fix = Fixture.Create();
+        var package = new PlayoutItem(
+            PlayoutItemType.Announcement,
+            Guid.NewGuid(),
+            "library/announcements/news.wav",
+            "Top of hour - news and weather",
+            1);
+        var track = Track("should-not-start-first", seconds: 2);
+        fix.Queue.Enqueue(track);
+        fix.TimedInterrupts.Schedule(new TimedPlayoutInterrupt(
+            package,
+            DateTime.UtcNow.AddSeconds(1),
+            FadeOutSeconds: 1,
+            GraceSeconds: 15,
+            LateWindowSeconds: 300));
+        using var cts = new CancellationTokenSource();
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 180, delayMs: 1);
+
+        var seenPackage = false;
+        fix.Reporter.OnStarted = item => seenPackage = item.ItemId == package.ItemId;
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(!seenPackage), cts.Token);
+
+        Assert.True(fix.Reporter.Starts.Count > 0);
+        Assert.Equal(package.ItemId, fix.Reporter.Starts[0].ItemId);
+    }
+
+    [TestMethod]
+    public async Task PendingPackage_HoldsTrackStartInsideTopOfHourWindow()
+    {
+        await using var db = await DbFixture.CreateAsync();
+        await db.SetPackageAsync(NewsPackageStatus.Pending, DateTime.UtcNow.AddSeconds(-1));
+        var fix = Fixture.Create(dbFactory: db);
+        fix.Queue.Enqueue(Track("must-wait", seconds: 2));
+        using var cts = new CancellationTokenSource();
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 120, delayMs: 0);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Empty(fix.Reporter.Starts);
+        Assert.Equal(0, pace.NonZeroBytes);
+    }
+
+    [TestMethod]
+    public async Task QueuedPackage_HoldsTrackStartInsideTopOfHourWindow()
+    {
+        await using var db = await DbFixture.CreateAsync();
+        await db.SetPackageAsync(NewsPackageStatus.Queued, DateTime.UtcNow.AddSeconds(-1));
+        var fix = Fixture.Create(dbFactory: db);
+        fix.Queue.Enqueue(Track("must-wait", seconds: 2));
+        using var cts = new CancellationTokenSource();
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 120, delayMs: 0);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Empty(fix.Reporter.Starts);
+        Assert.Equal(0, pace.NonZeroBytes);
+    }
+
+    [TestMethod]
+    public async Task PendingPackage_PreventsTransitionIntoTrackAfterBoundary()
+    {
+        await using var db = await DbFixture.CreateAsync();
+        await db.SetIntroGraceAsync(0);
+        await db.SetPackageAsync(NewsPackageStatus.Pending, DateTime.UtcNow.AddMilliseconds(50));
+        var fix = Fixture.Create(dbFactory: db);
+        var first = Track("current", seconds: 2);
+        var second = Track("blocked-next", seconds: 2);
+        fix.Queue.Enqueue(first);
+        fix.Queue.Enqueue(second);
+        using var cts = new CancellationTokenSource();
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 220, delayMs: 1);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == first.ItemId);
+        Assert.DoesNotContain(fix.Reporter.Starts, item => item.ItemId == second.ItemId);
+    }
+
+    [TestMethod]
+    public async Task PendingPackage_FadesLongCurrentTrackAtBoundaryInsteadOfWaitingLateWindow()
+    {
+        await using var db = await DbFixture.CreateAsync();
+        var fix = Fixture.Create(dbFactory: db, collectLogs: true);
+        var longTrack = Track("long-current", seconds: 120);
+        fix.Queue.Enqueue(longTrack);
+        using var cts = new CancellationTokenSource();
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 260, delayMs: 1);
+
+        var inserted = false;
+        fix.Reporter.OnStarted = item =>
+        {
+            if (!inserted && item.ItemId == longTrack.ItemId)
+            {
+                inserted = true;
+                db.SetPackageAsync(NewsPackageStatus.Pending, DateTime.UtcNow.AddSeconds(-1))
+                    .GetAwaiter()
+                    .GetResult();
+            }
+        };
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == longTrack.ItemId);
+        Assert.False(fix.TrackDeletions.IsTrackActive(longTrack.ItemId));
+        Assert.Contains(fix.Logger.Entries,
+            e => e.Level == LogLevel.Information && e.Message.Contains("fading current audio"));
     }
 
     // --- fakes -----------------------------------------------------------------
@@ -342,6 +464,98 @@ public class AudioMixerEngineTests
         public RadioDbContext CreateDbContext() => throw new InvalidOperationException("no DB in mixer tests");
         public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("no DB in mixer tests");
+    }
+
+    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
+        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
+    {
+        public static async Task<DbFixture> CreateAsync()
+        {
+            SqliteConnection connection = new("Data Source=:memory:");
+            await connection.OpenAsync();
+            DbContextOptions<RadioDbContext> options = new DbContextOptionsBuilder<RadioDbContext>()
+                .UseSqlite(connection)
+                .Options;
+            await using (RadioDbContext db = new(options))
+            {
+                await db.Database.EnsureCreatedAsync();
+                db.StationSettings.Add(new StationSettings
+                {
+                    Id = StationSettings.SingletonId,
+                    NewsEnabled = true,
+                    TopOfHourIntroGraceSeconds = 15,
+                    DefaultCrossfadeSeconds = 1,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            return new DbFixture(connection, options);
+        }
+
+        public async Task SetPackageAsync(NewsPackageStatus status, DateTime targetUtc)
+        {
+            await using RadioDbContext db = CreateDbContext();
+            Guid? announcementId = null;
+            if (status is NewsPackageStatus.Ready or NewsPackageStatus.Queued)
+            {
+                if (!await db.Moderators.AnyAsync(moderator => moderator.Id == 1))
+                {
+                    db.Moderators.Add(new Moderator
+                    {
+                        Id = 1,
+                        Name = "Maya",
+                        Language = "en",
+                        Gender = ModeratorGenders.Female,
+                        TtsEngine = TtsEngines.Kokoro,
+                        VoiceId = "af_bella",
+                    });
+                }
+
+                announcementId = Guid.NewGuid();
+                db.Announcements.Add(new Announcement
+                {
+                    Id = announcementId.Value,
+                    ModeratorId = 1,
+                    Kind = AnnouncementKind.Weather,
+                    ScriptText = "weather",
+                    VoicedText = "weather",
+                    FilePath = "library/announcements/weather.wav",
+                    DurationSeconds = 30,
+                    CreatedAt = DateTime.UtcNow,
+                    PlayoutIntent = AnnouncementPlayoutIntent.ScheduledOnly,
+                });
+            }
+
+            db.NewsPackages.Add(new NewsPackage
+            {
+                Id = Guid.NewGuid(),
+                Kind = NewsPackageKind.TopOfHour,
+                Status = status,
+                TargetUtc = targetUtc,
+                TargetDurationSeconds = 300,
+                CreatedAtUtc = DateTime.UtcNow,
+                AnnouncementId = announcementId,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        public async Task SetIntroGraceAsync(int seconds)
+        {
+            await using RadioDbContext db = CreateDbContext();
+            var settings = await db.StationSettings.FirstAsync();
+            settings.TopOfHourIntroGraceSeconds = seconds;
+            await db.SaveChangesAsync();
+        }
+
+        public RadioDbContext CreateDbContext() => new(options);
+
+        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateDbContext());
+
+        public async ValueTask DisposeAsync()
+        {
+            await connection.DisposeAsync();
+        }
     }
 
     private sealed class NoOpMixerUpdatePublisher : IMixerUpdatePublisher

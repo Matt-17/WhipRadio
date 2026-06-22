@@ -35,6 +35,34 @@ public class TopOfHourSchedulerTests
         Assert.Equal(60, TopOfHourScheduler.NormalizeIntroGraceSeconds(99));
         Assert.Equal(60, TopOfHourScheduler.NormalizeLateWindowSeconds(1));
         Assert.Equal(900, TopOfHourScheduler.NormalizeLateWindowSeconds(9999));
+        Assert.Equal(0, TopOfHourScheduler.NormalizeCurrentItemFinishGraceSeconds(-1));
+        Assert.Equal(300, TopOfHourScheduler.NormalizeCurrentItemFinishGraceSeconds(9999));
+        Assert.Equal(15, TopOfHourScheduler.DefaultIntroGraceSeconds);
         Assert.Equal(300, TopOfHourScheduler.DefaultLateWindowSeconds);
+    }
+
+    [TestMethod]
+    public void IsInsidePackageClaimWindow_AllowsEarlyStartAndFiveMinuteLateStart()
+    {
+        var target = new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(TopOfHourScheduler.IsInsidePackageClaimWindow(
+            target.AddSeconds(-15), target, introGraceSeconds: 15, lateWindowSeconds: 300));
+        Assert.True(TopOfHourScheduler.IsInsidePackageClaimWindow(
+            target.AddMinutes(5), target, introGraceSeconds: 15, lateWindowSeconds: 300));
+        Assert.False(TopOfHourScheduler.IsInsidePackageClaimWindow(
+            target.AddSeconds(-16), target, introGraceSeconds: 15, lateWindowSeconds: 300));
+        Assert.False(TopOfHourScheduler.IsInsidePackageClaimWindow(
+            target.AddMinutes(5).AddSeconds(1), target, introGraceSeconds: 15, lateWindowSeconds: 300));
+    }
+
+    [TestMethod]
+    public void ShouldLetCurrentItemFinish_AllowsShortOverrunButNotLongSong()
+    {
+        var target = new DateTime(2026, 6, 21, 12, 0, 0, DateTimeKind.Utc);
+
+        Assert.True(TopOfHourScheduler.ShouldLetCurrentItemFinish(target, target.AddSeconds(59)));
+        Assert.False(TopOfHourScheduler.ShouldLetCurrentItemFinish(target, target.AddSeconds(60)));
+        Assert.False(TopOfHourScheduler.ShouldLetCurrentItemFinish(target, target.AddSeconds(61)));
     }
 }

@@ -1,0 +1,108 @@
+@using System.Globalization
+@implements IAsyncDisposable
+@inject IJSRuntime Js
+
+<div class="@CssClass"
+     @ref="_root"
+     style="@Style"
+     title="@Title"
+     role="@(HasHandle ? "slider" : "progressbar")"
+     aria-label="@AriaLabel"
+     aria-valuemin="@FormatNumber(Min)"
+     aria-valuemax="@FormatNumber(Max)"
+     aria-valuenow="@FormatNumber(ClampedValue)"
+     tabindex="@(HasHandle ? "0" : null)">
+    @if (!HasHandle)
+    {
+        <div class="wr-progress-fill"></div>
+    }
+</div>
+
+@code {
+    [Parameter] public double Value { get; set; }
+
+    [Parameter] public double Min { get; set; }
+
+    [Parameter] public double Max { get; set; } = 100;
+
+    [Parameter] public double Step { get; set; } = 1;
+
+    [Parameter] public string Color { get; set; } = "amber";
+
+    [Parameter] public bool HasHandle { get; set; }
+
+    [Parameter] public double WheelStep { get; set; }
+
+    [Parameter] public string? Class { get; set; }
+
+    [Parameter] public string? Title { get; set; }
+
+    [Parameter] public string? AriaLabel { get; set; }
+
+    [Parameter] public EventCallback<ChangeEventArgs> OnInput { get; set; }
+
+    [Parameter] public EventCallback<double> OnValueInput { get; set; }
+
+    private ElementReference _root;
+
+    private DotNetObjectReference<ProgressBar>? _selfRef;
+
+    private double ClampedValue => Max > Min && double.IsFinite(Value)
+        ? Math.Clamp(Value, Min, Max)
+        : Min;
+
+    private double Percent => Max > Min
+        ? Math.Clamp((ClampedValue - Min) / (Max - Min) * 100, 0, 100)
+        : 0;
+
+    private string CssClass
+        => $"wr-progress wr-progress-{NormalizeColor(Color)} {(HasHandle ? "has-handle" : null)} {Class}".Trim();
+
+    private string Style => $"--progress-value: {FormatPercent(Percent)}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!HasHandle)
+        {
+            return;
+        }
+
+        _selfRef ??= DotNetObjectReference.Create(this);
+        await Js.InvokeVoidAsync("whipRadio.attachProgressBar", _root, _selfRef, Min, Max, Step, WheelStep);
+    }
+
+    [JSInvokable]
+    public async Task SetProgressValue(double value)
+    {
+        if (OnValueInput.HasDelegate)
+        {
+            await OnValueInput.InvokeAsync(value);
+        }
+    }
+
+    private static string NormalizeColor(string? color)
+        => string.IsNullOrWhiteSpace(color) ? "amber" : color.Trim().ToLowerInvariant();
+
+    private static string FormatPercent(double percent)
+        => $"{percent.ToString("0.###", CultureInfo.InvariantCulture)}%";
+
+    private static string FormatNumber(double value)
+        => value.ToString("0.###", CultureInfo.InvariantCulture);
+
+    public async ValueTask DisposeAsync()
+    {
+        if (HasHandle)
+        {
+            try
+            {
+                await Js.InvokeVoidAsync("whipRadio.detachProgressBar", _root);
+            }
+            catch (JSDisconnectedException)
+            {
+                // Circuit is gone during shutdown.
+            }
+        }
+
+        _selfRef?.Dispose();
+    }
+}

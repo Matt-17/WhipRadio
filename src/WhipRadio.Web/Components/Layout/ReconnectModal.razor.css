@@ -19,36 +19,58 @@
     display: block;
 }
 
-
 #components-reconnect-modal {
-    background-color: white;
-    width: 20rem;
-    margin: 20vh auto;
-    padding: 2rem;
-    border: 0;
-    border-radius: 0.5rem;
-    box-shadow: 0 3px 6px 2px rgba(0, 0, 0, 0.3);
+    color: var(--text);
+    background:
+        linear-gradient(180deg, rgba(255, 180, 84, 0.08), transparent 42%),
+        linear-gradient(135deg, var(--bg-panel), #17110d);
+    width: min(340px, calc(100vw - 32px));
+    margin: 18vh auto;
+    padding: 20px 22px 22px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    box-shadow:
+        0 20px 70px rgba(0, 0, 0, 0.62),
+        inset 0 0 0 1px rgba(255, 180, 84, 0.05),
+        inset 0 18px 34px rgba(255, 180, 84, 0.025);
     opacity: 0;
-    transition: display 0.5s allow-discrete, overlay 0.5s allow-discrete;
-    animation: components-reconnect-modal-fadeOutOpacity 0.5s both;
-    &[open]
+    overflow: hidden;
+    transition: display 0.18s allow-discrete, overlay 0.18s allow-discrete;
+    animation: components-reconnect-modal-fadeOutOpacity 0.18s both;
+}
 
-{
-    animation: components-reconnect-modal-slideUp 1.5s cubic-bezier(.05, .89, .25, 1.02) 0.3s, components-reconnect-modal-fadeInOpacity 0.5s ease-in-out 0.3s;
+#components-reconnect-modal::before {
+    content: "SIGNAL LOST";
+    display: block;
+    margin: -2px 0 16px;
+    color: var(--amber);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2.4px;
+    text-align: center;
+    text-transform: uppercase;
+    text-shadow: var(--glow-amber);
+}
+
+#components-reconnect-modal[open] {
+    animation:
+        components-reconnect-modal-slideUp 0.22s cubic-bezier(.16, .84, .32, 1),
+        components-reconnect-modal-fadeInOpacity 0.16s ease-out;
     animation-fill-mode: both;
 }
 
-}
-
 #components-reconnect-modal::backdrop {
-    background-color: rgba(0, 0, 0, 0.4);
-    animation: components-reconnect-modal-fadeInOpacity 0.5s ease-in-out;
+    background:
+        repeating-linear-gradient(0deg, transparent 0 2px, rgba(0, 0, 0, 0.18) 2px 3px),
+        rgba(9, 7, 5, 0.76);
+    animation: components-reconnect-modal-fadeInOpacity 0.16s ease-out;
     opacity: 1;
 }
 
 @keyframes components-reconnect-modal-slideUp {
     0% {
-        transform: translateY(30px) scale(0.95);
+        transform: translateY(12px) scale(0.985);
     }
 
     100% {
@@ -80,78 +102,119 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1rem;
+    gap: 14px;
 }
 
 #components-reconnect-modal p {
     margin: 0;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.4px;
+    line-height: 1.55;
     text-align: center;
 }
 
 #components-reconnect-modal button {
-    border: 0;
-    background-color: #6b9ed2;
-    color: white;
-    padding: 4px 24px;
+    min-width: 104px;
+    border: 1px solid rgba(255, 180, 84, 0.48);
     border-radius: 4px;
+    background: linear-gradient(180deg, rgba(255, 180, 84, 0.18), rgba(255, 180, 84, 0.08));
+    color: var(--amber-hot);
+    padding: 7px 18px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    box-shadow: inset 0 0 0 1px rgba(255, 180, 84, 0.04);
+    cursor: pointer;
 }
 
-    #components-reconnect-modal button:hover {
-        background-color: #3b6ea2;
-    }
+#components-reconnect-modal button:hover {
+    color: var(--text);
+    border-color: var(--amber);
+    background: linear-gradient(180deg, rgba(255, 180, 84, 0.28), rgba(255, 180, 84, 0.12));
+}
 
-    #components-reconnect-modal button:active {
-        background-color: #6b9ed2;
-    }
+#components-reconnect-modal button:active {
+    transform: translateY(1px);
+}
+
+#components-reconnect-modal button:focus-visible {
+    outline: 2px solid var(--amber);
+    outline-offset: 3px;
+}
 
 .components-rejoining-animation {
     position: relative;
-    width: 80px;
-    height: 80px;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle, rgba(255, 180, 84, 0.16) 0 2px, transparent 3px),
+        radial-gradient(circle, rgba(255, 180, 84, 0.08), transparent 58%);
+    box-shadow: inset 0 0 24px rgba(255, 180, 84, 0.08);
 }
 
-    .components-rejoining-animation div {
-        position: absolute;
-        border: 3px solid #0087ff;
-        opacity: 1;
-        border-radius: 50%;
-        animation: components-rejoining-animation 1.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
-    }
+.components-rejoining-animation::before {
+    content: "";
+    position: absolute;
+    inset: 33px 8px auto;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--amber), transparent);
+    opacity: 0.65;
+}
 
-        .components-rejoining-animation div:nth-child(2) {
-            animation-delay: -0.5s;
-        }
+.components-rejoining-animation div {
+    position: absolute;
+    border: 1px solid var(--amber);
+    opacity: 1;
+    border-radius: 50%;
+    box-shadow: var(--glow-amber);
+    animation: components-rejoining-animation 1.45s cubic-bezier(0.12, 0.54, 0.28, 1) infinite;
+}
+
+.components-rejoining-animation div:nth-child(2) {
+    animation-delay: -0.48s;
+}
 
 @keyframes components-rejoining-animation {
     0% {
-        top: 40px;
-        left: 40px;
+        top: 36px;
+        left: 36px;
         width: 0;
         height: 0;
         opacity: 0;
     }
 
     4.9% {
-        top: 40px;
-        left: 40px;
+        top: 36px;
+        left: 36px;
         width: 0;
         height: 0;
         opacity: 0;
     }
 
     5% {
-        top: 40px;
-        left: 40px;
+        top: 36px;
+        left: 36px;
         width: 0;
         height: 0;
-        opacity: 1;
+        opacity: 0.95;
     }
 
     100% {
-        top: 0px;
-        left: 0px;
-        width: 80px;
-        height: 80px;
+        top: 2px;
+        left: 2px;
+        width: 68px;
+        height: 68px;
         opacity: 0;
+    }
+}
+
+@media (max-width: 520px) {
+    #components-reconnect-modal {
+        margin-top: 14vh;
     }
 }

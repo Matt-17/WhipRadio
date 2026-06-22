@@ -12,7 +12,9 @@ public sealed record NowPlayingDto(
     string? Transcript = null,
     int UpVotes = 0,
     int DownVotes = 0,
-    string? FormatName = null);
+    string? FormatName = null,
+    string? Lyrics = null,
+    string? AnnouncementKind = null);
 
 public sealed record QueueItemDto(
     string ItemType,
@@ -78,6 +80,7 @@ public sealed record ArtistPostDto(
     Guid Id,
     Guid ArtistId,
     string ArtistName,
+    string ArtistSlug,
     Guid? TrackId,
     string? TrackTitle,
     string Kind,
@@ -275,6 +278,7 @@ public sealed record NewsPackageDto(
     DateTime? QueuedAtUtc,
     DateTime? PlayedAtUtc,
     string? FailureReason,
+    string? ProductionState,
     string? SourceSummary);
 
 public sealed record NewsProductionDto(
@@ -285,6 +289,8 @@ public sealed record NewsProductionDto(
     int? NewsPresenterModeratorId,
     double TopOfHourFadeOutSeconds,
     int TopOfHourIntroGraceSeconds,
+    DateTime NextPackageTargetUtc,
+    string? NextPackageStatus,
     IReadOnlyList<string> NewsCategoryOrder,
     string? WarningText,
     IReadOnlyList<NewsFeedDto> Feeds,
@@ -561,6 +567,25 @@ public sealed record ServerStatsDto(
     double DiskTotalGb,
     double DiskFreeGb,
     IReadOnlyList<StorageAreaDto> StorageAreas);
+
+public sealed record MediaCleanupResultDto(
+    int AnnouncementFilesDeleted,
+    int TrackFilesDeleted,
+    double BytesDeleted,
+    IReadOnlyList<string> FailedFiles);
+
+public sealed record MediaCleanupPlanDto(
+    int AnnouncementFiles,
+    int TrackFiles,
+    double BytesToDelete);
+
+public sealed record MediaCleanupStatusDto(
+    string Status,
+    DateTime? StartedAtUtc,
+    DateTime? CompletedAtUtc,
+    MediaCleanupPlanDto? Plan,
+    MediaCleanupResultDto? Result,
+    string? Error);
 
 public sealed record SubmitGreetingDto(
     string SenderName,

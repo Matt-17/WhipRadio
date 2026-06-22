@@ -74,6 +74,8 @@ public static class RadioApiEndpoints
 
             string? artistName = null;
             string? transcript = null;
+            string? lyrics = null;
+            string? announcementKind = null;
             var upVotes = 0;
             var downVotes = 0;
 
@@ -84,12 +86,15 @@ public static class RadioApiEndpoints
                 artistName = track?.Artist?.Name;
                 upVotes = track?.UpVotes ?? 0;
                 downVotes = track?.DownVotes ?? 0;
+                lyrics = track?.Lyrics;
             }
             else
             {
-                var voicedText = (await db.Announcements.AsNoTracking()
-                    .FirstOrDefaultAsync(a => a.Id == current.ItemId, ct))?.VoicedText;
+                var announcement = await db.Announcements.AsNoTracking()
+                    .FirstOrDefaultAsync(a => a.Id == current.ItemId, ct);
+                var voicedText = announcement?.VoicedText;
                 transcript = voicedText is null ? null : SpeechMarkerNormalizer.ToPlainText(voicedText);
+                announcementKind = announcement?.Kind.ToString();
             }
 
             string? formatName = null;
@@ -104,7 +109,8 @@ public static class RadioApiEndpoints
 
             return Results.Ok(new NowPlayingDto(
                 current.ItemType.ToString(), current.ItemId, current.Title, current.StartedAtUtc,
-                current.DurationSeconds, current.ModeratorName, artistName, transcript, upVotes, downVotes, formatName));
+                current.DurationSeconds, current.ModeratorName, artistName, transcript, upVotes, downVotes,
+                formatName, lyrics, announcementKind));
         });
 
         api.MapGet("/queue", (QueueStateTracker tracker) =>
@@ -881,7 +887,7 @@ public static class RadioApiEndpoints
 
     private static void MapProduction(RouteGroupBuilder api)
     {
-        api.MapGet("/production/news", async (RadioDbContext db, CancellationToken ct) =>
+        api.MapGet("/production/news", async (RadioDbContext db, TimeProvider timeProvider, CancellationToken ct) =>
         {
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
@@ -896,6 +902,15 @@ public static class RadioApiEndpoints
                 .OrderByDescending(package => package.TargetUtc)
                 .Take(12)
                 .ToListAsync(ct);
+            var nextPlan = NewsPackageProductionService.ResolveNextPackagePlan(settings, timeProvider.GetLocalNow());
+            var nextTargetUtc = nextPlan.TargetLocal.UtcDateTime;
+            var nextPackageStatus = await db.NewsPackages.AsNoTracking()
+                .Where(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc == nextTargetUtc
+                    && package.Status != NewsPackageStatus.Failed)
+                .OrderByDescending(package => package.CreatedAtUtc)
+                .Select(package => package.Status.ToString())
+                .FirstOrDefaultAsync(ct);
 
             return Results.Ok(new NewsProductionDto(
                 settings.NewsEnabled,
@@ -905,6 +920,8 @@ public static class RadioApiEndpoints
                 settings.NewsPresenterModeratorId,
                 TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds),
                 TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds),
+                nextTargetUtc,
+                nextPackageStatus,
                 categoryOrder,
                 BuildProductionWarning(settings, moderators),
                 NewsCategoryOrdering.SortFeeds(feeds, categoryOrder)
@@ -1944,6 +1961,15 @@ public static class RadioApiEndpoints
 
         api.MapGet("/serverstats", async (ServerStatsCollector collector, CancellationToken ct) =>
             Results.Ok(await collector.CollectAsync(ct)));
+
+        api.MapGet("/server/media-cleanup", (MediaCleanupService cleanup) =>
+            Results.Ok(cleanup.CurrentStatus));
+
+        api.MapGet("/server/media-cleanup/preview", async (MediaCleanupService cleanup, CancellationToken ct) =>
+            Results.Ok(await cleanup.PlanOrphanLibraryFilesAsync(ct)));
+
+        api.MapPost("/server/media-cleanup", async (MediaCleanupService cleanup, CancellationToken ct) =>
+            Results.Accepted(value: await cleanup.StartDeleteOrphanLibraryFilesAsync(ct)));
     }
 
     private static void MapPrivacy(RouteGroupBuilder api)
@@ -2169,6 +2195,7 @@ public static class RadioApiEndpoints
         package.QueuedAtUtc,
         package.PlayedAtUtc,
         package.FailureReason,
+        package.ProductionState,
         package.SourceSummary);
 
     private static WeatherProductionDto ToWeatherProductionDto(

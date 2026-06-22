@@ -1,4 +1,5 @@
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Playout;
 
 namespace WhipRadio.Orchestrator.Services;
 
@@ -57,7 +58,11 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
                 return null;
             }
 
-            if (utcNow < _pending.TargetUtc)
+            if (!TopOfHourScheduler.IsInsidePackageClaimWindow(
+                utcNow,
+                _pending.TargetUtc,
+                _pending.GraceSeconds,
+                _pending.LateWindowSeconds))
             {
                 return null;
             }

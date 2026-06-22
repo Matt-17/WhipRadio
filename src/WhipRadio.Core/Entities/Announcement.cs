@@ -34,6 +34,12 @@ public enum AnnouncementKind
     News,
 }
 
+public enum AnnouncementPlayoutIntent
+{
+    Immediate,
+    ScheduledOnly,
+}
+
 /// <summary>A produced spoken segment (two-stage LLM pipeline + TTS).</summary>
 public class Announcement
 {
@@ -61,4 +67,6 @@ public class Announcement
     public DateTime CreatedAt { get; set; }
 
     public bool WasPlayed { get; set; }
+
+    public AnnouncementPlayoutIntent PlayoutIntent { get; set; } = AnnouncementPlayoutIntent.Immediate;
 }

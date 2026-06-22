@@ -4,6 +4,7 @@ window.whipRadio = {
   _wantLive: false,
   _retryTimer: null,
   _volume: 0.8,
+  _muted: false,
   _volumeKey: "whipradio.volume",
   _playStateKey: "whipradio.playState",
   _serverReconnectReloadKey: "whipradio.serverReconnectReload",
@@ -12,8 +13,12 @@ window.whipRadio = {
   _spectrumContext: null,
   _spectrumAnalyser: null,
   _spectrumSource: null,
+  _spectrumOutput: null,
   _spectrumData: null,
   _spectrumWarned: false,
+  _liveUnlockHandler: null,
+  _pendingLiveUrl: null,
+  _autoplayBlocked: false,
 
   _normalizeVolume(value) {
     const volume = Number(value);
@@ -42,8 +47,139 @@ window.whipRadio = {
     return this._volume;
   },
 
+  _shortcutRef: null,
+  _shortcutHandler: null,
+  _mediaSessionRef: null,
+  _mediaSessionInitialized: false,
+
+  attachProgressBar(element, dotNetRef, min = 0, max = 100, step = 1, wheelStep = 0) {
+    if (!element) {
+      return;
+    }
+
+    const readAriaValue = () => {
+      const n = Number(element.getAttribute("aria-valuenow"));
+      return isFinite(n) ? n : min;
+    };
+
+    if (element._whipProgressCleanup) {
+      element._whipProgressOptions = { dotNetRef, min, max, step, wheelStep, value: readAriaValue() };
+      return;
+    }
+
+    element._whipProgressOptions = { dotNetRef, min, max, step, wheelStep, value: readAriaValue() };
+
+    const valueFromEvent = event => {
+      const options = element._whipProgressOptions;
+      const rect = element.getBoundingClientRect();
+      const width = Math.max(1, rect.width);
+      const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / width));
+      const raw = options.min + ratio * (options.max - options.min);
+      const increment = Number(options.step) > 0 ? Number(options.step) : 1;
+      const snapped = options.min + Math.round((raw - options.min) / increment) * increment;
+      return Math.min(options.max, Math.max(options.min, snapped));
+    };
+
+    const report = value => {
+      const options = element._whipProgressOptions;
+      options.value = value;
+      options.dotNetRef.invokeMethodAsync("SetProgressValue", value);
+    };
+
+    const update = event => {
+      report(valueFromEvent(event));
+    };
+
+    const onPointerDown = event => {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+
+      event.preventDefault();
+      element.setPointerCapture?.(event.pointerId);
+      element.classList.add("dragging");
+      update(event);
+    };
+
+    const onPointerMove = event => {
+      if (!element.classList.contains("dragging")) {
+        return;
+      }
+
+      event.preventDefault();
+      update(event);
+    };
+
+    const stopDrag = event => {
+      element.classList.remove("dragging");
+      if (event.pointerId !== undefined) {
+        element.releasePointerCapture?.(event.pointerId);
+      }
+    };
+
+    const onWheel = event => {
+      const options = element._whipProgressOptions;
+      if (!(Number(options.wheelStep) > 0)) {
+        return;
+      }
+
+      event.preventDefault();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      const current = Number.isFinite(options.value) ? options.value : readAriaValue();
+      const next = Math.min(options.max, Math.max(options.min, current + direction * options.wheelStep));
+      report(next);
+    };
+
+    element.addEventListener("pointerdown", onPointerDown);
+    element.addEventListener("pointermove", onPointerMove);
+    element.addEventListener("pointerup", stopDrag);
+    element.addEventListener("pointercancel", stopDrag);
+    element.addEventListener("wheel", onWheel, { passive: false });
+    element._whipProgressCleanup = () => {
+      element.removeEventListener("pointerdown", onPointerDown);
+      element.removeEventListener("pointermove", onPointerMove);
+      element.removeEventListener("pointerup", stopDrag);
+      element.removeEventListener("pointercancel", stopDrag);
+      element.removeEventListener("wheel", onWheel);
+      delete element._whipProgressCleanup;
+      delete element._whipProgressOptions;
+    };
+  },
+
+  detachProgressBar(element) {
+    element?._whipProgressCleanup?.();
+  },
+
   _isPlaying() {
     return !!(this._audio && !this._audio.paused && !this._audio.ended);
+  },
+
+  _getAutoplayPolicy(target = "mediaelement") {
+    try {
+      return navigator.getAutoplayPolicy ? navigator.getAutoplayPolicy(target) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  _clearAutoplayBlocked() {
+    this._autoplayBlocked = false;
+  },
+
+  _applyOutputVolume() {
+    if (!this._audio) {
+      return;
+    }
+
+    if (this._spectrumOutput) {
+      this._audio.volume = 1;
+      this._audio.muted = false;
+      this._spectrumOutput.gain.value = this._muted ? 0 : this._volume;
+      return;
+    }
+
+    this._audio.volume = this._volume;
+    this._audio.muted = this._muted;
   },
 
   _idleSpectrumLevel(index) {
@@ -147,19 +283,23 @@ window.whipRadio = {
       this._spectrumContext = this._spectrumContext || new AudioContextType();
       this._spectrumSource = this._spectrumSource || this._spectrumContext.createMediaElementSource(this._audio);
       this._spectrumAnalyser = this._spectrumContext.createAnalyser();
+      this._spectrumOutput = this._spectrumContext.createGain();
       this._spectrumAnalyser.fftSize = 512;
       this._spectrumAnalyser.minDecibels = -82;
       this._spectrumAnalyser.maxDecibels = -18;
       this._spectrumAnalyser.smoothingTimeConstant = 0.42;
       this._spectrumData = new Uint8Array(this._spectrumAnalyser.frequencyBinCount);
       this._spectrumSource.connect(this._spectrumAnalyser);
-      this._spectrumAnalyser.connect(this._spectrumContext.destination);
+      this._spectrumAnalyser.connect(this._spectrumOutput);
+      this._spectrumOutput.connect(this._spectrumContext.destination);
+      this._applyOutputVolume();
     } catch (e) {
       if (!this._spectrumWarned) {
         console.warn("whipRadio: spectrum unavailable", e);
         this._spectrumWarned = true;
       }
       this._spectrumAnalyser = null;
+      this._spectrumOutput = null;
       return false;
     }
 
@@ -222,6 +362,45 @@ window.whipRadio = {
     }
   },
 
+  _clearLiveUnlock() {
+    if (!this._liveUnlockHandler) {
+      return;
+    }
+
+    document.removeEventListener("pointerdown", this._liveUnlockHandler, true);
+    document.removeEventListener("keydown", this._liveUnlockHandler, true);
+    document.removeEventListener("touchstart", this._liveUnlockHandler, true);
+    this._liveUnlockHandler = null;
+    this._pendingLiveUrl = null;
+  },
+
+  _armLiveUnlock(url) {
+    this._pendingLiveUrl = url;
+    if (this._liveUnlockHandler) {
+      return;
+    }
+
+    this._liveUnlockHandler = event => {
+      if (event.target?.closest?.(".autoplay-hint")) {
+        return;
+      }
+
+      const liveUrl = this._pendingLiveUrl || url;
+      this._clearLiveUnlock();
+      if (this._wantLive && !this._isPlaying()) {
+        this.play(liveUrl).then(ok => {
+          if (!ok && this._wantLive && !this._liveUnlockHandler) {
+            this._scheduleLiveRetry();
+          }
+        });
+      }
+    };
+
+    document.addEventListener("pointerdown", this._liveUnlockHandler, true);
+    document.addEventListener("keydown", this._liveUnlockHandler, true);
+    document.addEventListener("touchstart", this._liveUnlockHandler, true);
+  },
+
   _consumeServerReconnectReload() {
     try {
       const saved = sessionStorage.getItem(this._serverReconnectReloadKey);
@@ -257,7 +436,7 @@ window.whipRadio = {
       }
 
       const ok = await this.play(this._liveUrl || "/media/live");
-      if (!ok) {
+      if (!ok && !this._liveUnlockHandler) {
         this._scheduleLiveRetry();
       }
     }, delayMs);
@@ -268,7 +447,7 @@ window.whipRadio = {
       this._volume = this._readVolume();
       this._audio = new Audio();
       this._audio.preload = "none";
-      this._audio.volume = this._volume;
+      this._applyOutputVolume();
       // No crossOrigin attribute: plain media playback works cross-origin
       // without CORS headers; setting it forces CORS checks that the
       // orchestrator (and some Icecast setups) would fail.
@@ -286,7 +465,7 @@ window.whipRadio = {
           if (this._wantLive) {
             // Full re-tune with a cache-busted URL — never replay stale buffer.
             const ok = await this.play(this._liveUrl || this._audio.src.split("?")[0]);
-            if (!ok) {
+            if (!ok && !this._liveUnlockHandler) {
               recover(); // still down - keep trying
             }
           }
@@ -314,11 +493,23 @@ window.whipRadio = {
       audio.src = fresh;
       audio.load();
       await audio.play();
+      this._applyOutputVolume();
       await this._resumeSpectrumContext();
+      this._clearLiveUnlock();
+      this._clearAutoplayBlocked();
       return true;
     } catch (e) {
+      if (e?.name === "NotAllowedError" && this._wantLive) {
+        this._autoplayBlocked = true;
+        console.info("whipRadio: restore waiting for user interaction");
+        this._armLiveUnlock(url);
+        return false;
+      }
+
       console.warn("whipRadio: play failed", e);
-      this._scheduleLiveRetry();
+      if (!this._liveUnlockHandler) {
+        this._scheduleLiveRetry();
+      }
       return false;
     }
   },
@@ -330,6 +521,7 @@ window.whipRadio = {
       clearTimeout(this._retryTimer);
       this._retryTimer = null;
     }
+    this._clearLiveUnlock();
     if (this._audio) {
       this._audio.pause();
     }
@@ -379,6 +571,7 @@ window.whipRadio = {
       try {
         await this._audio.play();
         await this._resumeSpectrumContext();
+        this._clearAutoplayBlocked();
         this._storePlayState("track", true);
         return true;
       } catch (e) {
@@ -390,10 +583,64 @@ window.whipRadio = {
     return false;
   },
 
+  initMediaSession(dotNetRef) {
+    if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setActionHandler !== "function") {
+      return false;
+    }
+
+    this._mediaSessionRef = dotNetRef;
+
+    if (!this._mediaSessionInitialized) {
+      navigator.mediaSession.setActionHandler("play", () => {
+        this._invokeDotNetMediaSession("HandleMediaSessionPlay");
+      });
+
+      navigator.mediaSession.setActionHandler("pause", () => {
+        this._invokeDotNetMediaSession("HandleMediaSessionPause");
+      });
+
+      navigator.mediaSession.setActionHandler("nexttrack", () => { });
+      navigator.mediaSession.setActionHandler("previoustrack", () => { });
+      this._mediaSessionInitialized = true;
+    }
+
+    return true;
+  },
+
+  setMediaSessionMetadata(title, artist, album, artworkUrl, isPlaying) {
+    if (!("mediaSession" in navigator) || !title) {
+      return false;
+    }
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist,
+        album,
+        artwork: artworkUrl
+          ? [{
+            src: artworkUrl,
+            sizes: "512x512",
+            type: "image/png"
+          }]
+          : []
+      });
+      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
+      return true;
+    } catch (e) {
+      if (!this._spectrumWarned) {
+        console.warn("whipRadio: media session metadata unavailable", e);
+        this._spectrumWarned = true;
+      }
+      return false;
+    }
+  },
+
   restoreLive(url) {
-    const restorePersisted = !this._wantLive && this._consumeServerReconnectReload();
-    if (restorePersisted) {
-      const saved = this._readPlayState();
+    const saved = this._readPlayState();
+    if (!this._wantLive && saved?.mode === "live" && saved?.playing === true) {
+      this._wantLive = true;
+    } else if (!this._wantLive && this._consumeServerReconnectReload()) {
       if (saved?.mode === "live" && saved?.playing === true) {
         this._wantLive = true;
       }
@@ -408,7 +655,7 @@ window.whipRadio = {
 
     if (!this._isPlaying()) {
       this.play(url).then(ok => {
-        if (!ok) {
+        if (!ok && !this._liveUnlockHandler) {
           this._scheduleLiveRetry();
         }
       });
@@ -436,19 +683,154 @@ window.whipRadio = {
     };
   },
 
+  getAutoplayStatus() {
+    const playing = this._isPlaying();
+    return {
+      supported: !!navigator.getAutoplayPolicy,
+      policy: this._getAutoplayPolicy(this._audio || "mediaelement"),
+      blocked: !playing && this._autoplayBlocked,
+      pendingUnlock: !playing && !!this._liveUnlockHandler,
+    };
+  },
+
   getVolume() {
     this._volume = this._readVolume();
-    if (this._audio) {
-      this._audio.volume = this._volume;
-    }
+    this._applyOutputVolume();
+    this._setVolumeVisual(this._muted ? 0 : Math.round(this._volume * 100));
     return Math.round(this._volume * 100);
   },
 
   setVolume(value) {
-    const volume = this._storeVolume(value);
-    if (this._audio) {
-      this._audio.volume = volume;
+    this._storeVolume(value);
+    this._applyOutputVolume();
+    this._setVolumeVisual(this._muted ? 0 : Math.round(this._volume * 100));
+  },
+
+  getMuted() {
+    return this._muted;
+  },
+
+  setMuted(value) {
+    this._muted = value === true;
+    this._applyOutputVolume();
+    this._setVolumeVisual(this._muted ? 0 : Math.round(this._volume * 100));
+    return this._muted;
+  },
+
+  _setVolumeVisual(percent) {
+    const range = document.querySelector(".volume-range");
+    if (!range) {
+      return;
     }
+
+    const value = Math.max(0, Math.min(100, Number(percent) || 0));
+    range.style.setProperty("--progress-value", `${value}%`);
+  },
+
+  _setFooterToggleVisual(name, active) {
+    const button = document.querySelector(`[data-footer-toggle="${name}"]`);
+    if (!button) {
+      return;
+    }
+
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  },
+
+  _invokeDotNetMediaSession(methodName) {
+    if (!this._mediaSessionRef) {
+      return;
+    }
+
+    try {
+      this._mediaSessionRef.invokeMethodAsync(methodName);
+    } catch {
+      // Media session callbacks are best-effort.
+    }
+  },
+
+  _flipFooterToggleVisual(name) {
+    const button = document.querySelector(`[data-footer-toggle="${name}"]`);
+    if (!button) {
+      return false;
+    }
+
+    const active = !button.classList.contains("active");
+    this._setFooterToggleVisual(name, active);
+    return active;
+  },
+
+  registerFooterShortcuts(dotNetRef) {
+    this.disposeFooterShortcuts();
+    this._shortcutRef = dotNetRef;
+    this._shortcutHandler = event => {
+      const target = event.target;
+      const tag = target?.tagName?.toLowerCase();
+      let key = event.key?.toLowerCase();
+      const handledShortcuts = {
+        "space": () => {
+          event.preventDefault();
+          dotNetRef.invokeMethodAsync("TogglePlayShortcut");
+        },
+        "p": () => {
+          event.preventDefault();
+          dotNetRef.invokeMethodAsync("TogglePlayShortcut");
+        },
+        "t": () => {
+          event.preventDefault();
+          this._flipFooterToggleVisual("transcript");
+          dotNetRef.invokeMethodAsync("ToggleTranscriptShortcut");
+        },
+        "m": () => {
+          event.preventDefault();
+          const muted = this._flipFooterToggleVisual("mute");
+          this.setMuted(muted);
+          dotNetRef.invokeMethodAsync("ToggleMuteShortcut");
+        },
+      };
+
+      if (event.code === "Space" || key === " ") {
+        key = "space";
+      }
+
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+          || target?.isContentEditable
+          || ["input", "textarea", "select", "a"].includes(tag)) {
+        return;
+      }
+
+      const action = handledShortcuts[key];
+      if (!action) {
+        return;
+      }
+
+      action();
+    };
+    document.addEventListener("keydown", this._shortcutHandler);
+  },
+
+  disposeFooterShortcuts() {
+    if (this._shortcutHandler) {
+      document.removeEventListener("keydown", this._shortcutHandler);
+      this._shortcutHandler = null;
+    }
+
+    if (this._mediaSessionRef) {
+      try {
+        if ("mediaSession" in navigator) {
+          navigator.mediaSession.setActionHandler("play", null);
+          navigator.mediaSession.setActionHandler("pause", null);
+          navigator.mediaSession.setActionHandler("nexttrack", null);
+          navigator.mediaSession.setActionHandler("previoustrack", null);
+        }
+      } catch {
+        // Ignore unsupported or transient media-session APIs.
+      }
+
+      this._mediaSessionRef = null;
+      this._mediaSessionInitialized = false;
+    }
+    this._shortcutRef = null;
   },
 
   // One-shot clip playback (talk replays from the play log / host pages).
@@ -459,5 +841,22 @@ window.whipRadio = {
     }
     this._clip = new Audio(url);
     this._clip.play().catch(e => console.warn("whipRadio: clip failed", e));
+  },
+
+  restoreLiveSoon(url, delayMs = 5000) {
+    setTimeout(() => {
+      if (!this._isPlaying()) {
+        this.restoreLive(url);
+      }
+    }, delayMs);
+  },
+
+  resumeBlockedLive(url) {
+    this._clearLiveUnlock();
+    this._clearAutoplayBlocked();
+    return this.play(url);
   }
 };
+
+window.whipRadio.restoreLive("/media/live");
+window.whipRadio.restoreLiveSoon("/media/live", 5000);

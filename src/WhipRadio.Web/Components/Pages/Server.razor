@@ -1,14 +1,14 @@
 @page "/server"
-@using System.Globalization
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
+@inject RadioLiveClient Live
 
-<PageTitle>WhipRadio — Server</PageTitle>
+<PageTitle>WhipRadio -- Server</PageTitle>
 
 <h1 class="stage-title">Server Stats</h1>
-<div class="stage-sub">hardware &amp; storage · for the engineer in the booth · refreshes every 5 s</div>
+<div class="stage-sub">hardware &amp; storage | for the engineer in the booth | refreshes every 500 ms</div>
 
 @if (_loadError is not null)
 {
@@ -16,7 +16,7 @@
 }
 else if (_stats is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> probing the rack…</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">...</span> probing the rack...</div></div>
 }
 else
 {
@@ -24,24 +24,24 @@ else
         <div class="panel-label">Compute</div>
         <div class="meter-row">
             <div class="meter-head"><span>CPU (@_stats.ProcessorCount cores)</span><span>@_stats.CpuUsagePercent.ToString("0.#") %</span></div>
-            <div class="meter"><div class="fill @MeterClass(_stats.CpuUsagePercent)" style="width:@Pct(_stats.CpuUsagePercent)"></div></div>
+            <ProgressBar Class="server-meter" Value="CpuPercent" Color="@MeterColor(CpuPercent)" AriaLabel="CPU usage" />
         </div>
         <div class="meter-row">
             <div class="meter-head">
                 <span>Memory</span>
                 <span>@Gb(_stats.MemoryUsedMb) / @Gb(_stats.MemoryTotalMb) GB</span>
             </div>
-            <div class="meter"><div class="fill @MeterClass(MemoryPercent)" style="width:@Pct(MemoryPercent)"></div></div>
+            <ProgressBar Class="server-meter" Value="MemoryPercent" Color="@MeterColor(MemoryPercent)" AriaLabel="Memory usage" />
         </div>
         @if (_stats.Gpu is { } gpu)
         {
             <div class="meter-row">
-                <div class="meter-head"><span>GPU — @gpu.Name (@gpu.TemperatureC.ToString("0") °C)</span><span>@gpu.UtilizationPercent.ToString("0") %</span></div>
-                <div class="meter"><div class="fill @MeterClass(gpu.UtilizationPercent)" style="width:@Pct(gpu.UtilizationPercent)"></div></div>
+                <div class="meter-head"><span>GPU - @gpu.Name (@gpu.TemperatureC.ToString("0")&deg; C)</span><span>@gpu.UtilizationPercent.ToString("0") %</span></div>
+                <ProgressBar Class="server-meter" Value="GpuUtilizationPercent" Color="@MeterColor(GpuUtilizationPercent)" AriaLabel="GPU usage" />
             </div>
             <div class="meter-row">
                 <div class="meter-head"><span>VRAM</span><span>@VramLabel(gpu)</span></div>
-                <div class="meter"><div class="fill @MeterClass(VramPercent(gpu))" style="width:@Pct(VramPercent(gpu))"></div></div>
+                <ProgressBar Class="server-meter" Value="GpuVramPercent" Color="@MeterColor(GpuVramPercent)" AriaLabel="VRAM usage" />
             </div>
         }
         else
@@ -51,17 +51,21 @@ else
     </div>
 
     <div class="panel reveal">
-        <div class="panel-label">Disk — @_stats.DataRootPath</div>
+        <div class="panel-label">Disk - @_stats.DataRootPath</div>
         <div class="meter-row">
             <div class="meter-head">
                 <span>Drive usage</span>
                 <span>@((_stats.DiskTotalGb - _stats.DiskFreeGb).ToString("0.#")) / @_stats.DiskTotalGb.ToString("0.#") GB (@_stats.DiskFreeGb.ToString("0.#") GB free)</span>
             </div>
-            <div class="meter"><div class="fill @MeterClass(DiskPercent)" style="width:@Pct(DiskPercent)"></div></div>
+            <ProgressBar Class="server-meter" Value="DiskPercent" Color="@MeterColor(DiskPercent)" AriaLabel="Drive usage" />
         </div>
         <table class="console-table" style="margin-top:14px">
             <thead><tr><th>Area</th><th class="num">Size</th><th class="num">Files</th></tr></thead>
             <tbody>
+                @if (_stats.StorageAreas.Count == 0)
+                {
+                    <tr><td colspan="3" class="dim">no storage areas reported</td></tr>
+                }
                 @foreach (var area in _stats.StorageAreas)
                 {
                     <tr>
@@ -72,6 +76,15 @@ else
                 }
             </tbody>
         </table>
+        <div class="btn-row server-cleanup-actions">
+            <button class="btn small danger" @onclick="OpenCleanupConfirmAsync" disabled="@CleanupButtonDisabled">
+                @CleanupButtonText
+            </button>
+            @if (!string.IsNullOrWhiteSpace(CleanupStatusText))
+            {
+                <span class="server-cleanup-status dim">@CleanupStatusText</span>
+            }
+        </div>
     </div>
 
     <div class="panel reveal">
@@ -86,32 +99,160 @@ else
     </div>
 }
 
+<ConfirmDialog Visible="@_cleanupDialogOpen"
+               Title="Clear orphan media"
+               ConfirmText="Delete files"
+               CancelText="Cancel"
+               Danger="true"
+               Working="@_cleanupConfirmWorking"
+               ConfirmDisabled="@CleanupConfirmDisabled"
+               OnConfirm="ConfirmCleanupAsync"
+               OnCancel="CloseCleanupConfirm">
+    @if (_cleanupPreviewLoading)
+    {
+        <p class="modal-copy">
+            Counting orphan files...
+        </p>
+    }
+    else if (_cleanupPlan is { } plan)
+    {
+        <p class="modal-copy">
+            Delete unreferenced media files from the station data root. Referenced songs and announcements stay in place.
+        </p>
+        <div class="cleanup-plan-grid">
+            <div>
+                <span>Talk files</span>
+                <strong>@plan.AnnouncementFiles</strong>
+            </div>
+            <div>
+                <span>Song files</span>
+                <strong>@plan.TrackFiles</strong>
+            </div>
+            <div>
+                <span>Total</span>
+                <strong>@(plan.AnnouncementFiles + plan.TrackFiles)</strong>
+            </div>
+            <div>
+                <span>Space</span>
+                <strong>@SizeLabel(plan.BytesToDelete / 1024 / 1024)</strong>
+            </div>
+        </div>
+    }
+    else
+    {
+        <p class="modal-copy">
+            @(_cleanupStatus?.Error ?? "Unable to load the orphan media preview. No files to delete.")
+        </p>
+    }
+</ConfirmDialog>
+
 @code {
+    private const string ErrorMessage = "Failed to probe the rack - backend unreachable.";
+
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan SmoothingWindow = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DisplaySmoothing = TimeSpan.FromMilliseconds(1200);
+
     private ServerStatsDto? _stats;
     private Timer? _timer;
     private string? _loadError;
+    private MediaCleanupPlanDto? _cleanupPlan;
+    private MediaCleanupStatusDto? _cleanupStatus;
+    private bool _cleanupDialogOpen;
+    private bool _cleanupPreviewLoading;
+    private bool _cleanupConfirmWorking;
 
-    private double MemoryPercent => _stats is { MemoryTotalMb: > 0 }
-        ? SafePercent(_stats.MemoryUsedMb, _stats.MemoryTotalMb) : 0;
+    private readonly MovingAverageWindow _cpuUsage = new(SmoothingWindow);
+    private readonly MovingAverageWindow _memoryUsage = new(SmoothingWindow);
+    private readonly MovingAverageWindow _diskUsage = new(SmoothingWindow);
+    private readonly MovingAverageWindow _gpuUsage = new(SmoothingWindow);
+    private readonly MovingAverageWindow _vramUsage = new(SmoothingWindow);
+    private double _cpuDisplay;
+    private double _memoryDisplay;
+    private double _diskDisplay;
+    private double _gpuDisplay;
+    private double _vramDisplay;
+    private DateTimeOffset _lastDisplayAt;
+    private bool _hasDisplayValue;
 
-    private double DiskPercent => _stats is { DiskTotalGb: > 0 }
-        ? SafePercent(_stats.DiskTotalGb - _stats.DiskFreeGb, _stats.DiskTotalGb) : 0;
+    private double CpuPercent => _stats is null ? 0 : _cpuDisplay;
 
-    private static double VramPercent(GpuStatsDto gpu)
-        => gpu is { MemoryUsedMb: { } used, MemoryTotalMb: > 0 }
-            ? SafePercent(used, gpu.MemoryTotalMb)
-            : 0;
+    private double MemoryPercent => _stats is null ? 0 : _memoryDisplay;
+
+    private double DiskPercent => _stats is null ? 0 : _diskDisplay;
+
+    private double GpuUtilizationPercent => _stats?.Gpu != null ? _gpuDisplay : 0;
+
+    private double GpuVramPercent => _stats?.Gpu != null ? _vramDisplay : 0;
+
+    private MediaCleanupStatusDto? CleanupStatus => Live.MediaCleanupStatus ?? _cleanupStatus;
+
+    private bool CleanupRunning => CleanupStatus?.Status is "Running";
+
+    private bool CleanupButtonDisabled => _cleanupPreviewLoading || _cleanupConfirmWorking;
+
+    private string CleanupButtonText
+        => _cleanupPreviewLoading ? "Checking..."
+            : CleanupRunning ? "Cleaning..."
+            : "Clear orphan media";
+
+    private string? CleanupStatusText
+    {
+        get
+        {
+            MediaCleanupStatusDto? status = CleanupStatus;
+            if (status is null)
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(status.Error))
+            {
+                return status.Error;
+            }
+
+            if (string.Equals(status.Status, "Idle", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            if (status.Status == "Running" && status.Plan is { } plan)
+            {
+                return CleanupPlanLabel(plan);
+            }
+
+            if (status.Result is { } result)
+            {
+                var total = result.AnnouncementFilesDeleted + result.TrackFilesDeleted;
+                var failed = result.FailedFiles.Count == 0 ? "" : $" - {result.FailedFiles.Count} failed";
+                return $"removed {total} files ({SizeLabel(result.BytesDeleted / 1024 / 1024)})"
+                    + $" - talks {result.AnnouncementFilesDeleted} - songs {result.TrackFilesDeleted}{failed}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(status.Status))
+            {
+                return status.Status;
+            }
+
+            return null;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
+        Live.Changed += OnLiveChanged;
+        await Live.EnsureStartedAsync();
+        _cleanupStatus = Live.MediaCleanupStatus;
+
         _stats = await Api.GetServerStatsAsync();
         if (_stats is null)
         {
-            _loadError = "Failed to probe the rack — backend unreachable.";
+            _loadError = ErrorMessage;
         }
         else
         {
             _loadError = null;
+            SeedAverages(_stats, DateTimeOffset.UtcNow);
         }
 
         _timer = new Timer(async _ =>
@@ -121,20 +262,94 @@ else
             {
                 _stats = fresh;
                 _loadError = null;
+                UpdateAverages(_stats, DateTimeOffset.UtcNow);
             }
+
             await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }, null, PollInterval, PollInterval);
     }
 
-    private static string Pct(double value)
-        => (double.IsFinite(value) ? Math.Clamp(value, 0, 100) : 0)
-            .ToString("F1", CultureInfo.InvariantCulture) + "%";
-
-    private static string MeterClass(double percent) => percent switch
+    private void SeedAverages(ServerStatsDto stats, DateTimeOffset at)
     {
-        > 90 => "hot",
-        > 70 => "warm",
-        _ => "",
+        UpdateAverages(stats, at, isInitial: true);
+    }
+
+    private void UpdateAverages(ServerStatsDto stats, DateTimeOffset at, bool isInitial = false)
+    {
+        _cpuUsage.Add(stats.CpuUsagePercent, at);
+
+        if (TryGetPercent(stats.MemoryUsedMb, stats.MemoryTotalMb, out var memoryPercent))
+        {
+            _memoryUsage.Add(memoryPercent, at);
+        }
+
+        if (TryGetPercent(stats.DiskTotalGb - stats.DiskFreeGb, stats.DiskTotalGb, out var diskPercent))
+        {
+            _diskUsage.Add(diskPercent, at);
+        }
+
+        if (stats.Gpu is { } gpu)
+        {
+            _gpuUsage.Add(gpu.UtilizationPercent, at);
+            if (gpu.MemoryUsedMb is { } memoryUsedMb && TryGetPercent(memoryUsedMb, gpu.MemoryTotalMb, out var vramPercent))
+            {
+                _vramUsage.Add(vramPercent, at);
+            }
+        }
+        else if (!isInitial)
+        {
+            _gpuUsage.Clear();
+            _vramUsage.Clear();
+        }
+
+        ApplyDisplaySmoothing(at, isInitial);
+    }
+
+    private void ApplyDisplaySmoothing(DateTimeOffset now, bool isInitial)
+    {
+        var currentCpu = _cpuUsage.ValueAt(now);
+        var currentMemory = _memoryUsage.ValueAt(now);
+        var currentDisk = _diskUsage.ValueAt(now);
+        var currentGpu = _gpuUsage.ValueAt(now);
+        var currentVram = _vramUsage.ValueAt(now);
+
+        if (!_hasDisplayValue || isInitial)
+        {
+            _cpuDisplay = currentCpu;
+            _memoryDisplay = currentMemory;
+            _diskDisplay = currentDisk;
+            _gpuDisplay = currentGpu;
+            _vramDisplay = currentVram;
+            _hasDisplayValue = true;
+            _lastDisplayAt = now;
+            return;
+        }
+
+        var elapsed = now - _lastDisplayAt;
+        _cpuDisplay = SmoothToward(_cpuDisplay, currentCpu, elapsed);
+        _memoryDisplay = SmoothToward(_memoryDisplay, currentMemory, elapsed);
+        _diskDisplay = SmoothToward(_diskDisplay, currentDisk, elapsed);
+        _gpuDisplay = SmoothToward(_gpuDisplay, currentGpu, elapsed);
+        _vramDisplay = SmoothToward(_vramDisplay, currentVram, elapsed);
+        _lastDisplayAt = now;
+    }
+
+    private static double SmoothToward(double current, double target, TimeSpan elapsed)
+    {
+        if (elapsed.TotalMilliseconds <= 0)
+        {
+            return target;
+        }
+
+        var alpha = 1 - Math.Exp(-elapsed.TotalMilliseconds / DisplaySmoothing.TotalMilliseconds);
+        return current + (target - current) * alpha;
+    }
+
+    private static string MeterColor(double percent) => percent switch
+    {
+        > 90 => "red",
+        > 70 => "amber",
+        _ => "green",
     };
 
     private static string Gb(double mb) => (mb / 1024).ToString("0.#");
@@ -147,6 +362,18 @@ else
         }
 
         return Math.Clamp(used / total * 100, 0, 100);
+    }
+
+    private static bool TryGetPercent(double used, double total, out double percent)
+    {
+        if (!double.IsFinite(used) || !double.IsFinite(total) || total <= 0)
+        {
+            percent = 0;
+            return false;
+        }
+
+        percent = Math.Clamp(used / total * 100, 0, 100);
+        return true;
     }
 
     private static string VramLabel(GpuStatsDto gpu)
@@ -172,5 +399,148 @@ else
             : $"{time.Hours}h {time.Minutes}m {time.Seconds}s";
     }
 
-    public void Dispose() => _timer?.Dispose();
+    private async Task OpenCleanupConfirmAsync()
+    {
+        _cleanupDialogOpen = true;
+        _cleanupPreviewLoading = true;
+        _cleanupPlan = null;
+        _cleanupStatus = new MediaCleanupStatusDto("Checking", null, DateTime.UtcNow, null, null, null);
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            MediaCleanupPlanDto? plan = await Api.GetMediaCleanupPlanAsync();
+            if (plan is null)
+            {
+                _cleanupStatus = new MediaCleanupStatusDto("Failed", null, DateTime.UtcNow, null, null, "cleanup preview failed");
+                return;
+            }
+
+            _cleanupPlan = plan;
+            await InvokeAsync(StateHasChanged);
+
+            if (plan.AnnouncementFiles + plan.TrackFiles == 0)
+            {
+                _cleanupStatus = new MediaCleanupStatusDto("Idle", null, DateTime.UtcNow, plan, null, "no orphan media found");
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            _cleanupStatus = new MediaCleanupStatusDto("Failed", null, DateTime.UtcNow, null, null, ex.Message);
+        }
+        finally
+        {
+            _cleanupPreviewLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ConfirmCleanupAsync()
+    {
+        _cleanupConfirmWorking = true;
+        _cleanupDialogOpen = false;
+        _cleanupPlan = null;
+        try
+        {
+            var (status, error) = await Api.StartOrphanMediaCleanupAsync();
+            _cleanupStatus = status ?? new MediaCleanupStatusDto(
+                "Failed",
+                null,
+                DateTime.UtcNow,
+                null,
+                null,
+                string.IsNullOrWhiteSpace(error) ? "cleanup failed" : error);
+        }
+        finally
+        {
+            _cleanupConfirmWorking = false;
+        }
+    }
+
+    private void CloseCleanupConfirm()
+    {
+        _cleanupDialogOpen = false;
+        _cleanupPlan = null;
+        _cleanupConfirmWorking = false;
+        _cleanupPreviewLoading = false;
+    }
+
+    private bool CleanupConfirmDisabled
+        => _cleanupPreviewLoading
+            || CleanupRunning
+            || _cleanupPlan is null
+            || _cleanupPlan.AnnouncementFiles + _cleanupPlan.TrackFiles == 0;
+
+    private void OnLiveChanged()
+    {
+        _cleanupStatus = Live.MediaCleanupStatus ?? _cleanupStatus;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private static string CleanupPlanLabel(MediaCleanupPlanDto plan)
+        => $"queued {plan.AnnouncementFiles + plan.TrackFiles} files"
+            + $" - talks {plan.AnnouncementFiles} - songs {plan.TrackFiles}";
+
+    public void Dispose()
+    {
+        Live.Changed -= OnLiveChanged;
+        _timer?.Dispose();
+    }
+
+    private sealed class MovingAverageWindow
+    {
+        private readonly TimeSpan _window;
+        private readonly Queue<(DateTimeOffset At, double Value)> _samples = new();
+        private readonly object _sync = new();
+        private double _sum;
+
+        public MovingAverageWindow(TimeSpan window)
+        {
+            _window = window;
+        }
+
+        public void Add(double value, DateTimeOffset at)
+        {
+            if (!double.IsFinite(value))
+            {
+                return;
+            }
+
+            var clamped = Math.Clamp(value, 0, 100);
+            lock (_sync)
+            {
+                _samples.Enqueue((at, clamped));
+                _sum += clamped;
+                Trim(now: at);
+            }
+        }
+
+        public double ValueAt(DateTimeOffset now)
+        {
+            lock (_sync)
+            {
+                Trim(now);
+                return _samples.Count == 0 ? 0 : _sum / _samples.Count;
+            }
+        }
+
+        public void Clear()
+        {
+            lock (_sync)
+            {
+                _samples.Clear();
+                _sum = 0;
+            }
+        }
+
+        private void Trim(DateTimeOffset now)
+        {
+            while (_samples.Count > 0 && now - _samples.Peek().At > _window)
+            {
+                var expired = _samples.Dequeue();
+                _sum -= expired.Value;
+            }
+        }
+    }
 }

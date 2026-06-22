@@ -101,10 +101,14 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<Announcement>(announcement =>
         {
             announcement.Property(a => a.Kind).HasConversion<string>();
+            announcement.Property(a => a.PlayoutIntent)
+                .HasConversion<string>()
+                .HasDefaultValue(AnnouncementPlayoutIntent.Immediate);
             announcement.HasOne(a => a.Moderator)
                 .WithMany()
                 .HasForeignKey(a => a.ModeratorId);
             announcement.HasIndex(a => a.WasPlayed);
+            announcement.HasIndex(a => a.PlayoutIntent);
         });
 
         modelBuilder.Entity<TalkBreak>(talkBreak =>

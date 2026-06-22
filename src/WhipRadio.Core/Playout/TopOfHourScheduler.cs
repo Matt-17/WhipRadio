@@ -4,6 +4,8 @@ public static class TopOfHourScheduler
 {
     public const int DefaultPrepareAheadMinutes = 10;
     public const int DefaultLateWindowSeconds = 5 * 60;
+    public const int DefaultIntroGraceSeconds = 15;
+    public const int DefaultCurrentItemFinishGraceSeconds = 60;
 
     public static int NormalizeCadence(int cadenceMinutes)
         => Math.Clamp(cadenceMinutes, 15, 24 * 60);
@@ -16,6 +18,24 @@ public static class TopOfHourScheduler
 
     public static int NormalizeLateWindowSeconds(int seconds)
         => Math.Clamp(seconds, 60, 15 * 60);
+
+    public static int NormalizeCurrentItemFinishGraceSeconds(int seconds)
+        => Math.Clamp(seconds, 0, 5 * 60);
+
+    public static bool IsInsidePackageClaimWindow(
+        DateTime utcNow,
+        DateTime targetUtc,
+        int introGraceSeconds,
+        int lateWindowSeconds)
+        => utcNow >= targetUtc.AddSeconds(-NormalizeIntroGraceSeconds(introGraceSeconds))
+            && utcNow <= targetUtc.AddSeconds(NormalizeLateWindowSeconds(lateWindowSeconds));
+
+    public static bool ShouldLetCurrentItemFinish(
+        DateTime targetUtc,
+        DateTime naturalEndUtc,
+        int currentItemFinishGraceSeconds = DefaultCurrentItemFinishGraceSeconds)
+        => naturalEndUtc < targetUtc.AddSeconds(
+            NormalizeCurrentItemFinishGraceSeconds(currentItemFinishGraceSeconds));
 
     public static DateTimeOffset NextTarget(DateTimeOffset localNow, int cadenceMinutes)
     {

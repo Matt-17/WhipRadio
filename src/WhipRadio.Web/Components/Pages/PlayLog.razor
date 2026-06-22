@@ -15,6 +15,7 @@
 {
     <div class="panel reveal">
         <div class="panel-label">Up Next</div>
+        <div class="console-table-wrap">
         <table class="console-table">
             <tbody>
                 @foreach (var item in Live.Queue)
@@ -27,6 +28,14 @@
                 }
             </tbody>
         </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="panel-label">Up Next</div>
+        <div class="empty-state">queue is empty</div>
     </div>
 }
 

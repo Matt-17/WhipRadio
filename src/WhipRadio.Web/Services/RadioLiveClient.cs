@@ -23,6 +23,8 @@ public class RadioLiveClient(
 
     public StationStatusDto? StationStatus { get; private set; }
 
+    public MediaCleanupStatusDto? MediaCleanupStatus { get; private set; }
+
     public IReadOnlyList<QueueItemDto> Queue { get; private set; } = [];
 
     public event Action? Changed;
@@ -84,6 +86,12 @@ public class RadioLiveClient(
 
             _connection.On("JinglesChanged", () => JinglesChanged?.Invoke());
 
+            _connection.On<MediaCleanupStatusDto>("MediaCleanupChanged", status =>
+            {
+                MediaCleanupStatus = status;
+                Changed?.Invoke();
+            });
+
             _connection.Reconnected += async _ => await RefreshSnapshotAsync();
 
             // WithAutomaticReconnect gives up after ~30 s. Orchestrator restarts
@@ -134,6 +142,7 @@ public class RadioLiveClient(
         NowPlaying = await api.GetNowPlayingAsync();
         Queue = await api.GetQueueAsync();
         StationStatus = await api.GetStationStatusAsync();
+        MediaCleanupStatus = await api.GetMediaCleanupStatusAsync();
         Changed?.Invoke();
     }
 

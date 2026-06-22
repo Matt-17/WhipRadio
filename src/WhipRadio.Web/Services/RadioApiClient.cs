@@ -586,6 +586,28 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task<ServerStatsDto?> GetServerStatsAsync(CancellationToken ct = default)
         => await SafeGetAsync<ServerStatsDto>("/api/serverstats", ct);
 
+    public async Task<MediaCleanupStatusDto?> GetMediaCleanupStatusAsync(CancellationToken ct = default)
+        => await SafeGetAsync<MediaCleanupStatusDto>("/api/server/media-cleanup", ct);
+
+    public async Task<MediaCleanupPlanDto?> GetMediaCleanupPlanAsync(CancellationToken ct = default)
+        => await SafeGetAsync<MediaCleanupPlanDto>("/api/server/media-cleanup/preview", ct);
+
+    public async Task<(MediaCleanupStatusDto? Status, string? Error)> StartOrphanMediaCleanupAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await http.PostAsync("/api/server/media-cleanup", null, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<MediaCleanupStatusDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogDebug(ex, "Orphan media cleanup failed");
+            return (null, "Orchestrator not reachable.");
+        }
+    }
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try

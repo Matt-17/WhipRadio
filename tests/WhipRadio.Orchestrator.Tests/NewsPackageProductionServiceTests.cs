@@ -62,7 +62,7 @@ public class NewsPackageProductionServiceTests
     }
 
     [TestMethod]
-    public void ResolveNextPackagePlan_UsesWeatherOnlyBlocksWhenWeatherCadenceIsSooner()
+    public void ResolveNextPackagePlan_WaitsForNewsBoundaryWhenNewsIsEnabled()
     {
         var settings = new StationSettings
         {
@@ -75,10 +75,63 @@ public class NewsPackageProductionServiceTests
         var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
 
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
+            new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeNews);
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeWeather);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_UsesWeatherWhenNewsIsDisabled()
+    {
+        var settings = new StationSettings
+        {
+            NewsEnabled = false,
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
+
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
             plan.TargetLocal);
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsFalse(plan.IncludeNews);
         Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeWeather);
+    }
+
+    [TestMethod]
+    public void ResolveNextPreparationPlan_WaitsForFullPackageWhenNewsIsEnabled()
+    {
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow);
+
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsNull(plan);
+    }
+
+    [TestMethod]
+    public void ResolveNextPreparationPlan_WaitsOutsidePrepareWindow()
+    {
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 19, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow);
+
+        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsNull(plan);
     }
 
     [TestMethod]

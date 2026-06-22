@@ -99,7 +99,10 @@ else
     <div class="panel reveal">
         <div class="news-feed-head">
             <div class="panel-label">Recent Packages</div>
-            <button class="btn small" disabled="@_creatingPackage" @onclick="CreateNextPackageAsync">Create Next Package</button>
+            <button class="btn small"
+                    disabled="@(!CanCreateNextPackage)"
+                    title="@CreateNextPackageTitle"
+                    @onclick="CreateNextPackageAsync">Create Next Package</button>
         </div>
         @if (_news.RecentPackages.Count == 0)
         {
@@ -119,10 +122,10 @@ else
                 <tbody>
                     @foreach (var package in _news.RecentPackages)
                     {
-                        <tr title="@package.FailureReason">
+                        <tr title="@PackageTitle(package)">
                             <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
-                            <td><StatusBadge Text="@package.Status" /></td>
-                            <td class="dim">@Short(package.SourceSummary ?? package.FailureReason ?? "", 86)</td>
+                            <td><StatusBadge Text="@package.Status" Title="@PackageTitle(package)" /></td>
+                            <td class="dim">@Short(PackageLine(package), 86)</td>
                             <td class="news-package-actions">
                                 @if (package.AnnouncementId is { } announcementId)
                                 {
@@ -330,7 +333,7 @@ else
 
     private async Task CreateNextPackageAsync()
     {
-        if (_creatingPackage)
+        if (!CanCreateNextPackage)
         {
             return;
         }
@@ -392,7 +395,28 @@ else
         });
 
     private static bool CanRecreatePackage(NewsPackageDto package)
-        => package.Status is "Pending" or "Ready" or "Failed";
+        => package.Status is "Pending" or "Retrying" or "Ready" or "Failed";
+
+    private bool CanCreateNextPackage
+        => !_creatingPackage
+            && _news is not null
+            && string.IsNullOrWhiteSpace(_news.NextPackageStatus);
+
+    private string CreateNextPackageTitle
+        => _news is null
+            ? "production state unavailable"
+            : !string.IsNullOrWhiteSpace(_news.NextPackageStatus)
+                ? $"next package {_news.NextPackageTargetUtc.ToLocalTime():ddd HH:mm} is {_news.NextPackageStatus.ToLowerInvariant()}"
+                : $"create package for {_news.NextPackageTargetUtc.ToLocalTime():ddd HH:mm}";
+
+    private static string PackageLine(NewsPackageDto package)
+        => FirstNonEmpty(package.ProductionState, package.SourceSummary, package.FailureReason, "-");
+
+    private static string? PackageTitle(NewsPackageDto package)
+        => FirstNonEmpty(package.ProductionState, package.FailureReason, package.SourceSummary);
+
+    private static string FirstNonEmpty(params string?[] values)
+        => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
 
     private static string Short(string value, int max)
         => string.IsNullOrWhiteSpace(value)

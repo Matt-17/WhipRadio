@@ -37,7 +37,9 @@ public sealed class PriorityTalkBreakDispatcher(
             }
 
             var unplayedAnnouncementIds = await db.Announcements.AsNoTracking()
-                .Where(announcement => candidateAnnouncementIds.Contains(announcement.Id) && !announcement.WasPlayed)
+                .Where(announcement => candidateAnnouncementIds.Contains(announcement.Id)
+                    && !announcement.WasPlayed
+                    && announcement.PlayoutIntent == AnnouncementPlayoutIntent.Immediate)
                 .Select(announcement => announcement.Id)
                 .ToHashSetAsync(ct);
 
@@ -67,7 +69,9 @@ public sealed class PriorityTalkBreakDispatcher(
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var announcement = await db.Announcements.AsNoTracking()
-                .FirstOrDefaultAsync(item => item.Id == announcementId && !item.WasPlayed, ct);
+                .FirstOrDefaultAsync(item => item.Id == announcementId
+                    && !item.WasPlayed
+                    && item.PlayoutIntent == AnnouncementPlayoutIntent.Immediate, ct);
             if (announcement is null)
             {
                 continue;

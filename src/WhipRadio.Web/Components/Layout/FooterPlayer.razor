@@ -7,99 +7,70 @@
 @inject IJSRuntime Js
 
 <div class="player-area">
-    <div class="transcript-drawer @(ShowTranscript ? "open" : null)">
-        <div class="panel-label">On the mic — @(Live.NowPlaying?.ModeratorName ?? "host")</div>
-        <div class="transcript">@_lastTranscript</div>
-    </div>
-
-<footer class="player-bar">
-    <button class="btn primary play-btn" @onclick="TogglePlayAsync" title="@(IsAudible ? "stop" : "play")">
-        <Icon Name="@(IsAudible ? "stop" : "play")" Size="18" />
+    <TranscriptPanel Open="ShowTranscriptPanel"
+                     HeaderLabel="@_lastHeader"
+                     Byline="@_lastByline"
+                     Body="@_lastBody"
+                     OnClose="CloseTranscriptPanelAsync" />
+    <footer class="player-bar">
+    <button class="btn primary play-btn" @onclick="TogglePlayAsync" title="@(IsAudible ? "stop (Space)" : "play (Space)")">
+        <Icon Name="@(IsAudible ? "stop" : "play")" Size="24" />
     </button>
 
+    @if (_autoplayBlocked && Player.IsLive)
+    {
+        <button class="btn small autoplay-hint" @onclick="ResumeBlockedAudioAsync" title="@AutoplayHintTitle">
+            audio blocked
+        </button>
+    }
+
     <div class="player-info">
-        @if (Player.CurrentVoice is { } voice)
+        @if (Preview is { } preview)
         {
             <div class="player-title">
-                <span class="player-title-text">🎙 @voice.Title</span>
-                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
+                <span class="player-title-text">
+                    <span class="player-track">@preview.Title</span>
+                    @if (preview.ArtistName is not null)
+                    {
+                        <span class="player-byline"> by </span>
+                        @preview.ArtistName
+                    }
+                </span>
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">
+                    <span class="live-dot" aria-hidden="true"></span>
+                    <span>back to live</span>
+                </button>
             </div>
             <div class="player-meta">
-                Voice preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
+                <span class="player-meta-time">@PreviewTime</span>
+                <span class="player-meta-item">preview <strong>@preview.Type</strong></span>
             </div>
-            <div class="player-progress seekable" style="@SeekProgressStyle">
-                <input type="range" class="seek-overlay"
-                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       @oninput="OnSeekAsync" title="drag to seek" />
-            </div>
-        }
-        else if (Player.CurrentJingle is { } jinglePreview)
-        {
-            var jingle = jinglePreview.Jingle;
-            <div class="player-title">
-                <span class="player-title-text">@jingle.Label</span>
-                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
-            </div>
-            <div class="player-meta">
-                Jingle preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
-            </div>
-            <div class="player-progress seekable" style="@SeekProgressStyle">
-                <input type="range" class="seek-overlay"
-                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       @oninput="OnSeekAsync" title="drag to seek" />
-            </div>
-        }
-        else if (Player.CurrentAnnouncement is { } announcement)
-        {
-            <div class="player-title">
-                <span class="player-title-text">@announcement.Title</span>
-                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">back to live</button>
-            </div>
-            <div class="player-meta">
-                Announcement preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
-            </div>
-            <div class="player-progress seekable" style="@SeekProgressStyle">
-                <input type="range" class="seek-overlay"
-                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       @oninput="OnSeekAsync" title="drag to seek" />
-            </div>
-        }
-        else if (Player.CurrentTrack is { } track)
-        {
-            <div class="player-title">
-                <span class="player-title-text">@track.ArtistName<span class="dim"> — </span>@track.Title</span>
-                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">◉ back to live</button>
-            </div>
-            <div class="player-meta">
-                Preview • @FormatClock(TimeSpan.FromSeconds(_songPos)) / @FormatClock(TimeSpan.FromSeconds(SongDuration))
-            </div>
-            <div class="player-progress seekable" style="@SeekProgressStyle">
-                <input type="range" class="seek-overlay"
-                       min="0" max="@SongDuration.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       step="0.1" value="@_songPos.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                       @oninput="OnSeekAsync" title="drag to seek" />
-            </div>
+            <ProgressBar Class="player-progress" Value="_songPos" Max="SongDuration" Step="0.1"
+                         Color="amber" HasHandle="true" OnValueInput="OnSeekValueAsync"
+                         Title="drag to seek" AriaLabel="Preview position" />
         }
         else if (Live.NowPlaying is { } np)
         {
             <div class="player-title">
                 <span class="player-title-text">
+                    <span class="player-track">@np.Title</span>
                     @if (np.ArtistName is not null)
                     {
-                        @np.ArtistName<span class="dim"> — </span>
+                        <span class="player-byline"> by </span>
+                        @np.ArtistName
                     }
-                    @np.Title
                 </span>
                 <span class="live-btn-spacer" aria-hidden="true"></span>
             </div>
             <div class="player-meta">
-                @(np.FormatName ?? "WhipRadio")@(np.ModeratorName is not null ? $" with {np.ModeratorName}" : "")
-                • @FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))
+                <span class="player-meta-time">@FormatClock(Elapsed)&thinsp;/&thinsp;@FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))</span>
+                <span class="player-meta-item">now <strong>@(np.FormatName ?? "WhipRadio")</strong></span>
+                @if (np.ModeratorName is not null)
+                {
+                    <span class="player-meta-item">host <strong>@np.ModeratorName</strong></span>
+                }
             </div>
-            <div class="player-progress"><div class="fill" style="@ProgressFillStyle(Progress)"></div></div>
+            <ProgressBar Class="player-progress" Value="Progress" Color="amber" AriaLabel="Current song progress" />
         }
         else
         {
@@ -108,27 +79,40 @@
                 <span class="live-btn-spacer" aria-hidden="true"></span>
             </div>
             <div class="player-meta">waiting for the studio</div>
-            <div class="player-progress"><div class="fill" style="width:0%"></div></div>
+            <ProgressBar Class="player-progress" Value="0" Color="amber" AriaLabel="Current song progress" />
         }
     </div>
 
     <div class="player-votes">
-        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">👍 @VoteUp</button>
-        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">👎 @VoteDown</button>
+        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">
+            <Icon Name="thumb-up" Size="20" Class="player-vote-icon" />
+            <span>@VoteUp</span>
+        </button>
+        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">
+            <Icon Name="thumb-down" Size="20" Class="player-vote-icon" />
+            <span>@VoteDown</span>
+        </button>
     </div>
 
-    <button class="btn transcript-toggle @(_transcriptEnabled ? "active" : null)"
-            @onclick="ToggleTranscriptAsync" title="@(_transcriptEnabled ? "transcripts on" : "transcripts off")">
-        <Icon Name="transcript" />
+    <button class="btn footer-toggle transcript-toggle @(_transcriptEnabled ? "active" : null)"
+            data-footer-toggle="transcript"
+            aria-pressed="@_transcriptEnabled"
+            @onclick="ToggleTranscriptAsync" title="@(_transcriptEnabled ? "transcripts & lyrics on (T)" : "transcripts & lyrics off (T)")">
+        <Icon Name="transcript" Size="22" />
+    </button>
+
+    <button class="btn footer-toggle mute-toggle @(_muted ? "active" : null)"
+            data-footer-toggle="mute"
+            aria-pressed="@_muted"
+            @onclick="ToggleMuteAsync" title="@(_muted ? "unmute (M)" : "mute (M)")">
+        <Icon Name="@(_muted ? "mute" : "volume")" Size="22" />
     </button>
 
     <div class="volume-control">
-        <input type="range" class="volume-range"
-               min="0" max="100" step="1" value="@_volume"
-               style="@VolumeStyle" @oninput="OnVolumeChanged"
-               title="Volume" aria-label="Volume" />
+        <ProgressBar Class="volume-range" Value="@(_muted ? 0 : _volume)" Color="amber" HasHandle="true" WheelStep="5"
+                     OnValueInput="OnVolumeValueChanged" Title="Volume" AriaLabel="Volume" />
     </div>
-</footer>
+    </footer>
 </div>
 
 @code {
@@ -137,20 +121,41 @@
     private double _songPos;
     private double _songDur;
     private int _volume = 80;
+    private bool _muted;
     private string _streamUrl = "";
     private bool _transcriptEnabled;
-    private string? _lastTranscript;
+    private string _lastHeader = "";
+    private string? _lastByline;
+    private string _lastBody = "";
+    private bool _autoplayBlocked;
+    private string? _autoplayPolicy;
+    private bool _autoplayPolicySupported;
     private Timer? _ticker;
+    private DotNetObjectReference<FooterPlayer>? _interopRef;
+    private bool _mediaSessionEnabled;
 
     private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
+    private sealed record AutoplayStatus(bool Supported, string? Policy, bool Blocked, bool PendingUnlock);
+    private sealed record PreviewState(string Title, string? ArtistName, string Type);
+    private sealed record MediaSessionState(string Title, string? Artist, string? Album, string? ArtworkUrl);
 
     private bool IsAudible => Player.IsLive ? _livePlaying : _songPlaying;
 
-    // Drawer slides up only for live announcements with the toggle on; keeping
-    // the last transcript lets the close animation show text while sliding down.
-    private bool ShowTranscript => _transcriptEnabled
+    // Panel slides open only for live segments with the toggle on; keeping the
+    // last header/body lets the close animation show content while sliding down.
+    private bool ShowTranscriptPanel => _transcriptEnabled
         && Player.IsLive
-        && Live.NowPlaying is { Transcript: not null };
+        && Live.NowPlaying is { } np
+        && (np.Transcript is not null || np.Lyrics is not null);
+
+    private static string PanelHeaderFor(NowPlayingDto np) => np.ItemType switch
+    {
+        "Announcement" => string.IsNullOrEmpty(np.AnnouncementKind)
+            ? $"On the mic — {np.ModeratorName ?? "host"}"
+            : $"{np.AnnouncementKind} — {np.ModeratorName ?? "host"}",
+        "Track" => $"Lyrics — {np.Title}",
+        _ => "On the mic",
+    };
 
     private double SongDuration => _songDur > 0
         ? _songDur
@@ -159,8 +164,6 @@
             ?? Player.CurrentJingle?.Jingle.DurationSeconds
             ?? Player.CurrentAnnouncement?.DurationSeconds
             ?? 0;
-
-    private double SongProgress => SongDuration > 0 ? Math.Clamp(_songPos / SongDuration * 100, 0, 100) : 0;
 
     private bool CanVote => Player.CurrentVoice is null
         && Player.CurrentJingle is null
@@ -171,6 +174,16 @@
 
     private int VoteDown => Player.CurrentTrack?.DownVotes ?? Live.NowPlaying?.DownVotes ?? 0;
 
+    private PreviewState? Preview => Player.CurrentTrack is { } track
+        ? new PreviewState(track.Title, track.ArtistName, "song")
+        : Player.CurrentVoice is { } voice
+            ? new PreviewState(voice.Title, null, "voice")
+            : Player.CurrentJingle is { } jingle
+                ? new PreviewState(jingle.Jingle.Label, null, "jingle")
+                : Player.CurrentAnnouncement is { } announcement
+                    ? new PreviewState(announcement.Title, null, "announcement")
+                    : null;
+
     private TimeSpan Elapsed => Live.NowPlaying is { } np
         ? DateTime.UtcNow - np.StartedAtUtc
         : TimeSpan.Zero;
@@ -179,14 +192,12 @@
         ? Math.Clamp(Elapsed.TotalSeconds / np.DurationSeconds * 100, 0, 100)
         : 0;
 
-    private string VolumeStyle => $"--volume-fill: {_volume}%";
+    private string PreviewTime
+        => $"{FormatClock(TimeSpan.FromSeconds(_songPos))}&thinsp;/&thinsp;{FormatClock(TimeSpan.FromSeconds(SongDuration))}";
 
-    private string SeekProgressStyle => $"--seek-fill: {FormatCssPercent(SongProgress)}";
-
-    private static string ProgressFillStyle(double percent) => $"width:{FormatCssPercent(percent)}";
-
-    private static string FormatCssPercent(double percent) =>
-        $"{Math.Clamp(percent, 0, 100).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}%";
+    private string AutoplayHintTitle => _autoplayPolicySupported && !string.IsNullOrWhiteSpace(_autoplayPolicy)
+        ? $"browser autoplay policy: {_autoplayPolicy}; click to resume audio"
+        : "browser blocked autoplay; click to resume audio";
 
     protected override void OnInitialized()
     {
@@ -214,6 +225,13 @@
                 shouldRefresh = true;
             }
 
+            var muted = await Js.InvokeAsync<bool>("whipRadio.getMuted");
+            if (muted != _muted)
+            {
+                _muted = muted;
+                shouldRefresh = true;
+            }
+
             var saved = await Js.InvokeAsync<string?>("localStorage.getItem", "whipradio.transcript");
             if (saved == "on")
             {
@@ -228,17 +246,73 @@
                 shouldRefresh = true;
             }
 
+            if (await UpdateAutoplayStatusAsync())
+            {
+                shouldRefresh = true;
+            }
+
             if (shouldRefresh)
             {
                 StateHasChanged();
             }
+
+            _interopRef = DotNetObjectReference.Create(this);
+            await Js.InvokeVoidAsync("whipRadio.registerFooterShortcuts", _interopRef);
+            _mediaSessionEnabled = await Js.InvokeAsync<bool>("whipRadio.initMediaSession", _interopRef);
+            await UpdateMediaSessionMetadataAsync();
         }
     }
 
     private async Task ToggleTranscriptAsync()
     {
         _transcriptEnabled = !_transcriptEnabled;
-        await Js.InvokeVoidAsync("localStorage.setItem", "whipradio.transcript", _transcriptEnabled ? "on" : "off");
+        StateHasChanged();
+        _ = Js.InvokeVoidAsync("localStorage.setItem", "whipradio.transcript", _transcriptEnabled ? "on" : "off");
+    }
+
+    private async Task CloseTranscriptPanelAsync()
+    {
+        if (!_transcriptEnabled)
+        {
+            return;
+        }
+
+        _transcriptEnabled = false;
+        StateHasChanged();
+        _ = Js.InvokeVoidAsync("localStorage.setItem", "whipradio.transcript", "off");
+    }
+
+    private async Task ToggleMuteAsync()
+    {
+        _muted = !_muted;
+        await Js.InvokeAsync<bool>("whipRadio.setMuted", _muted);
+    }
+
+    [JSInvokable]
+    public async Task TogglePlayShortcut() => await TogglePlayAsync();
+
+    [JSInvokable]
+    public async Task ToggleTranscriptShortcut() => await ToggleTranscriptAsync();
+
+    [JSInvokable]
+    public async Task ToggleMuteShortcut() => await ToggleMuteAsync();
+
+    [JSInvokable]
+    public async Task HandleMediaSessionPlay()
+    {
+        if (!IsAudible)
+        {
+            await TogglePlayAsync();
+        }
+    }
+
+    [JSInvokable]
+    public async Task HandleMediaSessionPause()
+    {
+        if (IsAudible)
+        {
+            await TogglePlayAsync();
+        }
     }
 
     private async Task TickAsync()
@@ -256,17 +330,76 @@
             }
         }
 
+        var autoplayChanged = await UpdateAutoplayStatusAsync();
+
+        if (autoplayChanged)
+        {
+            StateHasChanged();
+            return;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<bool> UpdateAutoplayStatusAsync()
+    {
+        AutoplayStatus status;
+        try
+        {
+            status = await Js.InvokeAsync<AutoplayStatus>("whipRadio.getAutoplayStatus");
+        }
+        catch (JSDisconnectedException)
+        {
+            return false;
+        }
+
+        var blocked = status.Blocked || status.PendingUnlock;
+        var changed = blocked != _autoplayBlocked
+            || status.Policy != _autoplayPolicy
+            || status.Supported != _autoplayPolicySupported;
+
+        _autoplayBlocked = blocked;
+        _autoplayPolicy = status.Policy;
+        _autoplayPolicySupported = status.Supported;
+        return changed;
+    }
+
+    private async Task ResumeBlockedAudioAsync()
+    {
+        _livePlaying = true;
+        _autoplayBlocked = false;
+        StateHasChanged();
+
+        var livePlaying = await Js.InvokeAsync<bool>("whipRadio.resumeBlockedLive", _streamUrl);
+        _livePlaying = livePlaying;
+        await UpdateMediaSessionMetadataAsync();
+        await UpdateAutoplayStatusAsync();
         StateHasChanged();
     }
 
     private void OnLiveChanged()
     {
-        if (Live.NowPlaying?.Transcript is { } transcript)
+        _ = InvokeAsync(async () =>
         {
-            _lastTranscript = transcript;
-        }
+            if (Live.NowPlaying is { } np)
+            {
+                if (np.ItemType == "Announcement" && np.Transcript is { } transcript)
+                {
+                    _lastHeader = PanelHeaderFor(np);
+                    _lastByline = null;
+                    _lastBody = transcript;
+                }
+                else if (np.ItemType == "Track" && np.Lyrics is { } lyrics)
+                {
+                    _lastHeader = PanelHeaderFor(np);
+                    _lastByline = np.ArtistName is { } artist ? $"by {artist}" : null;
+                    _lastBody = lyrics;
+                }
+            }
 
-        _ = InvokeAsync(StateHasChanged);
+            await UpdateMediaSessionMetadataAsync();
+            StateHasChanged();
+        });
     }
 
     private void OnPlayerModeChanged() => _ = InvokeAsync(async () =>
@@ -287,6 +420,10 @@
         {
             await StartPreviewAsync(announcement.Url, announcement.DurationSeconds);
         }
+        else
+        {
+            await UpdateMediaSessionMetadataAsync();
+        }
 
         StateHasChanged();
     });
@@ -298,6 +435,7 @@
         _songDur = durationSeconds;
         _songPlaying = await Js.InvokeAsync<bool>("whipRadio.playTrack", url);
         await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        await UpdateMediaSessionMetadataAsync();
     }
 
     private Task BackToLiveAsync() => BackToLiveAsync(shouldPlay: false);
@@ -317,6 +455,7 @@
         var livePlaying = await Js.InvokeAsync<bool>("whipRadio.backToLive", _streamUrl, shouldKeepPlaying);
         _livePlaying = livePlaying;
         await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+        await UpdateMediaSessionMetadataAsync();
 
         StateHasChanged();
     }
@@ -341,6 +480,7 @@
                 _songPlaying = songPlaying;
             }
 
+            await UpdateMediaSessionMetadataAsync();
             StateHasChanged();
             return;
         }
@@ -362,25 +502,102 @@
             await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
         }
 
+        await UpdateMediaSessionMetadataAsync();
         StateHasChanged();
     }
 
-    private async Task OnSeekAsync(ChangeEventArgs e)
+    private async Task OnSeekValueAsync(double position)
     {
-        if (double.TryParse(e.Value?.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var position))
-        {
-            _songPos = position;
-            await Js.InvokeVoidAsync("whipRadio.seek", position);
-        }
+        _songPos = Math.Clamp(position, 0, SongDuration);
+        await Js.InvokeVoidAsync("whipRadio.seek", _songPos);
     }
 
-    private async Task OnVolumeChanged(ChangeEventArgs e)
+    private async Task OnVolumeValueChanged(double volume)
     {
-        if (int.TryParse(e.Value?.ToString(), out var volume))
+        _volume = (int)Math.Round(Math.Clamp(volume, 0, 100));
+        if (_muted)
         {
-            _volume = volume;
-            await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+            _muted = false;
+            await Js.InvokeAsync<bool>("whipRadio.setMuted", false);
+        }
+
+        await Js.InvokeVoidAsync("whipRadio.setVolume", _volume / 100.0);
+    }
+
+    private MediaSessionState GetMediaSessionState()
+    {
+        if (Player.IsLive)
+        {
+            if (Live.NowPlaying is { } np)
+            {
+                return new MediaSessionState(
+                    np.Title,
+                    np.ArtistName,
+                    np.FormatName ?? "WhipRadio",
+                    null);
+            }
+
+            return new MediaSessionState(
+                "WhipRadio",
+                null,
+                "Live",
+                null);
+        }
+
+        if (Player.CurrentTrack is { } track)
+        {
+            return new MediaSessionState(track.Title, track.ArtistName, "Track", null);
+        }
+
+        if (Player.CurrentVoice is { } voice)
+        {
+            return new MediaSessionState(voice.Title, null, "Voice Preview", null);
+        }
+
+        if (Player.CurrentJingle is { } jingle)
+        {
+            return new MediaSessionState(jingle.Jingle.Label, null, "Jingle", null);
+        }
+
+        if (Player.CurrentAnnouncement is { } announcement)
+        {
+            return new MediaSessionState(announcement.Title, null, "Announcement", null);
+        }
+
+        if (Live.NowPlaying is { } nowPlaying)
+        {
+            return new MediaSessionState(nowPlaying.Title, nowPlaying.ArtistName, nowPlaying.FormatName ?? "WhipRadio", null);
+        }
+
+        return new MediaSessionState("WhipRadio", null, "Live", null);
+    }
+
+    private async Task UpdateMediaSessionMetadataAsync()
+    {
+        if (!_mediaSessionEnabled || _interopRef is null)
+        {
+            return;
+        }
+
+        var info = GetMediaSessionState();
+        if (string.IsNullOrWhiteSpace(info.Title))
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync(
+                "whipRadio.setMediaSessionMetadata",
+                info.Title,
+                info.Artist,
+                info.Album,
+                info.ArtworkUrl,
+                IsAudible);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit is gone during shutdown.
         }
     }
 
@@ -396,11 +613,20 @@
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
         Live.Changed -= OnLiveChanged;
         Player.Changed -= OnPlayerModeChanged;
         _ticker?.Dispose();
-        return ValueTask.CompletedTask;
+        try
+        {
+            await Js.InvokeVoidAsync("whipRadio.disposeFooterShortcuts");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit is gone during shutdown.
+        }
+
+        _interopRef?.Dispose();
     }
 }

@@ -15,6 +15,7 @@ WhipRadio is a .NET 10 Aspire solution. Core domain logic lives in `src/WhipRadi
 - `.\test-studios.ps1`: probes local studio endpoints and verifies Gemma 4 can generate.
 - `pytest sidecars/analysis/tests -q`: runs analysis sidecar tests after installing its Python requirements.
 - `docker build -t whipradio-acestep sidecars/acestep`: builds an individual sidecar image when needed.
+- Always build and test the project as last step. Running the Program is not recommended, as it's running in the background.
 
 ## Coding Style & Naming Conventions
 

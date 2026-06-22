@@ -10,6 +10,7 @@ This folder tracks the third-party license surface WhipRadio currently depends o
 - [python-sidecars.md](python-sidecars.md): Python sidecar requirements and Python packages installed in Dockerfiles.
 - [containers-and-system-packages.md](containers-and-system-packages.md): Docker base images, runtime containers, and OS packages installed by sidecars.
 - [models-and-services.md](models-and-services.md): AI model weights, local model runtimes, and external APIs.
+- [fonts-and-web-assets.md](fonts-and-web-assets.md): locally served web fonts and browser-facing web asset privacy notes.
 
 ## High-attention items
 
@@ -26,8 +27,8 @@ Update this folder whenever a change adds, removes, or upgrades any of the follo
 - a `PackageReference`, .NET SDK, or test package;
 - a Python package in `requirements.txt`, a Dockerfile, or an upstream sidecar lock file;
 - a Docker base image, runtime image, or apt package;
+- a browser-facing web font, CDN asset, external stylesheet, or external script;
 - an AI model id, model weight repository, voice repository, or LoRA/training dependency;
 - an external API or hosted service used by the station.
 
 For AI systems, record the wrapper code license and the model/service terms separately. A permissive Python package does not automatically make the downloaded model weights or hosted API output permissive.
-

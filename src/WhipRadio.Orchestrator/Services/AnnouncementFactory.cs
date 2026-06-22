@@ -161,7 +161,8 @@ public class AnnouncementFactory(
         CancellationToken ct,
         string? lengthHint = null,
         string? alreadySpokenContext = null,
-        DateTimeOffset? localNowOverride = null)
+        DateTimeOffset? localNowOverride = null,
+        PromptPriority priority = PromptPriority.Normal)
     {
         // Personal talks reference what the host already said today.
         if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
@@ -178,6 +179,7 @@ public class AnnouncementFactory(
                 Facts: facts,
                 LengthHint: lengthHint,
                 Purpose: kind.ToString(),
+                Priority: priority,
                 AlreadySpokenContext: alreadySpokenContext,
                 LocalNowOverride: localNowOverride),
             ct);
@@ -216,6 +218,7 @@ public class AnnouncementFactory(
                 Facts: draft.Facts,
                 LengthHint: draft.LengthHint,
                 Purpose: draft.Kind.ToString(),
+                Priority: draft.ScriptContext.Priority,
                 AlreadySpokenContext: draft.AlreadySpokenContext,
                 LocalNowOverride: draft.LocalNowOverride),
             ct);

@@ -110,8 +110,9 @@ public class AnnouncementProductionService(
             .ToListAsync(ct);
 
         return weatherAnnouncementIds.Count > 0
-            && await db.Announcements.AsNoTracking()
-                .AnyAsync(a => weatherAnnouncementIds.Contains(a.Id) && !a.WasPlayed && a.CreatedAt >= freshCutoff, ct);
+            && await ShowRunnerService
+                .ImmediatePlayableAnnouncements(db.Announcements.AsNoTracking(), weatherAnnouncementIds, freshCutoff)
+                .AnyAsync(ct);
     }
 
     private async Task<Moderator> ResolveWeatherModeratorAsync(

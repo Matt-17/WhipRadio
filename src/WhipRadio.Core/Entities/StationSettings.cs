@@ -1,4 +1,5 @@
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Playout;
 
 namespace WhipRadio.Core.Entities;
 
@@ -111,7 +112,7 @@ public class StationSettings
 
     public double TopOfHourFadeOutSeconds { get; set; } = 1.0;
 
-    public int TopOfHourIntroGraceSeconds { get; set; } = 10;
+    public int TopOfHourIntroGraceSeconds { get; set; } = TopOfHourScheduler.DefaultIntroGraceSeconds;
 
     // --- Mixer (Phase 3a) — hot-reloadable, read once per transition -------------
 

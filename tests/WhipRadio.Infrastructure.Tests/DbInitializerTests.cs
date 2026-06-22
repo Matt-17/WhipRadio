@@ -82,4 +82,63 @@ public class DbInitializerTests
             Assert.Contains("Orchestrator stopped", entry.Error);
         }
     }
+
+    [TestMethod]
+    public async Task EnsureSeededAsync_MarksExistingPackageAnnouncementsScheduledOnly()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        var options = new DbContextOptionsBuilder<RadioDbContext>()
+            .UseSqlite(connection)
+            .Options;
+        var announcementId = Guid.NewGuid();
+
+        await using (var db = new RadioDbContext(options))
+        {
+            await db.Database.MigrateAsync();
+            db.Moderators.Add(new Moderator
+            {
+                Id = 1,
+                Name = "Maya",
+                Language = "en",
+                Gender = ModeratorGenders.Female,
+                TtsEngine = TtsEngines.Kokoro,
+                VoiceId = "af_bella",
+            });
+            db.Announcements.Add(new Announcement
+            {
+                Id = announcementId,
+                ModeratorId = 1,
+                Kind = AnnouncementKind.News,
+                ScriptText = "script",
+                VoicedText = "voice",
+                FilePath = "library/announcements/package.wav",
+                DurationSeconds = 60,
+                CreatedAt = DateTime.UtcNow,
+                PlayoutIntent = AnnouncementPlayoutIntent.Immediate,
+            });
+            db.NewsPackages.Add(new NewsPackage
+            {
+                Id = Guid.NewGuid(),
+                Kind = NewsPackageKind.TopOfHour,
+                Status = NewsPackageStatus.Ready,
+                TargetUtc = DateTime.UtcNow.AddMinutes(5),
+                TargetDurationSeconds = 300,
+                CreatedAtUtc = DateTime.UtcNow,
+                AnnouncementId = announcementId,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        await using (var db = new RadioDbContext(options))
+        {
+            await DbInitializer.EnsureSeededAsync(db);
+        }
+
+        await using (var db = new RadioDbContext(options))
+        {
+            var announcement = await db.Announcements.SingleAsync(a => a.Id == announcementId);
+            Assert.Equal(AnnouncementPlayoutIntent.ScheduledOnly, announcement.PlayoutIntent);
+        }
+    }
 }

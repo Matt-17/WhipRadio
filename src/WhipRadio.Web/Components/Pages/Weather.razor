@@ -51,9 +51,10 @@ else
             </div>
             <div class="field">
                 <label>Full handover</label>
-                <UiSwitch Value="@_fullHandoverEnabled"
-                          ValueChanged="ToggleFullHandoverAsync"
-                          Title="@(_fullHandoverEnabled ? "Full handover on" : "Full handover off")" />
+                <select @bind="_fullHandoverEnabled">
+                    <option value="true">on</option>
+                    <option value="false">off</option>
+                </select>
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_weather.WarningText))
@@ -154,12 +155,6 @@ else
     {
         _enabled = enabled;
         await SaveSwitchAsync(weatherEnabled: enabled);
-    }
-
-    private async Task ToggleFullHandoverAsync(bool enabled)
-    {
-        _fullHandoverEnabled = enabled;
-        await SaveSwitchAsync(fullHandoverEnabled: enabled);
     }
 
     private async Task SaveSwitchAsync(bool? weatherEnabled = null, bool? fullHandoverEnabled = null)

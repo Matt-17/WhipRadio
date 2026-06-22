@@ -61,7 +61,7 @@
         => text.ToLowerInvariant() switch
         {
             "active" or "ready" or "idle" or "succeeded" or "success" or "ok" or "on air" or "played" => StatusBadgeTone.Green,
-            "queued" or "queue" or "pending" or "checking" or "creating" or "redefining" or "running" => StatusBadgeTone.Amber,
+            "queued" or "queue" or "pending" or "retrying" or "checking" or "creating" or "redefining" or "running" => StatusBadgeTone.Amber,
             "rec" or "recording" or "busy" or "work" or "failed" or "fail" or "error" or "dismissed" or "offline" or "delete queued" or "retired" => StatusBadgeTone.Red,
             _ => StatusBadgeTone.Default,
         };

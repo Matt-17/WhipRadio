@@ -34,36 +34,57 @@ else
     <div class="stat-columns">
         <div class="panel reveal">
             <div class="panel-label">Top Artists (by plays)</div>
-            <table class="console-table">
-                <tbody>
-                    @foreach (var artist in _stats.TopArtists)
-                    {
-                        <tr><td>@artist.Name</td><td class="num">@artist.Value.ToString("0")</td></tr>
-                    }
-                </tbody>
-            </table>
+            @if (_stats.TopArtists.Count == 0)
+            {
+                <div class="empty-state">no artist plays yet</div>
+            }
+            else
+            {
+                <table class="console-table">
+                    <tbody>
+                        @foreach (var artist in _stats.TopArtists)
+                        {
+                            <tr><td>@artist.Name</td><td class="num">@artist.Value.ToString("0")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
         </div>
         <div class="panel reveal">
             <div class="panel-label">Host Airtime (minutes)</div>
-            <table class="console-table">
-                <tbody>
-                    @foreach (var host in _stats.HostAirtimeMinutes)
-                    {
-                        <tr><td>@host.Name</td><td class="num">@host.Value.ToString("0.#")</td></tr>
-                    }
-                </tbody>
-            </table>
+            @if (_stats.HostAirtimeMinutes.Count == 0)
+            {
+                <div class="empty-state">no host airtime yet</div>
+            }
+            else
+            {
+                <table class="console-table">
+                    <tbody>
+                        @foreach (var host in _stats.HostAirtimeMinutes)
+                        {
+                            <tr><td>@host.Name</td><td class="num">@host.Value.ToString("0.#")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
         </div>
         <div class="panel reveal">
             <div class="panel-label">Tracks per Genre</div>
-            <table class="console-table">
-                <tbody>
-                    @foreach (var genre in _stats.TracksPerGenre)
-                    {
-                        <tr><td>@genre.Name</td><td class="num">@genre.Value.ToString("0")</td></tr>
-                    }
-                </tbody>
-            </table>
+            @if (_stats.TracksPerGenre.Count == 0)
+            {
+                <div class="empty-state">no genre data yet</div>
+            }
+            else
+            {
+                <table class="console-table">
+                    <tbody>
+                        @foreach (var genre in _stats.TracksPerGenre)
+                        {
+                            <tr><td>@genre.Name</td><td class="num">@genre.Value.ToString("0")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            }
         </div>
     </div>
 }

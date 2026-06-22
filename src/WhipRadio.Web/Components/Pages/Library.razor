@@ -200,7 +200,11 @@
                         @if (showRecRow)
                         {
                             <div class="library-song-grid library-song-item generating-row">
-                                <div class="library-action-cell"><StatusBadge Text="REC" Pulse="true" /></div>
+                                <div class="library-action-cell">
+                                    <span class="rec-cell" title="recording" aria-label="recording">
+                                        <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
+                                    </span>
+                                </div>
                                 <div class="library-title-line" title="@(_status?.TrackTitle ?? "a new song…")">
                                     <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "a new song…")</span>
                                 </div>

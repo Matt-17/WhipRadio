@@ -40,7 +40,7 @@
                     <PersonAvatar Name="@post.ArtistName" Size="feed" />
                     <div class="artist-feed-post">
                         <div class="artist-feed-meta">
-                            <span class="artist-feed-artist">@post.ArtistName</span>
+                            <a class="artist-feed-artist" href="@ArtistHref(post)">@post.ArtistName</a>
                             <span class="artist-feed-dot">&bull;</span>
                             <span class="artist-feed-time"><TimeAgo Date="@AsUtc(post.CreatedAtUtc)" /></span>
                         </div>
@@ -172,6 +172,11 @@
         => value.Kind == DateTimeKind.Utc
             ? value
             : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    private static string ArtistHref(ArtistPostDto post)
+        => string.IsNullOrWhiteSpace(post.ArtistSlug)
+            ? "/library"
+            : $"/library/artists/{Uri.EscapeDataString(post.ArtistSlug)}";
 
     public void Dispose()
     {

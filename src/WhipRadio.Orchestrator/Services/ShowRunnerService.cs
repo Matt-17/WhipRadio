@@ -404,11 +404,19 @@ public class ShowRunnerService(
 
         return weatherIds.Count == 0
             ? null
-            : await db.Announcements.AsNoTracking()
-                .Where(a => weatherIds.Contains(a.Id) && !a.WasPlayed && a.CreatedAt >= freshCutoff)
+            : await ImmediatePlayableAnnouncements(db.Announcements.AsNoTracking(), weatherIds, freshCutoff)
                 .OrderByDescending(a => a.CreatedAt)
                 .FirstOrDefaultAsync(ct);
     }
+
+    internal static IQueryable<Announcement> ImmediatePlayableAnnouncements(
+        IQueryable<Announcement> announcements,
+        IReadOnlyList<Guid> candidateIds,
+        DateTime freshCutoff)
+        => announcements.Where(announcement => candidateIds.Contains(announcement.Id)
+            && !announcement.WasPlayed
+            && announcement.CreatedAt >= freshCutoff
+            && announcement.PlayoutIntent == AnnouncementPlayoutIntent.Immediate);
 
     private static async Task<bool> WeatherAiredThisWindowAsync(
         RadioDbContext db, DateTimeOffset localNow, int cadenceMinutes, CancellationToken ct)

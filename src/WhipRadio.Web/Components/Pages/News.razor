@@ -55,9 +55,10 @@ else
             </div>
             <div class="field">
                 <label>Article extraction</label>
-                <UiSwitch Value="@_extractEnabled"
-                          ValueChanged="ToggleNewsExtractionAsync"
-                          Title="@(_extractEnabled ? "Article extraction enabled" : "Article extraction disabled")" />
+                <select @bind="_extractEnabled">
+                    <option value="true">on</option>
+                    <option value="false">off</option>
+                </select>
             </div>
         </div>
         @if (!string.IsNullOrWhiteSpace(_news.WarningText))
@@ -262,14 +263,6 @@ else
     {
         _newsEnabled = enabled;
         _error = await SaveProductionSettingsCoreAsync(newsEnabled: enabled);
-        _settingsSaved = _error is null;
-        await LoadAsync();
-    }
-
-    private async Task ToggleNewsExtractionAsync(bool enabled)
-    {
-        _extractEnabled = enabled;
-        _error = await SaveProductionSettingsCoreAsync(newsExtractionEnabled: enabled);
         _settingsSaved = _error is null;
         await LoadAsync();
     }

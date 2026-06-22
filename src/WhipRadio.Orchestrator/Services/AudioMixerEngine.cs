@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
@@ -50,6 +51,13 @@ public sealed class AudioMixerEngine(
     private sealed record PendingLog(
         PlayoutItem Outgoing, PlayoutItem Incoming, TransitionPlan Plan, int ClipBaseline, long CompleteAtMaster);
 
+    private sealed record TopOfHourGuard(
+        DateTime TargetUtc,
+        int IntroGraceSeconds,
+        int LateWindowSeconds,
+        double FadeOutSeconds,
+        NewsPackageStatus Status);
+
     /// <summary>Runs until cancelled, the encoder dies, or the mixer/playout flag
     /// turns the session off (returns at an item boundary).</summary>
     public async Task RunSessionAsync(
@@ -69,6 +77,7 @@ public sealed class AudioMixerEngine(
         var transitionPlanned = false;
         var pendingLogs = new List<PendingLog>();
         MixerSettings settings = await LoadSettingsAsync(ct);
+        TopOfHourGuard? topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
 
         diagnostics.SessionStarted();
         mixerUpdates.Publish();
@@ -95,6 +104,7 @@ public sealed class AudioMixerEngine(
                         stopScheduling = true; // finish what's playing, then hand back
                     }
 
+                    topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
                     PublishLive(masterPos, actives);
                 }
 
@@ -106,6 +116,14 @@ public sealed class AudioMixerEngine(
                     transitionPlanned = true;
                 }
 
+                if (!stopScheduling && topOfHourGuard is { } holdGuard)
+                {
+                    if (ApplyTopOfHourHoldFade(holdGuard, masterPos, actives))
+                    {
+                        PublishLive(masterPos, actives);
+                    }
+                }
+
                 if (actives.Count == 0)
                 {
                     if (stopScheduling)
@@ -114,6 +132,18 @@ public sealed class AudioMixerEngine(
                     }
 
                     // Nothing playing: pull the next item (or stream silence).
+                    if (queue.PeekNext() is { ItemType: PlayoutItemType.Track }
+                        && topOfHourGuard is { } guard)
+                    {
+                        logger.LogInformation(
+                            "Mixer top-of-hour hold: not starting a track while package {Status} for {Target:u}",
+                            guard.Status,
+                            guard.TargetUtc);
+                        await WriteFrameAsync(encoderInput, outputShorts, outputBytes, clear: true, ct);
+                        masterPos += PcmFormat.FrameSamples;
+                        continue;
+                    }
+
                     var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
                     if (item is null)
                     {
@@ -137,13 +167,27 @@ public sealed class AudioMixerEngine(
                     var window = Math.Max(settings.DefaultCrossfadeSeconds, 2) + 10;
                     if (remaining <= window && queue.PeekNext() is not null)
                     {
-                        var incoming = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
-                        if (incoming is not null)
+                        if (queue.PeekNext() is { ItemType: PlayoutItemType.Track }
+                            && await GetTopOfHourGuardAsync(
+                                DateTime.UtcNow,
+                                TimeSpan.FromSeconds(Math.Max(remaining, 0) + window),
+                                ct) is { } guard)
                         {
-                            settings = await LoadSettingsAsync(ct);
-                            await ApplyTransitionAsync(current, incoming, actives, settings, core, pendingLogs, ct);
-                            PublishLive(masterPos, actives);
-                            transitionPlanned = true;
+                            logger.LogInformation(
+                                "Mixer top-of-hour hold: not transitioning into a track while package {Status} for {Target:u}",
+                                guard.Status,
+                                guard.TargetUtc);
+                        }
+                        else
+                        {
+                            var incoming = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
+                            if (incoming is not null)
+                            {
+                                settings = await LoadSettingsAsync(ct);
+                                await ApplyTransitionAsync(current, incoming, actives, settings, core, pendingLogs, ct);
+                                PublishLive(masterPos, actives);
+                                transitionPlanned = true;
+                            }
                         }
                     }
                 }
@@ -490,9 +534,8 @@ public sealed class AudioMixerEngine(
                 .DefaultIfEmpty(masterPos)
                 .Max();
             var remainingSeconds = Format.SamplesToSeconds(naturalEnd - masterPos);
-            var wouldStartWithinLateWindow = DateTime.UtcNow.AddSeconds(remainingSeconds)
-                <= interrupt.TargetUtc.AddSeconds(interrupt.LateWindowSeconds);
-            if (wouldStartWithinLateWindow)
+            var naturalEndUtc = DateTime.UtcNow.AddSeconds(remainingSeconds);
+            if (TopOfHourScheduler.ShouldLetCurrentItemFinish(interrupt.TargetUtc, naturalEndUtc))
             {
                 startAt = naturalEnd;
                 logger.LogInformation(
@@ -502,12 +545,14 @@ public sealed class AudioMixerEngine(
             }
             else
             {
-                var fadeEnd = masterPos + Math.Max(1, fadeSamples);
+                var secondsUntilTarget = Math.Max(0, (interrupt.TargetUtc - DateTime.UtcNow).TotalSeconds);
+                var fadeStart = masterPos + Format.SecondsToSamples(secondsUntilTarget);
+                var fadeEnd = fadeStart + Math.Max(1, fadeSamples);
                 foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
                 {
-                    var currentGain = active.Slot.Envelope.GainAt(masterPos);
-                    active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
-                    active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
+                    var currentGain = active.Slot.Envelope.GainAt(fadeStart);
+                    active.Slot.Envelope.RemoveBreakpointsFrom(fadeStart);
+                    active.Slot.Envelope.AddBreakpoint(fadeStart, currentGain, RampShape.Linear);
                     active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
                     active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
                 }
@@ -528,6 +573,47 @@ public sealed class AudioMixerEngine(
             "Mixer timed package: starting {Title} at {Delay:F1}s after decision",
             interrupt.Item.Title,
             Format.SamplesToSeconds(startAt - masterPos));
+    }
+
+    private bool ApplyTopOfHourHoldFade(
+        TopOfHourGuard guard,
+        long masterPos,
+        List<ActiveSource> actives)
+    {
+        if (DateTime.UtcNow < guard.TargetUtc || actives.Count == 0)
+        {
+            return false;
+        }
+
+        var naturalEnd = actives
+            .Where(source => source.EndAtMaster > masterPos)
+            .Select(source => source.EndAtMaster)
+            .DefaultIfEmpty(masterPos)
+            .Max();
+        var remainingSeconds = Format.SamplesToSeconds(naturalEnd - masterPos);
+        var naturalEndUtc = DateTime.UtcNow.AddSeconds(remainingSeconds);
+        if (TopOfHourScheduler.ShouldLetCurrentItemFinish(guard.TargetUtc, naturalEndUtc))
+        {
+            return false;
+        }
+
+        var fadeSamples = Format.SecondsToSamples(
+            TopOfHourScheduler.NormalizeFadeOutSeconds(guard.FadeOutSeconds));
+        var fadeEnd = masterPos + Math.Max(1, fadeSamples);
+        foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+        {
+            var currentGain = active.Slot.Envelope.GainAt(masterPos);
+            active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
+            active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
+            active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
+            active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+        }
+
+        logger.LogInformation(
+            "Mixer top-of-hour hold: fading current audio because package {Status} for {Target:u} is due",
+            guard.Status,
+            guard.TargetUtc);
+        return true;
     }
 
     // --- helpers --------------------------------------------------------------------
@@ -632,6 +718,50 @@ public sealed class AudioMixerEngine(
         catch
         {
             return new MixerSettings();
+        }
+    }
+
+    private async Task<TopOfHourGuard?> GetTopOfHourGuardAsync(DateTime utcNow, TimeSpan horizon, CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            if (!settings.NewsEnabled && !settings.WeatherEnabled)
+            {
+                return null;
+            }
+
+            var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
+            var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
+            var fadeOut = TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds);
+            var minTarget = utcNow.AddSeconds(-lateWindow);
+            var maxTarget = utcNow
+                .Add(horizon < TimeSpan.Zero ? TimeSpan.Zero : horizon)
+                .AddSeconds(introGrace);
+            var package = await db.NewsPackages.AsNoTracking()
+                .Where(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc >= minTarget
+                    && package.TargetUtc <= maxTarget
+                    && (package.Status == NewsPackageStatus.Pending
+                        || package.Status == NewsPackageStatus.Retrying
+                        || package.Status == NewsPackageStatus.Ready
+                        || package.Status == NewsPackageStatus.Queued))
+                .OrderBy(package => package.TargetUtc)
+                .FirstOrDefaultAsync(ct);
+
+            return package is null
+                ? null
+                : new TopOfHourGuard(package.TargetUtc, introGrace, lateWindow, fadeOut, package.Status);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not evaluate top-of-hour playout guard");
+            return null;
         }
     }
 

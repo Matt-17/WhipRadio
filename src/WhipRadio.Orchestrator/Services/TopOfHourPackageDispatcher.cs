@@ -37,12 +37,14 @@ public sealed class TopOfHourPackageDispatcher(
         }
     }
 
+    internal Task RunCycleForTestsAsync(CancellationToken ct) => RunCycleAsync(ct);
+
     private async Task RunCycleAsync(CancellationToken ct)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-        if (!settings.NewsEnabled)
+        if (!settings.NewsEnabled && !settings.WeatherEnabled)
         {
             return;
         }
@@ -51,9 +53,11 @@ public sealed class TopOfHourPackageDispatcher(
 
         var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
         var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
+        var earliestClaimTarget = now.AddSeconds(introGrace);
         var oldestValidTarget = now.AddSeconds(-lateWindow);
         var overdue = await db.NewsPackages
-            .Where(package => package.Status == NewsPackageStatus.Ready
+            .Where(package => (package.Status == NewsPackageStatus.Ready
+                    || package.Status == NewsPackageStatus.Queued)
                 && package.TargetUtc < oldestValidTarget)
             .ToListAsync(ct);
         foreach (var package in overdue)
@@ -66,7 +70,7 @@ public sealed class TopOfHourPackageDispatcher(
         var next = await db.NewsPackages
             .Where(package => package.Status == NewsPackageStatus.Ready
                 && package.AnnouncementId != null
-                && package.TargetUtc <= now
+                && package.TargetUtc <= earliestClaimTarget
                 && package.TargetUtc >= oldestValidTarget)
             .OrderBy(package => package.TargetUtc)
             .FirstOrDefaultAsync(ct);
@@ -115,8 +119,12 @@ public sealed class TopOfHourPackageDispatcher(
             logger.LogInformation("Queued top-of-hour package at queue front: {AnnouncementId}", announcement.Id);
         }
 
-        next.Status = NewsPackageStatus.Queued;
-        next.QueuedAtUtc = now;
+        if (next.Status != NewsPackageStatus.Queued)
+        {
+            next.Status = NewsPackageStatus.Queued;
+            next.QueuedAtUtc = now;
+        }
+
         await db.SaveChangesAsync(ct);
         await productionUpdates.PublishNewsChangedAsync(ct);
     }

@@ -40,6 +40,12 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<int>("ModeratorId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("PlayoutIntent")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("Immediate");
+
                     b.Property<Guid?>("RelatedTrackId")
                         .HasColumnType("TEXT");
 
@@ -57,6 +63,8 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ModeratorId");
+
+                    b.HasIndex("PlayoutIntent");
 
                     b.HasIndex("WasPlayed");
 
@@ -747,6 +755,9 @@ namespace WhipRadio.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ProducedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductionState")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("QueuedAtUtc")

@@ -41,7 +41,7 @@ else
             <button class="btn primary" @onclick="SaveBrandingAsync">Save Identity</button>
             @if (_saved)
             {
-                <span class="flash">stored</span>
+                <span class="flash">applied</span>
             }
         </div>
     </div>
@@ -94,7 +94,9 @@ else
                         <div class="library-action-cell">
                             @if (item.State == JingleQueueState.Recording)
                             {
-                                <StatusBadge Text="REC" Pulse="true" />
+                                <span class="rec-cell" title="recording" aria-label="recording">
+                                    <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
+                                </span>
                             }
                         </div>
                         <div class="library-title-line" title="@item.Label">
