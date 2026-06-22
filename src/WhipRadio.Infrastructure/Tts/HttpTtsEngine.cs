@@ -22,7 +22,8 @@ public class HttpTtsEngine(HttpClient http) : ITtsEngine
 
         double duration;
         if (response.Headers.TryGetValues(DurationHeader, out var values) &&
-            double.TryParse(values.FirstOrDefault(), NumberStyles.Float, CultureInfo.InvariantCulture, out var headerDuration))
+            double.TryParse(values.FirstOrDefault(), NumberStyles.Float, CultureInfo.InvariantCulture, out var headerDuration)
+            && headerDuration > 0)
         {
             duration = headerDuration;
         }

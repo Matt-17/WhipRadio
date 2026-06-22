@@ -1,0 +1,9 @@
+Write a short weather handover. Facts: {Facts}
+
+Rules:
+- Hand over to the weather specialist by name.
+- If the weather follows the news, do not repeat the time or re-introduce the station.
+- Keep it to one natural sentence, e.g. "Now {name} has the weather."
+- Do not read any forecast details yet.
+- Do not say the station slogan.
+- Output ONLY the words to be spoken.

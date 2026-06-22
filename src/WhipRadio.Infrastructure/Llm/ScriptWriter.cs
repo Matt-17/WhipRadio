@@ -69,6 +69,14 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         _ => "Writing announcement",
     };
 
+    private static string StationIdTemplate(AnnouncementRequest request)
+        => request.PromptContext?.Purpose switch
+        {
+            "NewsHandover" => "ScriptWriter.NewsHandover",
+            "WeatherHandoff" => "ScriptWriter.WeatherHandoff",
+            _ => "ScriptWriter.StationId",
+        };
+
     private static string BuildUserPrompt(AnnouncementRequest request) => request.Kind switch
     {
         AnnouncementKind.SongIntro => WithTalkDepthInstruction(
@@ -117,7 +125,7 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
                 : request.Facts,
         }),
         AnnouncementKind.RequestDedication => PromptTemplates.Render("ScriptWriter.RequestDedication", ParseDedicationFacts(request)),
-        AnnouncementKind.StationId => PromptTemplates.Render("ScriptWriter.StationId", new Dictionary<string, string>
+        AnnouncementKind.StationId => PromptTemplates.Render(StationIdTemplate(request), new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
             ["Facts"] = request.Facts ?? "regular programming",

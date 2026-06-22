@@ -444,18 +444,48 @@ h1, h2, h3 { margin: 0; font-weight: 400; }
 .audio-spectrum-bar {
     flex: 1 1 0;
     min-width: 3px;
+    position: relative;
+    overflow: hidden;
     height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(11, 10, 7, 0.9), rgba(11, 10, 7, 0.55));
+    box-shadow: 0 0 7px rgba(255, 180, 84, .18);
+    --spectrum-fill-opacity: .58;
+    --spectrum-marker-opacity: 1;
+    transition: opacity .25s ease;
+}
+
+.audio-spectrum-bar::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: calc(100% * var(--level, .07));
     border-radius: 2px 2px 0 0;
     background: linear-gradient(180deg, var(--amber-hot), var(--amber) 45%, var(--amber-dim));
     box-shadow: 0 0 7px rgba(255, 180, 84, .18);
-    opacity: .58;
-    transform: scaleY(var(--level, .07));
-    transform-origin: bottom;
-    transition: transform .12s ease-out, opacity .25s ease;
+    opacity: var(--spectrum-fill-opacity);
+    pointer-events: none;
+}
+
+.audio-spectrum-bar::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--red);
+    box-shadow: 0 0 14px rgba(255, 67, 57, .95), 0 0 20px rgba(255, 67, 57, .65), 0 0 3px rgba(255, 67, 57, .9);
+    opacity: var(--spectrum-marker-opacity);
+    top: calc((100% - 2px) * (1 - var(--peak-level, .07)));
+    pointer-events: none;
 }
 
 .audio-spectrum:not(.active) .audio-spectrum-bar {
-    opacity: .34;
+    --spectrum-fill-opacity: .28;
+    --spectrum-marker-opacity: .75;
     box-shadow: 0 0 5px rgba(255, 180, 84, .09);
     transition-duration: .45s;
 }

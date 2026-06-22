@@ -887,7 +887,11 @@ public static class RadioApiEndpoints
 
     private static void MapProduction(RouteGroupBuilder api)
     {
-        api.MapGet("/production/news", async (RadioDbContext db, TimeProvider timeProvider, CancellationToken ct) =>
+        api.MapGet("/production/news", async (
+            RadioDbContext db,
+            TimeProvider timeProvider,
+            IEnumerable<ITopOfHourSegmentContributor> contributors,
+            CancellationToken ct) =>
         {
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             var moderators = await db.Moderators.AsNoTracking().ToListAsync(ct);
@@ -902,7 +906,7 @@ public static class RadioApiEndpoints
                 .OrderByDescending(package => package.TargetUtc)
                 .Take(12)
                 .ToListAsync(ct);
-            var nextPlan = NewsPackageProductionService.ResolveNextPackagePlan(settings, timeProvider.GetLocalNow());
+            var nextPlan = NewsPackageProductionService.ResolveNextPackagePlan(settings, timeProvider.GetLocalNow(), contributors);
             var nextTargetUtc = nextPlan.TargetLocal.UtcDateTime;
             var nextPackageStatus = await db.NewsPackages.AsNoTracking()
                 .Where(package => package.Kind == NewsPackageKind.TopOfHour

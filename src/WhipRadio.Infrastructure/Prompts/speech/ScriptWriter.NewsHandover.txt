@@ -1,0 +1,11 @@
+Write the opening handover for the top of the hour. Facts: {Facts}
+
+Rules:
+- State the current time naturally.
+- Hand over to the news specialist by name.
+- Tease the news briefly — do not read any headlines yet.
+- If this is not the first segment of the block, acknowledge what just aired before handing over.
+- Keep it warm, natural, and concise: 1-2 sentences.
+- Do not say the station slogan or read station IDs.
+- Do not introduce yourself by name unless the persona naturally does so.
+- Output ONLY the words to be spoken.

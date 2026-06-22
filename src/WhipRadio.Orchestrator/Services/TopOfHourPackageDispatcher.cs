@@ -68,12 +68,35 @@ public sealed class TopOfHourPackageDispatcher(
         }
 
         var next = await db.NewsPackages
-            .Where(package => package.Status == NewsPackageStatus.Ready
+            .Where(package => (package.Status == NewsPackageStatus.Ready
+                    || package.Status == NewsPackageStatus.Queued)
                 && package.AnnouncementId != null
                 && package.TargetUtc <= earliestClaimTarget
                 && package.TargetUtc >= oldestValidTarget)
             .OrderBy(package => package.TargetUtc)
             .FirstOrDefaultAsync(ct);
+
+        if (next is not null && next.AnnouncementId is { } announcementId)
+        {
+            var duplicateGuardWindow = TimeSpan.FromSeconds(
+                Math.Max(introGrace, lateWindow));
+            if (next.Status == NewsPackageStatus.Queued
+                && (interrupts.HasPending(announcementId, next.TargetUtc)
+                    || interrupts.WasRecentlyConsumed(
+                        announcementId, next.TargetUtc, duplicateGuardWindow)
+                    || (next.QueuedAtUtc is { } queuedAt
+                        && now - queuedAt < duplicateGuardWindow)))
+            {
+                if (changed)
+                {
+                    await db.SaveChangesAsync(ct);
+                    await productionUpdates.PublishNewsChangedAsync(ct);
+                }
+
+                return;
+            }
+        }
+
         if (next is null)
         {
             await db.SaveChangesAsync(ct);
@@ -96,11 +119,20 @@ public sealed class TopOfHourPackageDispatcher(
             return;
         }
 
+        // The composite TalkBreak.Title is set by FinalizePackageAsync to reflect
+        // the planned package variant ("Top of hour", "Weather", "News update"),
+        // so we read it directly instead of guessing from AnnouncementKind.
+        var talkBreak = await db.TalkBreaks.AsNoTracking()
+            .Where(tb => tb.AnnouncementId == announcement.Id)
+            .Select(tb => new { tb.Title, tb.Purpose })
+            .FirstOrDefaultAsync(ct);
+        var label = talkBreak?.Title ?? "Top of hour";
+
         var item = new PlayoutItem(
             PlayoutItemType.Announcement,
             announcement.Id,
             announcement.FilePath,
-            announcement.Kind == AnnouncementKind.Weather ? "Weather" : "Top of hour - news and weather",
+            label,
             announcement.DurationSeconds,
             announcement.ModeratorId);
 

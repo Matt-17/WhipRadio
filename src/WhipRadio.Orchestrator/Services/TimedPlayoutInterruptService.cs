@@ -14,6 +14,8 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
 {
     private readonly object _lock = new();
     private TimedPlayoutInterrupt? _pending;
+    private TimedPlayoutInterrupt? _recentlyConsumed;
+    private DateTime? _recentlyConsumedAtUtc;
 
     public void Schedule(TimedPlayoutInterrupt interrupt)
     {
@@ -36,6 +38,37 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
             interrupt.FadeOutSeconds,
             interrupt.GraceSeconds,
             interrupt.LateWindowSeconds);
+    }
+
+    public bool HasPending(Guid announcementId, DateTime targetUtc)
+    {
+        lock (_lock)
+        {
+            return _pending is { } pending
+                && pending.Item.ItemId == announcementId
+                && pending.TargetUtc == targetUtc;
+        }
+    }
+
+    public bool WasRecentlyConsumed(Guid announcementId, DateTime targetUtc, TimeSpan minimumDelay)
+    {
+        if (minimumDelay <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        lock (_lock)
+        {
+            if (_recentlyConsumed is not { } consumed
+                || consumed.Item.ItemId != announcementId
+                || consumed.TargetUtc != targetUtc
+                || _recentlyConsumedAtUtc is null)
+            {
+                return false;
+            }
+
+            return DateTime.UtcNow - _recentlyConsumedAtUtc.Value < minimumDelay;
+        }
     }
 
     public TimedPlayoutInterrupt? TryConsume(DateTime utcNow)
@@ -69,7 +102,30 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
 
             var pending = _pending;
             _pending = null;
+            _recentlyConsumed = pending;
+            _recentlyConsumedAtUtc = utcNow;
             return pending;
+        }
+    }
+
+    /// <summary>
+    /// Clears any pending interrupt so the mixer won't play a stale package
+    /// announcement. Called when a package is recreated or failed.
+    /// </summary>
+    public void Clear()
+    {
+        lock (_lock)
+        {
+            if (_pending is not null || _recentlyConsumed is not null)
+            {
+                logger.LogInformation(
+                    "Timed playout interrupt cleared for {Target:u}: {Title}",
+                    (_pending ?? _recentlyConsumed)!.TargetUtc,
+                    (_pending ?? _recentlyConsumed)!.Item.Title);
+                _pending = null;
+                _recentlyConsumed = null;
+                _recentlyConsumedAtUtc = null;
+            }
         }
     }
 }

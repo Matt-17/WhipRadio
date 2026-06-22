@@ -1,8 +1,10 @@
 using System.Text.RegularExpressions;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Personality;
+using WhipRadio.Orchestrator.Api;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Selection;
 using WhipRadio.Core.Speech;
@@ -24,6 +26,7 @@ public partial class ProgramDirectorService(
     IDbContextFactory<RadioDbContext> dbFactory,
     TimeProvider timeProvider,
     DirectorControl control,
+    IHubContext<RadioHub> hub,
     ILogger<ProgramDirectorService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromMinutes(10);
@@ -84,6 +87,7 @@ public partial class ProgramDirectorService(
         if (victims.Count > 0)
         {
             await db.SaveChangesAsync(ct);
+            await NotifyScheduleChangedAsync(ct);
         }
     }
 
@@ -122,6 +126,7 @@ public partial class ProgramDirectorService(
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Director reassigned {Count} slot(s) away from disabled formats", orphaned.Count);
+        await NotifyScheduleChangedAsync(ct);
     }
 
     private async Task PlanNextUnplannedDayAsync(CancellationToken ct)
@@ -351,6 +356,22 @@ public partial class ProgramDirectorService(
 
         await db.SaveChangesAsync(ct);
         logger.LogInformation("Director published the plan for {Day} ({Count} blocks)", (DayOfWeek)day, blocks.Count);
+        await NotifyScheduleChangedAsync(ct);
+    }
+
+    private async Task NotifyScheduleChangedAsync(CancellationToken ct)
+    {
+        try
+        {
+            await hub.Clients.All.SendAsync("ScheduleChanged", ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to broadcast schedule update to SignalR clients");
+        }
     }
 
     private int _roundRobin;

@@ -285,6 +285,38 @@ public class PlayoutService(
         }
     }
 
+    private async Task<bool> IsTopOfHourDueAsync(CancellationToken ct)
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            if (!settings.NewsEnabled && !settings.WeatherEnabled)
+            {
+                return false;
+            }
+
+            var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
+            var minTarget = now.AddSeconds(-lateWindow);
+            return await db.NewsPackages.AsNoTracking()
+                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc <= now
+                    && package.TargetUtc >= minTarget
+                    && (package.Status == NewsPackageStatus.Ready
+                        || package.Status == NewsPackageStatus.Queued), ct);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not evaluate top-of-hour due check");
+            return false;
+        }
+    }
+
     private async Task<bool> IsMixerEnabledAsync(CancellationToken ct)
     {
         try
@@ -366,6 +398,15 @@ public class PlayoutService(
                     {
                         logger.LogInformation("Off-air switch flipped — aborting \"{Title}\" mid-item", item.Title);
                         return false;
+                    }
+
+                    if (item.ItemType == PlayoutItemType.Track
+                        && await IsTopOfHourDueAsync(ct))
+                    {
+                        logger.LogInformation(
+                            "Top-of-hour package due — aborting \"{Title}\" mid-item to let package play",
+                            item.Title);
+                        return true;
                     }
                 }
             }

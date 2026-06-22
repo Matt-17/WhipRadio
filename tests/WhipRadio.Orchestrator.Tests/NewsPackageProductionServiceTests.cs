@@ -1,4 +1,5 @@
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
 using WhipRadio.Orchestrator.Services;
 
 namespace WhipRadio.Orchestrator.Tests;
@@ -6,6 +7,19 @@ namespace WhipRadio.Orchestrator.Tests;
 [TestClass]
 public class NewsPackageProductionServiceTests
 {
+    private static readonly ITopOfHourSegmentContributor NewsContributor = new StubContributor(
+        "news", 10, AnnouncementKind.News, "NewsPackage", "News update",
+        settings => settings.NewsEnabled,
+        settings => TopOfHourScheduler.NormalizeCadence(settings.NewsPackageCadenceMinutes));
+
+    private static readonly ITopOfHourSegmentContributor WeatherContributor = new StubContributor(
+        "weather", 20, AnnouncementKind.Weather, "WeatherReport", "Weather",
+        settings => settings.WeatherEnabled,
+        settings => WeatherScheduler.NormalizeCadence(settings.WeatherCadenceMinutes));
+
+    private static IReadOnlyList<ITopOfHourSegmentContributor> BothContributors =>
+        [NewsContributor, WeatherContributor];
+
     [TestMethod]
     public void BuildIntroText_UsesCurrentLocalTimeAndVariesByHost()
     {
@@ -13,9 +27,9 @@ public class NewsPackageProductionServiceTests
         var currentHost = new Moderator { Id = 1, Name = "Ava" };
         var newsHost = new Moderator { Id = 2, Name = "Maya" };
 
-        var intro = NewsPackageProductionService.BuildIntroText(currentHost, newsHost, airtime);
+        var intro = NewsSegmentContributor.BuildIntroText(currentHost, newsHost, airtime);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual("It's 18:00. Maya has the news.", intro);
+        Assert.Equal("It's 18:00. Maya has the news.", intro);
     }
 
     [TestMethod]
@@ -25,9 +39,9 @@ public class NewsPackageProductionServiceTests
         var currentHost = new Moderator { Id = 1, Name = "Ava" };
         var newsHost = new Moderator { Id = 2, Name = "Maya" };
 
-        var intro = NewsPackageProductionService.BuildIntroText(currentHost, newsHost, airtime);
+        var intro = NewsSegmentContributor.BuildIntroText(currentHost, newsHost, airtime);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual("It's 00:00. Maya has the news.", intro);
+        Assert.Equal("It's 00:00. Maya has the news.", intro);
     }
 
     [TestMethod]
@@ -36,9 +50,9 @@ public class NewsPackageProductionServiceTests
         var localNow = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
         var host = new Moderator { Id = 1, Name = "Ava" };
 
-        var intro = NewsPackageProductionService.BuildIntroText(host, host, localNow);
+        var intro = NewsSegmentContributor.BuildIntroText(host, host, localNow);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual("It's 18:00. Here is the news.", intro);
+        Assert.Equal("It's 18:00. Here is the news.", intro);
     }
 
     [TestMethod]
@@ -55,15 +69,16 @@ public class NewsPackageProductionServiceTests
             ContentHash = "abc123",
         };
 
-        var facts = NewsPackageProductionService.BuildNewsFacts([item], airtime);
+        var facts = NewsSegmentContributor.BuildNewsFacts([item], airtime);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.Contains("Bulletin time: 2026-06-20 18:00 local.", facts);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.Contains("Title: Markets move", facts);
+        Assert.Contains("Bulletin time: 2026-06-20 18:00 local.", facts);
+        Assert.Contains("Title: Markets move", facts);
     }
 
     [TestMethod]
-    public void ResolveNextPackagePlan_WaitsForNewsBoundaryWhenNewsIsEnabled()
+    public void ResolveNextPackagePlan_PicksWeatherBoundaryWhenItIsSooner()
     {
+        // News=60, Weather=30, at 02:15 → next weather boundary is 02:30 (sooner than 03:00 news).
         var settings = new StationSettings
         {
             NewsPackageCadenceMinutes = 60,
@@ -72,13 +87,56 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("weather", plan.Segments[0].Key);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_PicksFullBlockWhenBothTargetsCoincide()
+    {
+        // News=60, Weather=30, at 02:45 → both target 03:00 → full block.
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 45, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+
+        Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
             plan.TargetLocal);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeNews);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeWeather);
+        Assert.Equal(2, plan.Segments.Count);
+        Assert.Equal("news", plan.Segments[0].Key);
+        Assert.Equal("weather", plan.Segments[1].Key);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_PicksNewsBoundaryWhenItIsSooner()
+    {
+        // News=30, Weather=60, at 02:15 → next news boundary is 02:30 (sooner than 03:00 weather).
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 30,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 60,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("news", plan.Segments[0].Key);
     }
 
     [TestMethod]
@@ -93,49 +151,17 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
+        Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
             plan.TargetLocal);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsFalse(plan.IncludeNews);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeWeather);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("weather", plan.Segments[0].Key);
     }
 
     [TestMethod]
-    public void ResolveNextPreparationPlan_WaitsForFullPackageWhenNewsIsEnabled()
-    {
-        var settings = new StationSettings
-        {
-            NewsPackageCadenceMinutes = 60,
-            WeatherEnabled = true,
-            WeatherCadenceMinutes = 30,
-        };
-        var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
-
-        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow);
-
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsNull(plan);
-    }
-
-    [TestMethod]
-    public void ResolveNextPreparationPlan_WaitsOutsidePrepareWindow()
-    {
-        var settings = new StationSettings
-        {
-            NewsPackageCadenceMinutes = 60,
-            WeatherEnabled = true,
-            WeatherCadenceMinutes = 30,
-        };
-        var localNow = new DateTimeOffset(2026, 6, 21, 2, 19, 0, TimeSpan.FromHours(2));
-
-        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow);
-
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsNull(plan);
-    }
-
-    [TestMethod]
-    public void ResolveNextPackagePlan_UsesNewsOnlyBlocksWhenWeatherIsDisabled()
+    public void ResolveNextPackagePlan_UsesNewsOnlyWhenWeatherIsDisabled()
     {
         var settings = new StationSettings
         {
@@ -145,32 +171,161 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
+        Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
             plan.TargetLocal);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeNews);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsFalse(plan.IncludeWeather);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("news", plan.Segments[0].Key);
     }
 
     [TestMethod]
-    public void ResolveNextPackagePlan_UsesNewsAndWeatherBlocksWhenTargetsMatch()
+    public void ResolveNextPackagePlan_BothSameCadenceAlwaysFullBlock()
     {
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 60,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Assert.Equal(2, plan.Segments.Count);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_BothHalfHourCadenceFullBlockAtHalfHour()
+    {
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 30,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Assert.Equal(2, plan.Segments.Count);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_HandlesNonDivisorCadences()
+    {
+        // News=45, Weather=30, at 02:20 → next weather is 02:30, next news is 03:00 → 02:30 weather-only.
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 45,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 20, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
+            plan.TargetLocal);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("weather", plan.Segments[0].Key);
+    }
+
+    [TestMethod]
+    public void ResolveNextPreparationPlan_ReturnsWeatherPlanWithinWindow()
+    {
+        // News=60, Weather=30, at 02:21 → 02:30 is 9 min away (within 10-min window) → weather-only plan.
         var settings = new StationSettings
         {
             NewsPackageCadenceMinutes = 60,
             WeatherEnabled = true,
             WeatherCadenceMinutes = 30,
         };
-        var localNow = new DateTimeOffset(2026, 6, 21, 2, 45, 0, TimeSpan.FromHours(2));
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow);
+        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
 
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.AreEqual(
+        Assert.NotNull(plan);
+        Assert.Equal(
+            new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
+            plan!.TargetLocal);
+        Assert.Equal(1, plan.Segments.Count);
+        Assert.Equal("weather", plan.Segments[0].Key);
+    }
+
+    [TestMethod]
+    public void ResolveNextPreparationPlan_WaitsOutsidePrepareWindow()
+    {
+        // News=60, Weather=30, at 02:19 → 02:30 is 11 min away (outside 10-min window) → null.
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 19, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
+
+        Assert.Null(plan);
+    }
+
+    [TestMethod]
+    public void ResolveNextPreparationPlan_ReturnsFullBlockWithinWindow()
+    {
+        // News=60, Weather=30, at 02:52 → 03:00 is 8 min away → full block plan.
+        var settings = new StationSettings
+        {
+            NewsPackageCadenceMinutes = 60,
+            WeatherEnabled = true,
+            WeatherCadenceMinutes = 30,
+        };
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 52, 0, TimeSpan.FromHours(2));
+
+        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
+
+        Assert.NotNull(plan);
+        Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
-            plan.TargetLocal);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeNews);
-        Microsoft.VisualStudio.TestTools.UnitTesting.Assert.IsTrue(plan.IncludeWeather);
+            plan!.TargetLocal);
+        Assert.Equal(2, plan.Segments.Count);
+    }
+
+    /// <summary>
+    /// Stub contributor for planning tests. Only the planning methods are exercised;
+    /// ProduceAsync throws so accidental calls are caught.
+    /// </summary>
+    private sealed class StubContributor(
+        string key,
+        int order,
+        AnnouncementKind kind,
+        string purpose,
+        string title,
+        Func<StationSettings, bool> isEnabled,
+        Func<StationSettings, int> cadenceMinutes) : ITopOfHourSegmentContributor
+    {
+        public string Key => key;
+        public int Order => order;
+        public SegmentLabel Label => new(kind, purpose, title);
+        public bool IsEnabled(StationSettings settings) => isEnabled(settings);
+        public int CadenceMinutes(StationSettings settings) => cadenceMinutes(settings);
+
+        public bool IsIncludedAt(StationSettings settings, DateTimeOffset targetLocal)
+        {
+            var cadence = cadenceMinutes(settings);
+            var minuteOfDay = targetLocal.Hour * 60 + targetLocal.Minute;
+            return minuteOfDay % cadence == 0;
+        }
+
+        public Task<SegmentResult> ProduceAsync(SegmentProductionContext context, CancellationToken ct)
+            => throw new NotImplementedException("Planning tests do not exercise production.");
     }
 }

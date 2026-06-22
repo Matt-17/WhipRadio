@@ -260,8 +260,18 @@ public class ShowRunnerService(
         {
             // Weather: once per hour, first talk slot after the full hour — and only
             // a freshly prepared report (≤ 30 min old), never a stale one.
+            // Skip gap-talk weather when a scheduled top-of-hour package (which may
+            // be weather-only at :30) already covers this window.
             var localNow = timeProvider.GetLocalNow();
+            var windowStartUtc = WeatherScheduler.CurrentWindowStart(localNow, settings.WeatherCadenceMinutes).UtcDateTime;
+            var hasScheduledPackage = await db.NewsPackages.AsNoTracking()
+                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
+                    && package.TargetUtc == windowStartUtc
+                    && (package.Status == NewsPackageStatus.Ready
+                        || package.Status == NewsPackageStatus.Queued
+                        || package.Status == NewsPackageStatus.Played), ct);
             if (settings.WeatherEnabled
+                && !hasScheduledPackage
                 && WeatherScheduler.IsAirWindow(localNow, settings.WeatherCadenceMinutes)
                 && !await WeatherAiredThisWindowAsync(db, localNow, settings.WeatherCadenceMinutes, ct))
             {

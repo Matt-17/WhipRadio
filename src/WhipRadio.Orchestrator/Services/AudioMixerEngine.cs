@@ -658,7 +658,12 @@ public sealed class AudioMixerEngine(
     {
         var duration = Math.Max(0, info.DurationSeconds);
         var resumeOffset = Math.Clamp(double.IsFinite(item.StartOffsetSeconds) ? item.StartOffsetSeconds : 0, 0, duration);
-        var leadIn = Math.Clamp(info.Analysis?.LeadingSilenceSeconds ?? 0, 0, duration);
+        // LeadingSilenceSeconds is meaningful for tracks (skip silent intros) but NOT for
+        // announcements — a speech analysis over-reporting silence would seek near EOF and
+        // leave almost nothing to play.
+        var leadIn = item.ItemType == PlayoutItemType.Announcement
+            ? 0
+            : Math.Clamp(info.Analysis?.LeadingSilenceSeconds ?? 0, 0, duration);
         return Math.Max(resumeOffset, leadIn);
     }
 
@@ -698,7 +703,22 @@ public sealed class AudioMixerEngine(
             // analysis/host context is optional by design
         }
 
-        var duration = analysis is { DurationSeconds: > 0 } ? analysis.DurationSeconds : item.DurationSeconds;
+        // Announcements have a reliable duration from TTS/rendering (item.DurationSeconds).
+        // The analysis sidecar can report wrong durations for speech files (e.g. stopping
+        // at the first silence gap), which causes the mixer to cut the announcement short.
+        // Only use the analysis duration for tracks, where it measures the real audio.
+        var duration = item.ItemType == PlayoutItemType.Announcement
+            ? item.DurationSeconds
+            : analysis is { DurationSeconds: > 0 } ? analysis.DurationSeconds : item.DurationSeconds;
+
+        if (duration <= 0)
+        {
+            logger.LogWarning(
+                "Mixer: \"{Title}\" ({ItemType} {ItemId}) has DurationSeconds={Duration:F3} — "
+                + "zero-length source will be skipped. File path: \"{FilePath}\"",
+                item.Title, item.ItemType, item.ItemId, duration, item.FilePath);
+        }
+
         return new ItemInfo(item.ItemType, analysis, duration, talkativeness);
     }
 

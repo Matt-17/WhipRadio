@@ -166,6 +166,25 @@ cuts. The mixer consumes a scheduled interrupt, fades active sources over
 `TopOfHourIntroGraceSeconds` when a suitable intro/handoff is ready. Legacy playout
 falls back to queue-front insertion.
 
+**Implemented:** top-of-hour block production uses a segment-contributor architecture
+(`ITopOfHourSegmentContributor`). Each segment type (news, weather, future
+traffic/Wikipedia/sports) is a self-contained contributor registered in DI. The
+orchestrator collects all enabled contributors, picks the soonest cadence boundary
+across them, and asks each whether it airs at that target. This supports arbitrary
+cadence combinations (e.g. news=60/weather=30 produces a full block at :00 and a
+weather-only package at :30) without per-segment special-casing.
+
+Each contributor produces its own LLM-written intro handover (with direct-text
+fallback) and body independently. One segment's failure never drops another
+segment's intro. Degraded packages retain their planned label ("Top of hour") with a
+recorded `FailureReason` — they are never silently relabeled as weather-only. The
+ShowRunner gap-talk weather path defers to scheduled packages to avoid double-airing.
+
+Adding a new segment type requires: a new contributor class implementing
+`ITopOfHourSegmentContributor`, a `SpecialistHostRole` enum value, per-segment
+settings columns + EF migration, a handoff prompt template, and DI registration.
+The orchestrator, dispatcher, guards, and renderer do not change.
+
 **Implemented in Phase 3b:** station branding now includes slogan, vision, and mission
 as prompt context. Generated jingles are short instrumental station identity sources
 created through the existing ACE-Step recording backend and stored under the shared

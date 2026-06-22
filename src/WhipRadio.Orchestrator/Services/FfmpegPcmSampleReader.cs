@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using WhipRadio.Core.Audio;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -34,12 +35,15 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
     }
 
     private readonly FfmpegProcessRegistry? _registry;
+    private readonly ILogger<FfmpegPcmSampleReader>? _logger;
 
     public FfmpegPcmSampleReader(
         string ffmpegPath, string absolutePath, PcmFormat format,
-        double startAtSeconds = 0, FfmpegProcessRegistry? registry = null)
+        double startAtSeconds = 0, FfmpegProcessRegistry? registry = null,
+        ILogger<FfmpegPcmSampleReader>? logger = null)
     {
         _registry = registry;
+        _logger = logger;
         var bytesPerSecond = format.SampleRate * format.Channels * 2;
         _ring = new byte[bytesPerSecond]; // 1 s capacity
 
@@ -101,9 +105,25 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
                 WriteToRing(chunk, offset, read - offset);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // disposed mid-read or decoder died — both end the stream below
+            if (_logger is not null)
+            {
+                try
+                {
+                    _process.WaitForExit(100);
+                    var stderr = _process.StandardError.ReadToEnd();
+                    _logger.LogWarning(ex,
+                        "FfmpegPcmSampleReader decoder exited ({ExitCode}) for \"{Path}\": {Stderr}",
+                        _process.ExitCode, _process.StartInfo.Arguments, stderr);
+                }
+                catch
+                {
+                    _logger.LogWarning(ex,
+                        "FfmpegPcmSampleReader decoder failed for \"{Path}\"",
+                        _process.StartInfo.Arguments);
+                }
+            }
         }
         finally
         {

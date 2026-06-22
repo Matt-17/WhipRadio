@@ -34,7 +34,8 @@ public class AnnouncementFactory(
         CancellationToken ct,
         string? lengthHint = null,
         string? alreadySpokenContext = null,
-        DateTimeOffset? localNowOverride = null)
+        DateTimeOffset? localNowOverride = null,
+        string? purpose = null)
     {
         var allowBreath = await GetAllowBreathAsync(moderator, ct);
 
@@ -52,7 +53,7 @@ public class AnnouncementFactory(
                 RelatedTrack: relatedTrack,
                 Facts: facts,
                 LengthHint: lengthHint,
-                Purpose: kind.ToString(),
+                Purpose: purpose ?? kind.ToString(),
                 AlreadySpokenContext: alreadySpokenContext,
                 LocalNowOverride: localNowOverride),
             ct);
@@ -75,7 +76,7 @@ public class AnnouncementFactory(
                 RelatedTrack: relatedTrack,
                 Facts: facts,
                 LengthHint: lengthHint,
-                Purpose: kind.ToString(),
+                Purpose: purpose ?? kind.ToString(),
                 AlreadySpokenContext: alreadySpokenContext,
                 LocalNowOverride: localNowOverride),
             ct);
@@ -94,6 +95,14 @@ public class AnnouncementFactory(
                 moderator.VoiceId, moderator.Language, moderator.SpeechRate, moderator.TtsEngine, instruction),
             ct);
         var producedWords = PromptWordBudget.CountWords(script);
+        if (tts.DurationSeconds <= 0)
+        {
+            logger.LogWarning(
+                "TTS produced zero-duration audio for {Kind} announcement by {Moderator} [{Engine}]. "
+                + "This will cause the radio mixer to skip the item.",
+                kind, moderator.Name, moderator.TtsEngine);
+        }
+
         logger.LogInformation(
             "Announcement prompt budget for {Kind}: available {AvailableSeconds}s, target {TargetWords} words, produced {ProducedWords} words, rendered {Duration:F1}s",
             kind,
@@ -162,7 +171,8 @@ public class AnnouncementFactory(
         string? lengthHint = null,
         string? alreadySpokenContext = null,
         DateTimeOffset? localNowOverride = null,
-        PromptPriority priority = PromptPriority.Normal)
+        PromptPriority priority = PromptPriority.Normal,
+        string? purpose = null)
     {
         // Personal talks reference what the host already said today.
         if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
@@ -178,7 +188,7 @@ public class AnnouncementFactory(
                 RelatedTrack: relatedTrack,
                 Facts: facts,
                 LengthHint: lengthHint,
-                Purpose: kind.ToString(),
+                Purpose: purpose ?? kind.ToString(),
                 Priority: priority,
                 AlreadySpokenContext: alreadySpokenContext,
                 LocalNowOverride: localNowOverride),
@@ -217,7 +227,7 @@ public class AnnouncementFactory(
                 RelatedTrack: draft.RelatedTrack,
                 Facts: draft.Facts,
                 LengthHint: draft.LengthHint,
-                Purpose: draft.Kind.ToString(),
+                Purpose: draft.ScriptContext.Purpose,
                 Priority: draft.ScriptContext.Priority,
                 AlreadySpokenContext: draft.AlreadySpokenContext,
                 LocalNowOverride: draft.LocalNowOverride),
@@ -237,6 +247,14 @@ public class AnnouncementFactory(
                 instruction),
             ct);
         var producedWords = PromptWordBudget.CountWords(draft.Script);
+        if (tts.DurationSeconds <= 0)
+        {
+            logger.LogWarning(
+                "TTS produced zero-duration audio for {Kind} announcement (from draft) by {Moderator} [{Engine}]. "
+                + "This will cause the radio mixer to skip the item.",
+                draft.Kind, draft.Moderator.Name, draft.Moderator.TtsEngine);
+        }
+
         logger.LogInformation(
             "Announcement prompt budget for {Kind}: available {AvailableSeconds}s, target {TargetWords} words, produced {ProducedWords} words, rendered {Duration:F1}s",
             draft.Kind,
@@ -330,6 +348,14 @@ public class AnnouncementFactory(
                 moderator.TtsEngine,
                 BuildTtsInstruction(moderator, allowBreath)),
             ct);
+
+        if (tts.DurationSeconds <= 0)
+        {
+            logger.LogWarning(
+                "TTS produced zero-duration audio for direct {Kind} announcement by {Moderator} [{Engine}]. "
+                + "This will cause the radio mixer to skip the item.",
+                kind, moderator.Name, moderator.TtsEngine);
+        }
 
         var id = Guid.NewGuid();
         var relativePath = Path.Combine("library", "announcements", $"{id}.wav");

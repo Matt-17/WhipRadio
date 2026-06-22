@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
@@ -19,12 +20,13 @@ public interface IPcmSampleReaderFactory
 public sealed class FfmpegPcmSampleReaderFactory(
     IOptions<StreamOptions> streamOptions,
     IOptions<RadioOptions> radioOptions,
-    FfmpegProcessRegistry registry) : IPcmSampleReaderFactory
+    FfmpegProcessRegistry registry,
+    ILogger<FfmpegPcmSampleReader> logger) : IPcmSampleReaderFactory
 {
     public IPcmSampleReader Create(PlayoutItem item, PcmFormat format, double startAtSeconds)
     {
         var absolutePath = Path.Combine(radioOptions.Value.DataRoot, item.FilePath);
         return new FfmpegPcmSampleReader(
-            streamOptions.Value.FfmpegPath, absolutePath, format, startAtSeconds, registry);
+            streamOptions.Value.FfmpegPath, absolutePath, format, startAtSeconds, registry, logger);
     }
 }

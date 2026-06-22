@@ -63,7 +63,7 @@
                 <span class="live-btn-spacer" aria-hidden="true"></span>
             </div>
             <div class="player-meta">
-                <span class="player-meta-time">@FormatClock(Elapsed)&thinsp;/&thinsp;@FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))</span>
+                <span class="player-meta-time">@($"{FormatClock(Elapsed)}{ThinSpace}/{ThinSpace}{FormatClock(TimeSpan.FromSeconds(np.DurationSeconds))}")</span>
                 <span class="player-meta-item">now <strong>@(np.FormatName ?? "WhipRadio")</strong></span>
                 @if (np.ModeratorName is not null)
                 {
@@ -133,6 +133,7 @@
     private Timer? _ticker;
     private DotNetObjectReference<FooterPlayer>? _interopRef;
     private bool _mediaSessionEnabled;
+    private const string ThinSpace = "\u2009";
 
     private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
     private sealed record AutoplayStatus(bool Supported, string? Policy, bool Blocked, bool PendingUnlock);
@@ -193,7 +194,7 @@
         : 0;
 
     private string PreviewTime
-        => $"{FormatClock(TimeSpan.FromSeconds(_songPos))}&thinsp;/&thinsp;{FormatClock(TimeSpan.FromSeconds(SongDuration))}";
+        => $"{FormatClock(TimeSpan.FromSeconds(_songPos))}{ThinSpace}/{ThinSpace}{FormatClock(TimeSpan.FromSeconds(SongDuration))}";
 
     private string AutoplayHintTitle => _autoplayPolicySupported && !string.IsNullOrWhiteSpace(_autoplayPolicy)
         ? $"browser autoplay policy: {_autoplayPolicy}; click to resume audio"

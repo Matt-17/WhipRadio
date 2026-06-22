@@ -40,7 +40,7 @@ public class TopOfHourPackageDispatcherTests
     }
 
     [TestMethod]
-    public async Task RunCycle_DoesNotDispatchAlreadyQueuedPackageAgain()
+    public async Task RunCycle_DoesNotDuplicateQueuedPackageDispatchInTheSameWindow()
     {
         await using var db = await DbFixture.CreateAsync();
         var announcementId = Guid.NewGuid();
@@ -56,7 +56,37 @@ public class TopOfHourPackageDispatcherTests
 
         await dispatcher.RunCycleForTestsAsync(CancellationToken.None);
 
-        Assert.Null(interrupts.TryConsume(TargetUtc.AddSeconds(10)));
+        var interrupt = interrupts.TryConsume(TargetUtc.AddSeconds(10));
+        Assert.NotNull(interrupt);
+
+        await dispatcher.RunCycleForTestsAsync(CancellationToken.None);
+
+        Assert.Null(interrupts.TryConsume(TargetUtc.AddSeconds(12)));
+    }
+
+    [TestMethod]
+    public async Task RunCycle_RecoversQueuedPackageIfNoPendingInterruptExists()
+    {
+        await using var db = await DbFixture.CreateAsync();
+        var announcementId = Guid.NewGuid();
+        await db.SeedPackageAsync(announcementId, NewsPackageStatus.Queued);
+        var interrupts = new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance);
+        var dispatcher = new TopOfHourPackageDispatcher(
+            db,
+            new FakePlayoutQueue(),
+            interrupts,
+            new FixedTimeProvider(TargetUtc.AddSeconds(10)),
+            new NoOpProductionUpdatePublisher(),
+            NullLogger<TopOfHourPackageDispatcher>.Instance);
+
+        var interrupt = interrupts.TryConsume(TargetUtc.AddSeconds(10));
+        Assert.Null(interrupt);
+
+        await dispatcher.RunCycleForTestsAsync(CancellationToken.None);
+
+        interrupt = interrupts.TryConsume(TargetUtc.AddSeconds(10));
+        Assert.NotNull(interrupt);
+        Assert.Equal(announcementId, interrupt!.Item.ItemId);
     }
 
     private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)

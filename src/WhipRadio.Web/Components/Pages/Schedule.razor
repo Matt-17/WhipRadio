@@ -1,8 +1,10 @@
 @page "/schedule"
 @using WhipRadio.Core.Api
+@using System.Globalization
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
+@inject RadioLiveClient Live
 
 <PageTitle>WhipRadio - Schedule</PageTitle>
 
@@ -73,19 +75,15 @@
 
     protected override async Task OnInitializedAsync()
     {
+        Live.ScheduleChanged += OnScheduleChanged;
+        await Live.EnsureStartedAsync();
+
         var settings = await Api.GetSettingsAsync();
         _dayOrder = settings?.FirstDayOfWeek == 0
             ? [0, 1, 2, 3, 4, 5, 6]
             : [1, 2, 3, 4, 5, 6, 0];
-        _slots = await Api.GetScheduleAsync();
-        if (_slots is null)
-        {
-            _loadError = "Failed to load the program board — backend unreachable.";
-        }
-        else
-        {
-            _loadError = null;
-        }
+        await LoadScheduleAsync();
+
         _clockTimer = new System.Threading.Timer(
             _ => _ = InvokeAsync(StateHasChanged),
             null,
@@ -96,6 +94,24 @@
     public void Dispose()
     {
         _clockTimer?.Dispose();
+        Live.ScheduleChanged -= OnScheduleChanged;
+    }
+
+    private async Task LoadScheduleAsync()
+    {
+        _slots = await Api.GetScheduleAsync();
+        _loadError = _slots is null
+            ? "Failed to load the program board â€” backend unreachable."
+            : null;
+    }
+
+    private void OnScheduleChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            await LoadScheduleAsync();
+            StateHasChanged();
+        });
     }
 
     private IEnumerable<ScheduleBlock> BlocksForDay(int day)
@@ -146,7 +162,7 @@
         => $"schedule-cell {(block.IsPlanned ? "planned" : "planning")} {(MinuteSpan(block.DurationMinutes) == 1 ? "compact" : null)} {(IsCurrentBlock(block) ? "current" : null)}";
 
     private string NowLineStyle()
-        => $"grid-column:{DayColumn(CurrentDay)};grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute)}%";
+        => $"grid-column:{DayColumn(CurrentDay)};grid-row:{MinuteRow(CurrentMinute)};--now-offset:{MinuteOffsetPercent(CurrentMinute).ToString("0.##", CultureInfo.InvariantCulture)}%";
 
     private int DayColumn(int day)
         => Array.IndexOf(_dayOrder, day) + 2;

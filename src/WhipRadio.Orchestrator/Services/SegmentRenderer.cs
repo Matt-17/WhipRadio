@@ -39,6 +39,15 @@ public sealed class SegmentRenderer(
         }
 
         var compositeWav = WavFile.ConcatPcm16(audio);
+        var compositeDuration = WavFile.GetDurationSeconds(compositeWav);
+        if (compositeDuration <= 0)
+        {
+            logger.LogWarning(
+                "SegmentRenderer: composite WAV has Duration={Duration:F3}s from {Count} parts — "
+                + "package will have zero-length audio source",
+                compositeDuration, orderedAnnouncements.Count);
+        }
+
         var id = Guid.NewGuid();
         var relativePath = Path.Combine("library", "announcements", $"{id}.wav");
         var compositePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
@@ -66,7 +75,7 @@ public sealed class SegmentRenderer(
             ScriptText = string.Join("\n\n", orderedAnnouncements.Select(announcement => announcement.ScriptText)),
             VoicedText = string.Join("\n\n", orderedAnnouncements.Select(announcement => announcement.VoicedText)),
             FilePath = relativePath,
-            DurationSeconds = WavFile.GetDurationSeconds(compositeWav),
+            DurationSeconds = compositeDuration,
             RelatedTrackId = orderedAnnouncements.Select(announcement => announcement.RelatedTrackId).FirstOrDefault(id => id is not null),
             CreatedAt = now,
             WasPlayed = false,

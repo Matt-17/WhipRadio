@@ -31,6 +31,8 @@ public class RadioLiveClient(
 
     public event Action? JinglesChanged;
 
+    public event Action? ScheduleChanged;
+
     public async Task EnsureStartedAsync()
     {
         if (_started)
@@ -85,6 +87,7 @@ public class RadioLiveClient(
             });
 
             _connection.On("JinglesChanged", () => JinglesChanged?.Invoke());
+            _connection.On("ScheduleChanged", () => ScheduleChanged?.Invoke());
 
             _connection.On<MediaCleanupStatusDto>("MediaCleanupChanged", status =>
             {

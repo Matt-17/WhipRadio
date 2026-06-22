@@ -183,7 +183,7 @@ window.whipRadio = {
   },
 
   _idleSpectrumLevel(index) {
-    return 0.055 + (index % 6) * 0.011;
+    return 0.01 + (index % 6) * 0.0025;
   },
 
   _frequencyBinFor(hz) {
@@ -192,10 +192,116 @@ window.whipRadio = {
     return Math.max(1, Math.min(maxBin, Math.round(hz / nyquist * maxBin)));
   },
 
+  _shapeSpectrumLevel(level) {
+    const safeLevel = Math.max(0, Math.min(1, level));
+    // Cut tiny background/noise movement.
+    const displayFloor = 0.028;
+
+    // Values around this point can visually reach the top.
+    // Higher value = less loud-looking.
+    // Lower value = more full-height usage.
+    const displayCeiling = 0.68;
+
+    if (safeLevel <= displayFloor) {
+      return 0;
+    }
+
+    const x = Math.max(
+      0,
+      Math.min(1, (safeLevel - displayFloor) / (displayCeiling - displayFloor))
+    );
+
+    // Smoothstep: keeps quiet values quiet, but still allows strong values
+    // to use the upper visual range.
+    const contrast = x * x * (3 - 2 * x);
+    const shaped = Math.pow(contrast, 1.02);
+
+    return Math.max(0, Math.min(1, shaped * 1.04));
+  },
+
+  _spectrumDisplayState(root) {
+    if (!root || !root._whipSpectrumBars) {
+      return null;
+    }
+
+    const bars = root._whipSpectrumBars;
+    if (!Array.isArray(root._whipSpectrumDisplayLevels) ||
+        root._whipSpectrumDisplayLevels.length !== bars.length) {
+      root._whipSpectrumDisplayLevels = Array.from(bars, (_, index) => {
+        const idle = this._idleSpectrumLevel(index);
+        return { level: idle, cap: idle };
+      });
+    }
+
+    return root._whipSpectrumDisplayLevels;
+  },
+
+  _smoothedSpectrumStates(root, index, targetLevel, capFloor = 0, levelFloor = 0) {
+    const state = this._spectrumDisplayState(root);
+    if (!state) {
+      const clamped = Math.max(0, Math.min(1, targetLevel));
+      return { level: clamped, cap: clamped };
+    }
+
+    const current = state[index] || (state[index] = {
+      level: this._idleSpectrumLevel(index),
+      cap: this._idleSpectrumLevel(index),
+    });
+    const min = levelFloor;
+    const minCap = capFloor;
+    const target = Math.max(min, Math.min(1, targetLevel));
+    const now = performance.now();
+    const dtMs = Math.min(64, Math.max(0, now - (current.lastUpdateMs ?? now)));
+    current.lastUpdateMs = now;
+
+    const barCount = root?._whipSpectrumBars?.length > 1
+      ? root._whipSpectrumBars.length
+      : 28;
+    const frequencyBias = barCount > 1 ? index / (barCount - 1) : 1;
+    // Yellow follows the actual audio target.
+    // Low bars react a bit faster; high bars are more damped.
+    const attackMs = 14 + frequencyBias * 70;
+    // Red fall speed in normalized units per second (1.0 = one full bar per second).
+    const redFallPerSecond = 0.75;
+    const yellowFallFactor = 10;
+    const yellowFallPerSecond = redFallPerSecond * yellowFallFactor;
+    // Red cap follows only yellow top (visible level), and falls slowly.
+    const follow = (value, targetValue, ms) => {
+      const factor = 1 - Math.exp(-dtMs / Math.max(1, ms));
+      return value + (targetValue - value) * factor;
+    };
+
+    if (target > current.level) {
+      current.level = follow(current.level, target, attackMs);
+    } else {
+      const yellowFallAmount = yellowFallPerSecond * (dtMs / 1000);
+      current.level = Math.max(target, current.level - yellowFallAmount);
+    }
+
+    current.level = Math.max(min, Math.min(1, current.level));
+
+    const yellowTop = Math.max(current.level, minCap);
+    if (yellowTop >= current.cap) {
+      // Yellow pushes red upward directly.
+      current.cap = yellowTop;
+    } else {
+      // Red falls at a constant speed, independent of distance to yellow.
+      const fallAmount = redFallPerSecond * (dtMs / 1000);
+      current.cap = Math.max(yellowTop, current.cap - fallAmount);
+    }
+
+    current.cap = Math.max(minCap, Math.min(1, current.cap));
+    if (current.cap < current.level) {
+      current.cap = current.level;
+    }
+
+    return current;
+  },
+
   _readSpectrumLevels(visualBars) {
     this._spectrumAnalyser.getByteFrequencyData(this._spectrumData);
 
-    const minHz = 80;
+    const minHz = 90;
     const maxHz = Math.min(12000, this._spectrumContext.sampleRate / 2);
     const ratio = maxHz / minHz;
     const levels = [];
@@ -203,31 +309,42 @@ window.whipRadio = {
     let energyBins = 0;
 
     for (let i = 0; i < visualBars; i++) {
+      const position = i / Math.max(1, visualBars - 1);
       const bandStartHz = minHz * Math.pow(ratio, i / visualBars);
       const bandEndHz = minHz * Math.pow(ratio, (i + 1) / visualBars);
       const start = this._frequencyBinFor(bandStartHz);
       const end = Math.max(start + 1, this._frequencyBinFor(bandEndHz));
+      const count = Math.max(1, end - start);
       let peak = 0;
       let total = 0;
+      let squares = 0;
 
       for (let j = start; j < end; j++) {
         const value = this._spectrumData[j];
         peak = Math.max(peak, value);
         total += value;
+        squares += value * value;
         energy += value;
         energyBins++;
       }
 
-      const average = total / (end - start);
-      const normalized = (peak * 0.72 + average * 0.28) / 255;
-      const position = i / Math.max(1, visualBars - 1);
-      const gain = 0.62 + position * 1.35;
-      const level = Math.pow(Math.min(1, normalized * gain), 0.62) * 1.08;
-      levels.push(Math.max(0.055, Math.min(1, level)));
+      const average = total / count / 255;
+      const rms = Math.sqrt(squares / count) / 255;
+      const peakNorm = peak / 255;
+      // Mostly RMS/average, with a small peak contribution to preserve transients.
+      const normalized = rms * 0.65 + average * 0.25 + peakNorm * 0.10;
+      const bassTrim = 0.42 + position * 0.58;
+      const trebleLift = 0.85 + Math.pow(position, 0.8) * 0.75;
+      const shaped = this._shapeSpectrumLevel(Math.min(1, normalized * bassTrim * trebleLift));
+      const level = Math.max(0, Math.min(1, shaped));
+      levels.push(level);
     }
 
     const averageEnergy = energyBins > 0 ? energy / energyBins / 255 : 0;
-    return averageEnergy < 0.018 ? null : levels;
+    return {
+      levels,
+      isActive: averageEnergy >= 0.08,
+    };
   },
 
   _setSpectrumRoot(root, active, values) {
@@ -238,24 +355,30 @@ window.whipRadio = {
     root.classList.toggle("active", active);
     const bars = root._whipSpectrumBars || Array.from(root.querySelectorAll(".audio-spectrum-bar"));
     root._whipSpectrumBars = bars;
+    const hasValues = Array.isArray(values) && values.length > 0;
     for (let i = 0; i < bars.length; i++) {
-      const level = values ? values[i % values.length] : this._idleSpectrumLevel(i);
-      bars[i].style.setProperty("--level", level.toFixed(3));
+      const target = hasValues ? values[i % values.length] : 0;
+      const levelFloor = hasValues ? 0 : this._idleSpectrumLevel(i);
+      const capFloor = hasValues ? 0 : this._idleSpectrumLevel(i);
+      const state = this._smoothedSpectrumStates(root, i, target, capFloor, levelFloor);
+      bars[i].style.setProperty("--peak-level", state.cap.toFixed(3));
+      bars[i].style.setProperty("--level", state.level.toFixed(3));
     }
   },
 
   _renderSpectrumFrame() {
     this._spectrumFrame = null;
-    const active = this._isPlaying() && this._spectrumAnalyser && this._spectrumContext?.state === "running";
+    const isStreamActive = this._isPlaying() && this._spectrumAnalyser && this._spectrumContext?.state === "running";
     let levels = null;
 
-    if (active) {
+    if (isStreamActive) {
       const visualBars = 28;
-      levels = this._readSpectrumLevels(visualBars);
+      const sample = this._readSpectrumLevels(visualBars);
+      levels = sample?.levels || null;
     }
 
     for (const root of this._spectrumRoots) {
-      this._setSpectrumRoot(root, !!levels, levels);
+      this._setSpectrumRoot(root, isStreamActive, levels);
     }
 
     if (this._spectrumRoots.size > 0) {
@@ -284,10 +407,10 @@ window.whipRadio = {
       this._spectrumSource = this._spectrumSource || this._spectrumContext.createMediaElementSource(this._audio);
       this._spectrumAnalyser = this._spectrumContext.createAnalyser();
       this._spectrumOutput = this._spectrumContext.createGain();
-      this._spectrumAnalyser.fftSize = 512;
-      this._spectrumAnalyser.minDecibels = -82;
-      this._spectrumAnalyser.maxDecibels = -18;
-      this._spectrumAnalyser.smoothingTimeConstant = 0.42;
+      this._spectrumAnalyser.fftSize = 2048;
+      this._spectrumAnalyser.minDecibels = -90;
+      this._spectrumAnalyser.maxDecibels = -8;
+      this._spectrumAnalyser.smoothingTimeConstant = 0.15;
       this._spectrumData = new Uint8Array(this._spectrumAnalyser.frequencyBinCount);
       this._spectrumSource.connect(this._spectrumAnalyser);
       this._spectrumAnalyser.connect(this._spectrumOutput);
