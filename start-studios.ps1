@@ -274,9 +274,20 @@ if (-not $SkipWriterRoom) {
 
 Write-Host ""
 Write-Host "Recording studios:" -ForegroundColor Cyan
+# ACE-Step supervises its own liveness — no AppHost/orchestrator needed, so this
+# survives a published deployment where neither is present:
+#   * The image's CMD is whip_watchdog.py (PID 1); it spawns api_server and polls
+#     /v1/stats. If jobs are pending but none reach a terminal state for
+#     STUCK_TIMEOUT, it kills the server and `--restart unless-stopped` (see
+#     Ensure-Container) brings up a fresh one — recovering a wedged queue.
+#   * GENERATION_TIMEOUT caps a single song: a generation that exceeds it is
+#     aborted by the sidecar (job -> failed, a terminal state), so a slow song
+#     never looks like a wedge.
+# INVARIANT: STUCK must stay > GENERATION_TIMEOUT, or the watchdog would kill a
+# legitimately long-running generation. Keep that gap when tuning these.
 $aceStepEnv = @(
-    "ACESTEP_GENERATION_TIMEOUT=1800",
-    "ACESTEP_STUCK_TIMEOUT_SECONDS=2400"
+    "ACESTEP_GENERATION_TIMEOUT=600",      # 10 min hard cap for one song
+    "ACESTEP_STUCK_TIMEOUT_SECONDS=1200"   # 20 min wedge -> auto-restart (> generation)
 )
 for ($i = 1; $i -le $Count; $i++) {
     Refresh-ContainerImage "whip-studio-acestep-$i" "whipradio-acestep:local" "acestep-models"

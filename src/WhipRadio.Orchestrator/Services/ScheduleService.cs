@@ -45,6 +45,106 @@ public class ScheduleService(IDbContextFactory<RadioDbContext> dbFactory, TimePr
         return await FallbackContextAsync(db, now, ct);
     }
 
+    /// <summary>
+    /// Resolves the current and previous show time windows (UTC) so the track
+    /// selector can hard-exclude repeats and the prompt builder can show the host
+    /// what already aired. Show boundaries are ProgramSlot edges (or 2-hour
+    /// fallback shifts). The previous show is the immediately preceding slot in
+    /// the weekly grid, wrapping across midnight/week boundaries.
+    /// </summary>
+    public async Task<ShowWindows> GetShowWindowsAsync(CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var now = timeProvider.GetLocalNow();
+        var minuteOfDay = now.Hour * 60 + now.Minute;
+        var day = (int)now.DayOfWeek;
+
+        var slot = await db.ProgramSlots.AsNoTracking()
+            .Include(s => s.Format)
+            .Where(s => s.DayOfWeek == day
+                && s.StartMinute <= minuteOfDay
+                && minuteOfDay < s.StartMinute + s.DurationMinutes)
+            .OrderByDescending(s => s.StartMinute)
+            .FirstOrDefaultAsync(ct);
+
+        if (slot?.Format is { IsEnabled: true } format)
+        {
+            var currentStart = SlotStartUtc(slot.DayOfWeek, slot.StartMinute, now);
+            var currentEnd = currentStart.AddMinutes(slot.DurationMinutes);
+            var previous = await GetPreviousSlotAsync(db, slot.DayOfWeek, slot.StartMinute, ct);
+            DateTime? prevStart;
+            DateTime? prevEnd;
+            string? prevName;
+            if (previous is null)
+            {
+                prevStart = null;
+                prevEnd = null;
+                prevName = null;
+            }
+            else
+            {
+                prevStart = SlotStartUtc(previous.DayOfWeek, previous.StartMinute, now);
+                prevEnd = prevStart.Value.AddMinutes(previous.DurationMinutes);
+                prevName = previous.Format?.Name;
+            }
+            return new ShowWindows(currentStart, currentEnd, prevStart, prevEnd, format.Name, prevName);
+        }
+
+        // Fallback: 2-hour shifts. Current shift = (hour/2)*120; previous = current - 120.
+        var shiftStartMinute = (now.Hour / 2) * 120;
+        var fallbackCurrentStart = SlotStartUtc(day, shiftStartMinute, now);
+        var fallbackPrevStart = fallbackCurrentStart.AddMinutes(-120);
+        return new ShowWindows(
+            fallbackCurrentStart,
+            fallbackCurrentStart.AddMinutes(120),
+            fallbackPrevStart,
+            fallbackCurrentStart,
+            CurrentFormatName: null,
+            PreviousFormatName: null);
+    }
+
+    private static async Task<ProgramSlot?> GetPreviousSlotAsync(
+        RadioDbContext db, int currentDay, int currentStartMinute, CancellationToken ct)
+    {
+        var currentWeekMinute = currentDay * 1440 + currentStartMinute;
+        var slots = await db.ProgramSlots.AsNoTracking()
+            .Include(s => s.Format)
+            .Where(s => s.Format != null && s.Format.IsEnabled)
+            .ToListAsync(ct);
+
+        ProgramSlot? best = null;
+        var bestWeekMinute = int.MinValue;
+        foreach (var s in slots)
+        {
+            var weekMinute = s.DayOfWeek * 1440 + s.StartMinute;
+            if (weekMinute >= currentWeekMinute)
+            {
+                weekMinute -= 7 * 1440; // wrap into the previous week
+            }
+
+            if (weekMinute < currentWeekMinute && weekMinute > bestWeekMinute)
+            {
+                bestWeekMinute = weekMinute;
+                best = s;
+            }
+        }
+
+        return best;
+    }
+
+    private DateTime SlotStartUtc(int dayOfWeek, int startMinute, DateTimeOffset nowLocal)
+    {
+        var nowWeekMinute = (int)nowLocal.DayOfWeek * 1440 + nowLocal.Hour * 60 + nowLocal.Minute;
+        var slotWeekMinute = dayOfWeek * 1440 + startMinute;
+        if (slotWeekMinute > nowWeekMinute)
+        {
+            slotWeekMinute -= 7 * 1440; // slot is in the past week
+        }
+
+        var localStart = nowLocal.DateTime.AddMinutes(slotWeekMinute - nowWeekMinute);
+        return new DateTimeOffset(localStart, nowLocal.Offset).UtcDateTime;
+    }
+
     private static async Task<string?> GetNextFormatNameAsync(
         RadioDbContext db,
         int day,

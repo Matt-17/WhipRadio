@@ -94,6 +94,12 @@ public sealed class PromptContext
 
     public IReadOnlyList<string> RecentTracks { get; init; } = [];
 
+    /// <summary>Tracks aired since the current show started (Artist - Title (Genre, HH:mm)).</summary>
+    public IReadOnlyList<string> CurrentShowTracks { get; init; } = [];
+
+    /// <summary>Tracks aired during the previous show (Artist - Title (Genre, HH:mm)).</summary>
+    public IReadOnlyList<string> PreviousShowTracks { get; init; } = [];
+
     public IReadOnlyList<string> RecentTalkTopics { get; init; } = [];
 
     public IReadOnlyList<string> RecurringBits { get; init; } = [];
@@ -211,6 +217,8 @@ public sealed class PromptContext
                 $"that is roughly {WordBudget} words at this speaking rate.");
         }
 
+        AppendAiredTracks(builder, "Tracks already aired in this show", CurrentShowTracks);
+        AppendAiredTracks(builder, "Tracks aired in the previous show", PreviousShowTracks);
         AppendList(builder, "Recent tracks", RecentTracks);
         AppendList(builder, "Recent talk topics", RecentTalkTopics);
         AppendList(builder, "Recurring bits", RecurringBits);
@@ -242,6 +250,25 @@ public sealed class PromptContext
         }
 
         builder.AppendLine($"- {label}:");
+        foreach (var value in values)
+        {
+            builder.AppendLine($"  - {value}");
+        }
+    }
+
+    /// <summary>
+    /// Lists aired tracks with an explicit anti-repeat instruction, mirroring the
+    /// existing AlreadySpokenContext pattern. The host must not reintroduce or
+    /// back-announce these as if they were new.
+    /// </summary>
+    private static void AppendAiredTracks(StringBuilder builder, string label, IReadOnlyList<string> values)
+    {
+        if (values.Count == 0)
+        {
+            return;
+        }
+
+        builder.AppendLine($"- {label} (do NOT reintroduce or back-announce these as if new):");
         foreach (var value in values)
         {
             builder.AppendLine($"  - {value}");

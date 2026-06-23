@@ -56,6 +56,16 @@ ENV ACESTEP_LLM_BACKEND=pt
 ENV ACESTEP_INIT_SERVICE=false
 ENV ACESTEP_CHECKPOINTS_DIR=/models/checkpoints
 ENV ACESTEP_TMPDIR=/models/tmp
+# VAE decode quality: the tile overlap defaults to 64, but the auto decode chunk_size
+# on <=12 GB GPUs is 128, so chunk_size-2*overlap==0 -- the decoder is forced down to a
+# 32-frame crossfade and logs "[tiled_decode] Reduced overlap from 64 to 32" every song.
+# Pinning chunk_size=256 keeps the full 64-frame crossfade and uses larger tiles (fewer
+# seams) => higher-quality audio, and the warning never fires. Trade-off: more decode
+# VRAM; if a song ever exhausts VRAM the decoder still falls back safely (offload-to-CPU,
+# then CPU decode). Needs decode-time VRAM headroom, so don't keep the 5Hz LM resident
+# (see AceStep-Fixing.md B7). On larger GPUs, remove this to let the adaptive policy
+# pick an even bigger chunk (384/512). Lower to 192 if you see OOM->CPU decode fallbacks.
+ENV ACESTEP_VAE_DECODE_CHUNK_SIZE=256
 ENV HF_HOME=/models/huggingface
 ENV XDG_CACHE_HOME=/models/cache
 ENV TORCH_HOME=/models/torch

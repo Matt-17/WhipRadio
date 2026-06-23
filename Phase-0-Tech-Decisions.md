@@ -74,10 +74,51 @@ spoken reference is not ready, manual song requests stay queued at the front and
 automatic production skips the cycle instead of generating a vocal song without a
 reference.
 
-**Deferred:** live ACE-Step LoRA is disabled for song production. Existing LoRA
-provider code remains as offline/future infrastructure, but the runtime producer no
-longer trains, exports, loads, scales, toggles, or sends LoRA adapter fields for live
-recording. Reliable sung/spoken reference audio is the active continuity mechanism.
+**Removed:** ACE-Step artist-voice LoRA was evaluated and dropped. A single-song
+LoRA did not clone the voice, while the short Qwen-designed spoken `ref_audio` clip
+transferred the voice well at a fraction of the cost. The LoRA train/preprocess/
+export/load/scale/toggle code, its `AceStepLora*` request fields, and its config were
+removed. Sung/spoken `ref_audio` is the sole voice-continuity mechanism.
+
+## ACE-Step Sidecar: Decode Quality And Liveness
+
+**Implemented:** the ACE-Step sidecar image sets `ACESTEP_VAE_DECODE_CHUNK_SIZE=256`.
+On a ≤12 GB GPU the auto decode chunk size is 128 while the tile overlap is fixed at
+64, so `chunk_size − 2·overlap == 0` — the decoder force-halved the crossfade to 32 and
+logged `[tiled_decode] Reduced overlap from 64 to 32` on every song. At 256 the full
+64-frame crossfade is valid (`256 − 128 = 128`), giving larger tiles, smoother audio,
+and no warning. Decode peak was ~8.9 GB on the 12 GB card; lower to 192 if OOM
+fallbacks ever trigger. Model/checkpoint caches must live under the persistent
+`/models` bind, not the container's writable layer, so recreating the container does
+not re-download the 5Hz LM.
+
+**Operational rule:** do not keep the 5Hz LM resident in VRAM during VAE decode. On the
+12 GB card in CPU-offload mode, a 207 s decode with the LM pinned alongside the DiT
+thrashed for 9+ minutes at ~310 MB free; with only the DiT initialized (LM loaded
+transiently then offloaded, ~5.8 GB free) the same song decoded in ~8 s. The
+orchestrator must not force-init the LM for generation, and the LM must be offloaded
+before the decode tile loop.
+
+**Implemented:** the sidecar supervises its own liveness so a wedged queue cannot brick
+generation while `/health` stays green. The image `CMD` is `whip_watchdog.py` (PID 1):
+it spawns `api_server` as a child, polls `/v1/stats` every 30 s, and if jobs are
+pending but none reach a terminal state for `ACESTEP_STUCK_TIMEOUT_SECONDS` it kills
+the server and exits. The container runs `--restart unless-stopped`, so the exit brings
+up a fresh server — the whole recovery loop lives in the sidecar and survives a
+published deployment. Layered timeouts, with the invariant **STUCK > GENERATION_TIMEOUT**
+so a legitimately long song is never mistaken for a wedge:
+
+| Knob | Where | Value | Meaning |
+|---|---|---|---|
+| `ACESTEP_GENERATION_TIMEOUT` | sidecar env | 600 s | hard cap for one song; overrun → job `failed` (a terminal state) |
+| `ACESTEP_STUCK_TIMEOUT_SECONDS` | watchdog env | 1200 s | wedge detector → kill + container restart |
+| `GenerationTimeout` | orchestrator `appsettings` | 45 min | the app's outer patience on a request |
+
+`start-studios.ps1` creates studio containers with the watchdog CMD,
+`--restart unless-stopped`, and the 10/20-min timeouts. Orchestrator-side recovery
+(`StudioMusicGenerator` catching `TimeoutException` → `StudioDockerControl.TryRestartAsync`,
+plus the studios-page restart button) is now a secondary dev/operator convenience, not
+the safety net.
 
 ## LLM: Gemma 4 E4B Via Ollama
 
@@ -260,3 +301,28 @@ liveness probe.
 - `.\build.ps1` and `.\test.ps1` stay green at each milestone.
 - Everything is local except declared external sources/providers: weather, optional
   OpenAI/ElevenLabs, optional remote studios, and future explicitly configured sources.
+
+## Music Selection Diversity
+
+**Firm decision:** the same song must not be chosen twice within a format's
+back-to-back shows. The track selector hard-excludes every track aired since the
+start of the previous show (the `ShowWindows.ExclusionSinceUtc` cutoff). When the
+library is small and that window would empty the pool, the previous-show layer is
+dropped first, keeping only the short recent window
+(`StationSettings.RecentExclusionCount`, default 5) excluded — graceful relaxation
+that preserves the no-immediate-repeat guarantee.
+
+Selection rules are **format-aware**, driven by a structured `FormatSelectionRules`
+owned type on `Format`, produced once at format-creation time by an LLM that reads
+the director's free-text `Format.Description`. An "artist feature" format locks to
+one artist (`SingleArtistFeature`); a "theme night" leans on a keyword
+(`ThemeBlock`); an "eclectic mix" skips the genre filter (`Freeform`); everything
+else uses `StandardRotation` with artist-repeat caps and subgenre variety. The
+modes relax deterministically (`SingleArtistFeature` → `SpotlightArtist` →
+`StandardRotation`) before the no-repeat window is ever dropped.
+
+The whole feature ships behind `StationSettings.SelectionDiversityEnabled`
+(default on). When off, the selector falls back to the legacy last-N exclusion
+behavior. The host prompt receives the current and previous show's aired tracks
+with an explicit "do not reintroduce or back-announce these as if new" instruction,
+mirroring the existing `AlreadySpokenContext` anti-repeat pattern.

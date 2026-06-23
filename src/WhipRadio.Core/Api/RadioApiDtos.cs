@@ -112,7 +112,9 @@ public sealed record PlayLogEntryDto(
     string? ModeratorName,
     double DurationSeconds,
     string? Transcript,
-    IReadOnlyList<TalkPartDto>? TalkParts = null);
+    IReadOnlyList<TalkPartDto>? TalkParts = null,
+    string? ArtistName = null,
+    string? ArtistSlug = null);
 
 public sealed record TalkPartDto(
     int SortOrder,

@@ -1,0 +1,40 @@
+Design the music-selection rules for one WhipRadio show format.
+
+Station context:
+- Station name: {StationName}
+- Slogan: {StationSlogan}
+
+Format details:
+- Name: {FormatName}
+- Description: {Description}
+- Director's reason: {Reason}
+- Genre: {Genre}
+- Subgenre: {Subgenre}
+
+Available artists in the catalog (id | name | genre/subgenre):
+{ArtistCatalog}
+
+Decide how this format should select music, based on its description.
+- "artist feature", "spotlight", "dedicated to <artist>", "all <artist>" -> SingleArtistFeature, and set FeaturedArtistId to the matching artist id from the catalog.
+- "spotlight", "focus on <artist>", "celebrate <artist>" without exclusivity -> SpotlightArtist with FeaturedArtistId.
+- "theme", "journey", "mood", "<keyword> night" -> ThemeBlock with a short Theme keyword.
+- "freeform", "open", "anything goes", "eclectic mix" -> Freeform.
+- Otherwise -> StandardRotation.
+
+Rules:
+- Only set FeaturedArtistId to an id that actually appears in the catalog. If the named artist is not in the catalog, use StandardRotation instead.
+- MaxArtistPlaysPerHour: lower (1) for variety formats, higher (3) for artist-focused ones. Omit for SingleArtistFeature (it is ignored there).
+- ArtistLookbackTracks: 8 by default; 12 for tight variety formats.
+- Theme: one to three lowercase keywords when ThemeBlock; omit otherwise.
+- Return valid JSON only. No markdown fences, comments, trailing commas, or function-call syntax.
+
+Answer with exactly one JSON object in this schema:
+{
+  "mode": "<StandardRotation | SingleArtistFeature | SpotlightArtist | ThemeBlock | Freeform>",
+  "featuredArtistId": "<artist Guid from the catalog, or null>",
+  "maxArtistPlaysPerHour": 2,
+  "artistLookbackTracks": 8,
+  "subgenreRotation": true,
+  "preferHostGenres": true,
+  "theme": "<short keyword or null>"
+}

@@ -1,3 +1,5 @@
+using WhipRadio.Core.Selection;
+
 namespace WhipRadio.Core.Entities;
 
 public enum TalkDepth
@@ -47,4 +49,10 @@ public class Format
     public int DownVotes { get; set; }
 
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// How this format wants tracks selected. Populated once at format-creation
+    /// time by an LLM reading <see cref="Description"/>; defaults to StandardRotation.
+    /// </summary>
+    public FormatSelectionRules SelectionRules { get; set; } = new();
 }

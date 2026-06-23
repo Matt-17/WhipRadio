@@ -23,7 +23,6 @@ Model weights and hosted APIs are not covered by the license of the wrapper libr
 | Piper voices | Local TTS sidecar | `rhasspy/piper-voices` | Model repository is MIT, but the installed `piper-tts` package is `GPL-3.0-or-later`. |
 | Qwen3-TTS clone model | Local TTS sidecar | `Qwen/Qwen3-TTS-12Hz-0.6B-Base` | Apache-2.0. |
 | Qwen3-TTS voice design model | Local TTS sidecar | `Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign` | Apache-2.0. |
-| Artist LoRA adapters | ACE-Step personalization | `data` and `/models/whipradio/lora/artists/...` | Generated locally from station tracks. Track source-song ownership and consent separately from software licenses. |
 
 ## Hosted APIs
 

@@ -1,3 +1,5 @@
+using WhipRadio.Core.Selection;
+
 namespace WhipRadio.Core.Entities;
 
 /// <summary>
@@ -12,4 +14,6 @@ public sealed record ShowContext(
     int? SlotStartMinute = null,
     int? SlotDurationMinutes = null,
     int? RemainingSlotMinutes = null,
-    string? NextFormatName = null);
+    string? NextFormatName = null,
+    ShowWindows? ShowWindows = null,
+    SelectionSettings? Selection = null);

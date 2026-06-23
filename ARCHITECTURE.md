@@ -29,7 +29,7 @@ Data root (Radio:DataRoot, usually ./data in development)
 |-- db/radio.db
 |-- library/tracks/*.wav
 |-- announcements, jingles, generated media
-`-- acestep/lora-datasets and other generated support files
+`-- voice references and other generated support files
 ```
 
 Aspire deliberately does not own Ollama, ACE-Step, TTS, or analysis. Those
@@ -177,8 +177,7 @@ continuation, chunking, or stitching to ACE-Step paths.
 For vocal ACE-Step songs, artist history can provide:
 
 - artist/member voice prompts;
-- a short reference-audio clip from a previous vocal track;
-- optional artist LoRA dataset, adapter, and activation metadata.
+- a short reference-audio clip (the designed lead-vocalist voice) uploaded as `ref_audio`.
 
 The reference audio sent to ACE-Step should be short. Sending a whole previous
 song makes ACE-Step spend minutes decoding reference audio before generation.

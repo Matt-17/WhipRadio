@@ -708,6 +708,66 @@ table.console-table {
 .console-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .console-table .dim { color: var(--muted); }
 
+/* A new entry just went out over the air — drop it in with a warm VFD phosphor
+   flash so the eye catches it, no jarring reload. The marker is removed once
+   the flash plays out (see PlayLog) so normal row hover returns. */
+.console-table tbody tr.playlog-new {
+    animation:
+        playlog-drop .5s cubic-bezier(.2, .7, .3, 1),
+        playlog-flash 1.9s ease-out;
+}
+
+.console-table tbody tr.playlog-new td:first-child {
+    animation: playlog-edge 1.9s ease-out;
+}
+
+@keyframes playlog-drop {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes playlog-flash {
+    0% { background: rgba(255, 180, 84, 0.26); }
+    100% { background: rgba(255, 180, 84, 0); }
+}
+
+@keyframes playlog-edge {
+    0%, 65% { box-shadow: inset 3px 0 0 var(--amber); }
+    100% { box-shadow: inset 3px 0 0 rgba(255, 180, 84, 0); }
+}
+
+/* "On air" marker on the play log's top row while that item is still playing —
+   a warm VFD glow with a pulsing lamp, echoing the footer's live dot. */
+.now-on-air {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--amber);
+    text-shadow: var(--glow-amber);
+}
+
+.now-on-air-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber), 0 0 18px rgba(255, 180, 84, 0.5);
+    animation: lamp-pulse 1.6s ease-in-out infinite;
+}
+
+/* The on-air row sits a touch taller and larger so the live entry reads as the
+   headline of the log. */
+.console-table tbody tr.now-row td {
+    padding-top: 15px;
+    padding-bottom: 15px;
+    font-size: 14px;
+}
+
 .note-copy {
     font-family: var(--font-mono);
     font-size: 12.5px;
@@ -2747,6 +2807,16 @@ table.console-table {
 }
 
 .btn.small { padding: 5px 10px; font-size: 11px; }
+
+/* Icon-only action button (e.g. play a talk straight into the footer player). */
+.btn.icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 9px;
+}
+
+.btn.icon-btn svg { display: block; }
 
 /* ---------- transcripts ---------- */
 

@@ -205,8 +205,8 @@
                                         <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
                                     </span>
                                 </div>
-                                <div class="library-title-line" title="@(_status?.TrackTitle ?? "a new song…")">
-                                    <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "a new song…")</span>
+                                <div class="library-title-line" title="@(_status?.TrackTitle ?? "Recording a new song…")">
+                                    <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "Recording a new song…")</span>
                                 </div>
                                 <div class="library-recording-status">
                                     @if (_selectedArtistId is null && _status?.ArtistName is { } genName)

@@ -1,3 +1,4 @@
+using WhipRadio.Core.Entities;
 using WhipRadio.Core.Selection;
 
 namespace WhipRadio.Core.Tests;
@@ -36,6 +37,24 @@ public class TrackWeightingTests
     {
         // votes: 1 + 0.5*4 - 0.7*1 = 2.3 ; fatigue: 1/(1+2*0.15) = 1/1.3
         Assert.Equal(2.3 / 1.3, TrackWeighting.Weight(upVotes: 4, downVotes: 1, playCount: 2), precision: 10);
+    }
+
+    [TestMethod]
+    public void Weight_ConfigurableFatigueFactorSteepensDecay()
+    {
+        // With a steeper factor (0.3 instead of 0.15), play count 10 fades faster.
+        var standard = TrackWeighting.Weight(0, 0, 10, 0.15);   // 1/2.5 = 0.4
+        var steep = TrackWeighting.Weight(0, 0, 10, 0.3);       // 1/4.0 = 0.25
+        Assert.Equal(0.4, standard, precision: 10);
+        Assert.Equal(0.25, steep, precision: 10);
+        Assert.True(steep < standard);
+    }
+
+    [TestMethod]
+    public void Weight_TrackOverloadHonorsFatigueFactor()
+    {
+        var track = new Track { PlayCount = 10 };
+        Assert.Equal(0.25, TrackWeighting.Weight(track, 0.3), precision: 10);
     }
 
     [TestMethod]

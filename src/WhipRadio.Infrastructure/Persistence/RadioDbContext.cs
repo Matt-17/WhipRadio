@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Selection;
 
 namespace WhipRadio.Infrastructure.Persistence;
 
@@ -159,6 +160,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         {
             entry.Property(e => e.ItemType).HasConversion<string>();
             entry.HasIndex(e => e.PlayedAt);
+            entry.HasIndex(e => new { e.ItemType, e.PlayedAt });
         });
 
         modelBuilder.Entity<Vote>()
@@ -172,6 +174,13 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             format.HasOne(f => f.Moderator)
                 .WithMany()
                 .HasForeignKey(f => f.ModeratorId);
+            format.OwnsOne(f => f.SelectionRules, rules =>
+            {
+                rules.Property(r => r.Mode).HasConversion<string>().HasDefaultValue(SelectionMode.StandardRotation);
+                rules.Property(r => r.ArtistLookbackTracks).HasDefaultValue(8);
+                rules.Property(r => r.SubgenreRotation).HasDefaultValue(true);
+                rules.Property(r => r.PreferHostGenres).HasDefaultValue(true);
+            });
         });
 
         modelBuilder.Entity<ProgramSlot>(slot =>

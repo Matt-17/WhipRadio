@@ -417,10 +417,14 @@ public static class RadioApiEndpoints
             {
                 string title;
                 string? transcript = null;
+                string? artistName = null;
+                string? artistSlug = null;
                 if (e.ItemType == PlayoutItemType.Track)
                 {
                     var track = tracks.GetValueOrDefault(e.ItemId);
-                    title = track is null ? "(deleted track)" : $"{track.Artist?.Name ?? "?"} — {track.Title}";
+                    title = track?.Title ?? "(deleted track)";
+                    artistName = track?.Artist?.Name;
+                    artistSlug = track?.Artist?.Slug;
                 }
                 else
                 {
@@ -440,7 +444,9 @@ public static class RadioApiEndpoints
                             .OrderBy(part => part.SortOrder)
                             .Select(ToDto)
                             .ToList()
-                        : null);
+                        : null,
+                    artistName,
+                    artistSlug);
             }).ToList();
 
             return Results.Ok(result);

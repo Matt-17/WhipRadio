@@ -1,0 +1,7 @@
+Todos
+- Nachrichten und Wetter abspielen funktioniert nicht mehr -> 1s dann Neustart. Preview geht. 
+- Nachrichten und Wetter dürfen nur Teile neu erstellen, die noch nicht fertig waren wenn es ein Problem oder Neustart gab
+- Shift von TASK(Parameter) zu Json! Immer Json erwarten mit Events, answer, ... 
+- Formats mit Subtitle für nächste Show. Schedule mit Datum. Subtitle ist das Thema der show. allgemeine shows, aber auch zum Beispiel Artist vorstlellung. 
+- Prüfen ob Package zweimal parallel erzeugt wird. 
+- Admin: AI Funktionen deaktivieren können und nur zufällig songs spielen

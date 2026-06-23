@@ -335,6 +335,7 @@ public partial class ProgramDirectorService(
                     TalkDepth = GuessFormatTalkDepth(block),
                     CreatedAt = DateTime.UtcNow,
                 };
+                await PlanFormatSelectionRulesAsync(scope, db, format, ct);
                 db.Formats.Add(format);
                 formats.Add(format);
                 logger.LogInformation("Director created format \"{Name}\" ({Genre}/{Subgenre})",
@@ -523,4 +524,33 @@ public partial class ProgramDirectorService(
         => GenreCatalog.Genres.FirstOrDefault(g => string.Equals(g, genre, StringComparison.OrdinalIgnoreCase))
            ?? GenreCatalog.Subgenres.FirstOrDefault(kv => kv.Value.Contains(genre, StringComparer.OrdinalIgnoreCase)).Key
            ?? "electronic";
+
+    /// <summary>
+    /// Asks the LLM to read the format description and produce structured
+    /// <see cref="FormatSelectionRules"/> (so an "artist feature" locks to one
+    /// artist, a "theme night" leans on a keyword, etc.). Falls back to the
+    /// default StandardRotation rules on any failure — never blocks format creation.
+    /// </summary>
+    private static async Task PlanFormatSelectionRulesAsync(
+        IServiceScope scope, RadioDbContext db, Format format, CancellationToken ct)
+    {
+        try
+        {
+            var catalog = await db.Artists.AsNoTracking()
+                .Where(a => !a.IsRetired)
+                .OrderBy(a => a.Name)
+                .Take(40)
+                .Select(a => new ArtistCatalogEntry(a.Id, a.Name, a.Genre, a.Subgenre))
+                .ToListAsync(ct);
+
+            var llm = scope.ServiceProvider.GetRequiredService<ITextGenerationService>();
+            var planner = new FormatRulesPlanner(llm);
+            var rules = await planner.PlanAsync(format, catalog, ct);
+            format.SelectionRules = rules;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // SelectionRules already defaults to StandardRotation via field initializer.
+        }
+    }
 }

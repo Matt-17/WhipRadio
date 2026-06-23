@@ -4,40 +4,12 @@
 @implements IDisposable
 @inject RadioApiClient Api
 @inject RadioLiveClient Live
-@inject IJSRuntime Js
+@inject PlayerState Player
 
 <PageTitle>WhipRadio — Play Log</PageTitle>
 
 <h1 class="stage-title">Play Log</h1>
 <div class="stage-sub">what went out over the air — talks replayable for an hour and beyond</div>
-
-@if (Live.Queue.Count > 0)
-{
-    <div class="panel reveal">
-        <div class="panel-label">Up Next</div>
-        <div class="console-table-wrap">
-        <table class="console-table">
-            <tbody>
-                @foreach (var item in Live.Queue)
-                {
-                    <tr>
-                        <td style="width:90px"><span class="tag @(item.ItemType == "Track" ? "amber" : "")">@(item.ItemType == "Track" ? "track" : "talk")</span></td>
-                        <td>@item.Title</td>
-                        <td class="num dim" style="width:80px">@FormatClock(TimeSpan.FromSeconds(item.DurationSeconds))</td>
-                    </tr>
-                }
-            </tbody>
-        </table>
-        </div>
-    </div>
-}
-else
-{
-    <div class="panel reveal">
-        <div class="panel-label">Up Next</div>
-        <div class="empty-state">queue is empty</div>
-    </div>
-}
 
 <div class="panel reveal">
     @if (_entries is null)
@@ -63,62 +35,55 @@ else
                 </tr>
             </thead>
             <tbody>
+                @{
+                    var nowPlayingEntry = NowPlayingEntry;
+                }
                 @foreach (var entry in _entries)
                 {
-                    <tr>
-                        <td class="dim">@entry.PlayedAt.ToLocalTime().ToString("dd.MM. HH:mm:ss")</td>
+                    var isNowPlaying = ReferenceEquals(entry, nowPlayingEntry);
+                    <tr @key="EntryKey(entry)" class="@RowCss(entry, isNowPlaying)">
+                        <td class="dim">
+                            @if (isNowPlaying)
+                            {
+                                <span class="now-on-air" title="currently on air">
+                                    <span class="now-on-air-dot" aria-hidden="true"></span>on air
+                                </span>
+                            }
+                            else
+                            {
+                                <TimeAgo Date="@AsUtc(entry.PlayedAt)" />
+                            }
+                        </td>
                         <td>
                             <span class="tag @(entry.ItemType == "Track" ? "amber" : "")">@(entry.ItemType == "Track" ? "track" : "talk")</span>
                         </td>
-                        <td>@entry.Title</td>
+                        <td>
+                            @entry.Title
+                            @if (entry.ArtistName is { Length: > 0 } artist)
+                            {
+                                <span class="dim"> by </span>
+                                @if (entry.ArtistSlug is { Length: > 0 } slug)
+                                {
+                                    <a href="@ArtistHref(slug)">@artist</a>
+                                }
+                                else
+                                {
+                                    @artist
+                                }
+                            }
+                        </td>
                         <td class="dim">@(entry.ModeratorName ?? "—")</td>
                         <td class="num dim">@FormatClock(TimeSpan.FromSeconds(entry.DurationSeconds))</td>
                         <td style="white-space:nowrap">
                             @if (entry.ItemType == "Announcement")
                             {
-                                <button class="btn small" @onclick="() => PlayTalkAsync(entry.ItemId)">▶ play</button>
-                                @if (entry.Transcript is not null)
-                                {
-                                    <button class="btn small" @onclick="() => ToggleTranscript(entry.ItemId)">
-                                        @(_openTranscripts.Contains(entry.ItemId) ? "hide text" : "text")
-                                    </button>
-                                }
-                                @if (entry.TalkParts?.Count > 0)
-                                {
-                                    <button class="btn small" @onclick="() => ToggleParts(entry.ItemId)">
-                                        @(_openParts.Contains(entry.ItemId) ? "hide parts" : "parts")
-                                    </button>
-                                }
+                                <button class="btn small icon-btn" title="play in player" aria-label="play talk"
+                                        @onclick="() => PlayTalk(entry)">
+                                    <Icon Name="play" Size="16" />
+                                </button>
                             }
                         </td>
                     </tr>
-                    @if (entry.TalkParts?.Count > 0 && _openParts.Contains(entry.ItemId))
-                    {
-                        <tr>
-                            <td colspan="6">
-                                <div class="talk-parts">
-                                    @foreach (var part in entry.TalkParts.OrderBy(part => part.SortOrder))
-                                    {
-                                        <div class="talk-part-row">
-                                            <span class="tag">@part.Kind</span>
-                                            <span>@part.Purpose</span>
-                                            <span class="dim">@part.Priority</span>
-                                            @if (part.WordBudget is not null)
-                                            {
-                                                <span class="dim">@part.WordBudget words</span>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                            </td>
-                        </tr>
-                    }
-                    @if (entry.Transcript is not null && _openTranscripts.Contains(entry.ItemId))
-                    {
-                        <tr>
-                            <td colspan="6"><div class="transcript">@entry.Transcript</div></td>
-                        </tr>
-                    }
                 }
             </tbody>
         </table>
@@ -128,35 +93,107 @@ else
 
 @code {
     private List<PlayLogEntryDto>? _entries;
-    private readonly HashSet<Guid> _openTranscripts = [];
-    private readonly HashSet<Guid> _openParts = [];
+
+    // Identity of the on-air item we last logged, so an incoming SignalR push
+    // (which also fires for votes/status) only re-pulls the log on a real flip.
+    private string? _lastNowPlayingKey;
+    // The freshly-aired row to flash, cleared once the arrival animation ends.
+    private string? _flashKey;
+    private CancellationTokenSource? _flashCts;
 
     protected override async Task OnInitializedAsync()
     {
-        Live.Changed += OnChanged;
+        // Snapshot before subscribing so the item already on air doesn't flash
+        // as if it just arrived on first paint.
+        await Live.EnsureStartedAsync();
         _entries = await Api.GetPlayLogAsync();
+        _lastNowPlayingKey = NowPlayingKey(Live.NowPlaying);
+        Live.Changed += OnChanged;
     }
 
-    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnChanged() => _ = InvokeAsync(HandleChangedAsync);
 
-    private async Task PlayTalkAsync(Guid id)
-        => await Js.InvokeVoidAsync("whipRadio.playClip", Api.AnnouncementAudioUrl(id));
-
-    private void ToggleTranscript(Guid id)
+    private async Task HandleChangedAsync()
     {
-        if (!_openTranscripts.Remove(id))
+        var key = NowPlayingKey(Live.NowPlaying);
+        if (key is not null && key != _lastNowPlayingKey)
         {
-            _openTranscripts.Add(id);
+            _lastNowPlayingKey = key;
+            _entries = await Api.GetPlayLogAsync();
+            if (_entries.Count > 0)
+            {
+                FlashNewest(EntryKey(_entries[0]));
+            }
         }
+
+        StateHasChanged();
     }
 
-    private void ToggleParts(Guid id)
+    private void FlashNewest(string entryKey)
     {
-        if (!_openParts.Remove(id))
+        _flashCts?.Cancel();
+        _flashCts = new CancellationTokenSource();
+        var token = _flashCts.Token;
+        _flashKey = entryKey;
+
+        // Drop the marker once the CSS arrival flash has played out, so the row
+        // returns to normal hover behaviour.
+        _ = Task.Run(async () =>
         {
-            _openParts.Add(id);
-        }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(2000), token);
+                _flashKey = null;
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (TaskCanceledException)
+            {
+                // Superseded by a newer arrival — that one owns the flash now.
+            }
+        });
     }
 
-    public void Dispose() => Live.Changed -= OnChanged;
+    // The newest logged entry, but only while it is still the item on air — so
+    // the top row shows a live "on air" marker instead of a "time ago" stamp.
+    private PlayLogEntryDto? NowPlayingEntry
+        => _entries is { Count: > 0 } && Live.NowPlaying is { } np && _entries[0].ItemId == np.ItemId
+            ? _entries[0]
+            : null;
+
+    private static string? NowPlayingKey(NowPlayingDto? np)
+        => np is null ? null : $"{np.ItemId:N}-{np.StartedAtUtc.Ticks}";
+
+    private static string EntryKey(PlayLogEntryDto entry)
+        => $"{entry.ItemId:N}-{entry.PlayedAt.Ticks}";
+
+    // PlayedAt is UTC at the source; guard the Kind in case JSON round-tripping
+    // dropped it to Unspecified, so TimeAgo localises correctly.
+    private static DateTime AsUtc(DateTime value)
+        => value.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(value, DateTimeKind.Utc)
+            : value;
+
+    private static string ArtistHref(string slug)
+        => $"/library/artists/{Uri.EscapeDataString(slug)}";
+
+    private string? RowCss(PlayLogEntryDto entry, bool isNowPlaying)
+    {
+        var nowRow = isNowPlaying ? "now-row" : null;
+        var flash = EntryKey(entry) == _flashKey ? "playlog-new" : null;
+        return string.Join(' ', new[] { nowRow, flash }.Where(c => c is not null)) is { Length: > 0 } css
+            ? css
+            : null;
+    }
+
+    // Route the talk into the footer player (a seekable preview) rather than a
+    // one-shot clip, so transport controls and volume apply.
+    private void PlayTalk(PlayLogEntryDto entry)
+        => Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds);
+
+    public void Dispose()
+    {
+        Live.Changed -= OnChanged;
+        _flashCts?.Cancel();
+        _flashCts?.Dispose();
+    }
 }

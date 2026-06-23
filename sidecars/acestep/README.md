@@ -8,7 +8,7 @@ Dedicated ACE-Step 1.5 container for complete local song generation.
   `/query_result`, `/v1/audio`)
 - Exposes port `8002`
 - Stores model weights and runtime caches under `/models`
-- Reads curated WhipRadio reference/LoRA dataset audio from `/app/data`
+- Reads curated WhipRadio `ref_audio` voice references from `/app/data`
 
 The Docker build installs ACE-Step with the upstream `uv.lock`, then pins the
 PyTorch runtime to the CUDA 12.8 wheel stack (`torch==2.8.0`,
@@ -17,9 +17,8 @@ during image build; they are downloaded on first generation into the mounted
 `/models` volume.
 
 WhipRadio's `start-studios.ps1` mounts the station data directory read-only at
-`/app/data` for ACE-Step. This lets vocal song generation upload direct
-`ref_audio` references and lets per-artist LoRA training scan curated source
-copies under `data/acestep/lora-datasets`.
+`/app/data` for ACE-Step. This lets vocal song generation upload the designed
+lead-vocalist voice clip directly as a `ref_audio` reference.
 
 `start-studios.ps1` also sets:
 
@@ -27,13 +26,6 @@ copies under `data/acestep/lora-datasets`.
   by ACE-Step's default 600 s internal diffusion guard.
 - `ACESTEP_STUCK_TIMEOUT_SECONDS=2400` so the watchdog only restarts the API
   server after a genuinely stalled long recording.
-
-Artist voice LoRA defaults are intentionally conservative for 12 GB cards:
-rank 32, alpha 64, batch size 1, and gradient checkpointing enabled. The
-dataset still includes ACE-Step-compatible metadata (caption, lyrics, language,
-instrumental flag, and a per-artist trigger tag) so the same curated reference
-folder can later be reused by stronger external training tools such as
-Side-Step.
 
 ## Build
 

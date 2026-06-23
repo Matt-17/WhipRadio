@@ -150,6 +150,171 @@ public class WeightedTrackSelectorTests
         Assert.Equal(WeightedTrackSelector.RecentExclusionCount, repository.RequestedRecentCount);
     }
 
+    [TestMethod]
+    public void Pick_HardExcludesPreviousShowTracks()
+    {
+        var tracks = Enumerable.Range(0, 6).Select(_ => NewTrack("lofi")).ToList();
+        var hardExcluded = new[] { tracks[0].Id, tracks[1].Id, tracks[2].Id, tracks[3].Id };
+        var recentExcluded = new[] { tracks[0].Id };
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                tracks, Context("lofi"), hardExcluded, recentExcluded, [],
+                FormatSelectionRules.Default, SelectionSettings.Default, new Random(i));
+            Assert.True(picked is not null && !hardExcluded.Contains(picked.Id));
+        }
+    }
+
+    [TestMethod]
+    public void Pick_RelaxesPreviousShowWindowWhenPoolEmpties()
+    {
+        // Only 3 tracks; all 3 are hard-excluded (played this/previous show), but
+        // only track[0] is in the short recent window. Relaxation must drop the
+        // previous-show layer and pick from tracks[1] or tracks[2] (not tracks[0]).
+        var tracks = Enumerable.Range(0, 3).Select(_ => NewTrack("lofi")).ToList();
+        var hardExcluded = tracks.Select(t => t.Id).ToList();
+        var recentExcluded = new[] { tracks[0].Id };
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                tracks, Context("lofi"), hardExcluded, recentExcluded, [],
+                FormatSelectionRules.Default, SelectionSettings.Default, new Random(i));
+            Assert.NotNull(picked);
+            Assert.NotEqual(tracks[0].Id, picked!.Id); // short-recent always enforced
+        }
+    }
+
+    [TestMethod]
+    public void Pick_NeverRelaxesBelowRecentWindow()
+    {
+        // One track, excluded by both hard and recent -> no relaxation can save it.
+        var track = NewTrack("lofi");
+        var picked = WeightedTrackSelector.Pick(
+            [track], Context("lofi"), [track.Id], [track.Id], [],
+            FormatSelectionRules.Default, SelectionSettings.Default, Seeded);
+        Assert.Null(picked);
+    }
+
+    [TestMethod]
+    public void Pick_PreventsBackToBackArtist()
+    {
+        var artistA = Guid.NewGuid();
+        var artistB = Guid.NewGuid();
+        var a1 = NewTrack("lofi"); a1.ArtistId = artistA;
+        var a2 = NewTrack("lofi"); a2.ArtistId = artistA;
+        var b1 = NewTrack("lofi"); b1.ArtistId = artistB;
+        var refs = new[] { new PlayedTrackRef(a1.Id, artistA, "lofi hip hop", DateTime.UtcNow) };
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [a1, a2, b1], Context("lofi"), [], [], refs,
+                FormatSelectionRules.Default, SelectionSettings.Default, new Random(i));
+            Assert.Equal(b1.Id, picked!.Id); // artist A just played -> must pick B
+        }
+    }
+
+    [TestMethod]
+    public void Pick_ArtistCapLimitsPlaysPerLookback()
+    {
+        var artistA = Guid.NewGuid();
+        var artistB = Guid.NewGuid();
+        var a1 = NewTrack("lofi"); a1.ArtistId = artistA;
+        var b1 = NewTrack("lofi"); b1.ArtistId = artistB;
+        // Artist A already played twice in the lookback; cap=2 -> A rejected.
+        var refs = new[]
+        {
+            new PlayedTrackRef(a1.Id, artistA, "lofi hip hop", DateTime.UtcNow),
+            new PlayedTrackRef(a1.Id, artistA, "lofi hip hop", DateTime.UtcNow.AddMinutes(-5)),
+        };
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [a1, b1], Context("lofi"), [], [], refs,
+                FormatSelectionRules.Default, SelectionSettings.Default, new Random(i));
+            Assert.Equal(b1.Id, picked!.Id);
+        }
+    }
+
+    [TestMethod]
+    public void Pick_SubgenreRotationAvoidsSameSubgenreBackToBack()
+    {
+        var techno = NewTrack("electronic"); techno.Subgenre = "techno";
+        var trance = NewTrack("electronic"); trance.Subgenre = "trance";
+        var refs = new[] { new PlayedTrackRef(techno.Id, null, "techno", DateTime.UtcNow) };
+        // Context electronic/techno would normally lock to techno, but rotation
+        // soft-prefers a different subgenre when one just played.
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [techno, trance], Context("electronic", "techno"), [], [], refs,
+                FormatSelectionRules.Default, SelectionSettings.Default, new Random(i));
+            Assert.Equal(trance.Id, picked!.Id);
+        }
+    }
+
+    [TestMethod]
+    public void Pick_SingleArtistFeatureNarrowsToFeaturedArtist()
+    {
+        var featured = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var f1 = NewTrack("lofi"); f1.ArtistId = featured;
+        var f2 = NewTrack("lofi"); f2.ArtistId = featured;
+        var o1 = NewTrack("lofi"); o1.ArtistId = other;
+        var rules = new FormatSelectionRules { Mode = SelectionMode.SingleArtistFeature, FeaturedArtistId = featured };
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [f1, f2, o1], Context("lofi"), [], [], [], rules, SelectionSettings.Default, new Random(i));
+            Assert.Equal(featured, picked!.ArtistId);
+        }
+    }
+
+    [TestMethod]
+    public void Pick_SingleArtistFeatureRelaxesToStandardWhenExhausted()
+    {
+        var featured = Guid.NewGuid();
+        var other = Guid.NewGuid();
+        var f1 = NewTrack("lofi"); f1.ArtistId = featured;
+        var o1 = NewTrack("lofi"); o1.ArtistId = other;
+        var rules = new FormatSelectionRules { Mode = SelectionMode.SingleArtistFeature, FeaturedArtistId = featured };
+        // The only featured track is hard-excluded -> feature exhausts -> relax to StandardRotation -> pick o1.
+        var picked = WeightedTrackSelector.Pick(
+            [f1, o1], Context("lofi"), [f1.Id], [], [], rules, SelectionSettings.Default, Seeded);
+        Assert.Equal(o1.Id, picked!.Id);
+    }
+
+    [TestMethod]
+    public void Pick_DiversityDisabledFallsBackToLegacyBehavior()
+    {
+        var tracks = Enumerable.Range(0, 4).Select(_ => NewTrack("lofi")).ToList();
+        Guid[] recent = [tracks[0].Id, tracks[1].Id, tracks[2].Id];
+        var disabled = SelectionSettings.Disabled;
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                tracks, Context("lofi"), recent, recent, [], FormatSelectionRules.Default, disabled, new Random(i));
+            Assert.Equal(tracks[3].Id, picked!.Id);
+        }
+    }
+
+    [TestMethod]
+    public void Pick_FreeformSkipsGenreFilter()
+    {
+        var lofi = NewTrack("lofi");
+        var rock = NewTrack("indie rock");
+        var rules = new FormatSelectionRules { Mode = SelectionMode.Freeform };
+        // Context is lofi but Freeform ignores genre -> both tracks are eligible.
+        // Just assert it does not always pick lofi (genre filter would lock to lofi).
+        var pickedLofi = 0;
+        for (var i = 0; i < 40; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [lofi, rock], Context("lofi"), [], [], [], rules, SelectionSettings.Default, new Random(i));
+            if (picked!.Id == lofi.Id) pickedLofi++;
+        }
+        Assert.True(pickedLofi < 40, "Freeform should not lock to the context genre like StandardRotation does.");
+    }
+
     private sealed class FakeTrackRepository(IReadOnlyList<Track> candidates, IReadOnlyList<Guid> recent) : ITrackRepository
     {
         public int RequestedRecentCount { get; private set; }
@@ -161,5 +326,11 @@ public class WeightedTrackSelectorTests
             RequestedRecentCount = count;
             return Task.FromResult(recent);
         }
+
+        public Task<IReadOnlyList<Guid>> GetTrackIdsPlayedSinceAsync(DateTime sinceUtc, int maxCount, CancellationToken ct)
+            => Task.FromResult(recent);
+
+        public Task<IReadOnlyList<PlayedTrackRef>> GetRecentPlayedRefsAsync(int count, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<PlayedTrackRef>>([]);
     }
 }

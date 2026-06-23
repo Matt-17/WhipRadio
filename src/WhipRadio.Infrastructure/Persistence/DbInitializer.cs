@@ -247,6 +247,7 @@ public static class DbInitializer
 
         if (settings.MaxLibrarySize > 0)
         {
+            await PatchSelectionDiversitySettingsAsync(db, settings, ct);
             if (patched)
             {
                 await db.SaveChangesAsync(ct);
@@ -286,6 +287,36 @@ public static class DbInitializer
         settings.WeatherLatitude = defaults.WeatherLatitude;
         settings.WeatherLongitude = defaults.WeatherLongitude;
         settings.DefaultMusicProvider = defaults.DefaultMusicProvider;
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// One-time backfill: the FormatSelectionRules migration adds the selection-diversity
+    /// columns with 0/false defaults (so the migration is non-destructive). A row still in
+    /// that pristine post-migration state — every selection knob simultaneously zero/false —
+    /// has never been patched, so restore the intended defaults. Once patched the values are
+    /// non-zero, so this never runs again and never clobbers a user who later tunes the knobs
+    /// or deliberately disables the feature.
+    /// </summary>
+    private static async Task PatchSelectionDiversitySettingsAsync(
+        RadioDbContext db, StationSettings settings, CancellationToken ct)
+    {
+        var pristine = !settings.SelectionDiversityEnabled
+            && settings.RecentExclusionCount == 0
+            && settings.DefaultMaxArtistPlaysPerHour == 0
+            && settings.DefaultArtistLookbackTracks == 0
+            && settings.FatigueFactor == 0.0;
+        if (!pristine)
+        {
+            return;
+        }
+
+        var defaults = new StationSettings();
+        settings.SelectionDiversityEnabled = defaults.SelectionDiversityEnabled;
+        settings.RecentExclusionCount = defaults.RecentExclusionCount;
+        settings.DefaultMaxArtistPlaysPerHour = defaults.DefaultMaxArtistPlaysPerHour;
+        settings.DefaultArtistLookbackTracks = defaults.DefaultArtistLookbackTracks;
+        settings.FatigueFactor = defaults.FatigueFactor;
         await db.SaveChangesAsync(ct);
     }
 

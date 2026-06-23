@@ -153,6 +153,23 @@ public class StationSettings
 
     /// <summary>If true, the track selector skips unanalysed items.</summary>
     public bool AnalysisRequired { get; set; }
+
+    // --- Track selection diversity --------------------------------------------
+
+    /// <summary>Master switch for the format-aware diversity rules. Off = legacy last-N exclusion.</summary>
+    public bool SelectionDiversityEnabled { get; set; } = true;
+
+    /// <summary>Absolute floor: the last N played tracks are always excluded, never relaxed away.</summary>
+    public int RecentExclusionCount { get; set; } = 5;
+
+    /// <summary>Max plays by one artist within the lookback window (StandardRotation).</summary>
+    public int DefaultMaxArtistPlaysPerHour { get; set; } = 2;
+
+    /// <summary>How many recent plays the artist-repeat cap looks back at.</summary>
+    public int DefaultArtistLookbackTracks { get; set; } = 8;
+
+    /// <summary>Play-count fatigue coefficient in TrackWeighting. Higher = heavy-rotation tracks fade faster.</summary>
+    public double FatigueFactor { get; set; } = 0.15;
 }
 
 public static class TextProviders

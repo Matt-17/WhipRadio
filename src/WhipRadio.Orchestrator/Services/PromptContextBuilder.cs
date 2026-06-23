@@ -43,6 +43,20 @@ public sealed class PromptContextBuilder(
         var baselineTraits = moderator is null ? null : MoodEngine.Baseline(moderator);
         var currentTraits = moderator is null ? null : MoodEngine.Current(moderator, localNow);
 
+        ShowWindows? windows = null;
+        try
+        {
+            windows = await schedule.GetShowWindowsAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not resolve show windows for prompt context");
+        }
+
+        var (currentShowTracks, previousShowTracks) = windows is null
+            ? ([], [])
+            : await GetShowScopedTracksAsync(db, windows, ct);
+
         return new PromptContext
         {
             Scope = input.Scope,
@@ -73,6 +87,8 @@ public sealed class PromptContextBuilder(
             AvailableSeconds = availableSeconds,
             WordBudget = wordBudget,
             RecentTracks = await GetRecentTracksAsync(db, ct),
+            CurrentShowTracks = currentShowTracks,
+            PreviousShowTracks = previousShowTracks,
             RecentTalkTopics = await GetRecentTalkTopicsAsync(db, moderator?.Id, ct),
             RecurringBits = await GetRecurringBitsAsync(db, moderator?.Id, ct),
             QueuedListenerMessages = await GetQueuedListenerMessagesAsync(db, ct),
@@ -142,6 +158,65 @@ public sealed class PromptContextBuilder(
 
         return ids
             .Select(id => tracks.TryGetValue(id, out var track) ? FormatTrack(track) : null)
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Tracks aired in the current and previous show windows, formatted with the
+    /// local air time so the host can reference them honestly. These back the
+    /// anti-repeat instruction in <see cref="PromptContext.RenderSituation"/>.
+    /// </summary>
+    private static async Task<(IReadOnlyList<string> Current, IReadOnlyList<string> Previous)> GetShowScopedTracksAsync(
+        RadioDbContext db, ShowWindows windows, CancellationToken ct)
+    {
+        var current = await LoadShowTracksAsync(db, windows.CurrentStartUtc, windows.CurrentEndUtc, 40, ct);
+        var previous = windows.PreviousStartUtc is null || windows.PreviousEndUtc is null
+            ? []
+            : await LoadShowTracksAsync(db, windows.PreviousStartUtc.Value, windows.PreviousEndUtc.Value, 40, ct);
+        return (current, previous);
+    }
+
+    private static async Task<IReadOnlyList<string>> LoadShowTracksAsync(
+        RadioDbContext db, DateTime sinceUtc, DateTime untilUtc, int maxCount, CancellationToken ct)
+    {
+        var rows = await db.PlayLog.AsNoTracking()
+            .Where(entry => entry.ItemType == PlayoutItemType.Track
+                && entry.PlayedAt >= sinceUtc
+                && entry.PlayedAt < untilUtc)
+            .OrderBy(entry => entry.PlayedAt)
+            .Take(maxCount)
+            .Select(entry => new { entry.ItemId, entry.PlayedAt })
+            .ToListAsync(ct);
+
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var ids = rows.Select(r => r.ItemId).ToList();
+        var tracks = await db.Tracks.AsNoTracking()
+            .Include(track => track.Artist)
+            .Where(track => ids.Contains(track.Id))
+            .ToDictionaryAsync(track => track.Id, ct);
+
+        var offset = TimeZoneInfo.Local.GetUtcOffset(DateTimeOffset.UtcNow);
+        return rows
+            .Select(row =>
+            {
+                if (!tracks.TryGetValue(row.ItemId, out var track))
+                {
+                    return null;
+                }
+
+                var artist = track.Artist?.Name;
+                var label = string.IsNullOrWhiteSpace(artist)
+                    ? $"{track.Title} ({track.Genre})"
+                    : $"{artist} - {track.Title} ({track.Genre})";
+                var localTime = row.PlayedAt.ToLocalTime();
+                return $"{label}, {localTime:HH:mm}";
+            })
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Select(value => value!)
             .ToList();

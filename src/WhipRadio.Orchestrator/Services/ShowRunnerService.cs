@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
+using WhipRadio.Core.Selection;
 using WhipRadio.Infrastructure.Persistence;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -31,6 +32,7 @@ public class ShowRunnerService(
     private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(150);
 
     private readonly Queue<Guid> _recentlyEnqueued = new();
+    private int _recentlyEnqueuedCap = 3;
     private int _tracksSinceAnnouncement;
     private int _previousModeratorId = -1;
     private Track? _lastEnqueuedTrack;
@@ -68,9 +70,29 @@ public class ShowRunnerService(
             return IdleDelay; // taken off air from the admin page
         }
 
+        _recentlyEnqueuedCap = settings.RecentExclusionCount;
+
         using var scope = scopeFactory.CreateScope();
         var selector = scope.ServiceProvider.GetRequiredService<ITrackSelector>();
         var context = await schedule.GetCurrentAsync(ct);
+
+        // Enrich the show context with diversity inputs: the current/previous show
+        // time windows (for hard no-repeat) and the station selection settings.
+        ShowWindows? windows = null;
+        try
+        {
+            windows = await schedule.GetShowWindowsAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not resolve show windows for track selection");
+        }
+
+        context = context with
+        {
+            ShowWindows = windows,
+            Selection = MapSelectionSettings(settings),
+        };
 
         // Host changed since the last cycle → proper on-air handover first.
         if (_previousModeratorId >= 0 && _previousModeratorId != context.Moderator.Id && playoutQueue.Count < MaxQueueDepth)
@@ -231,8 +253,9 @@ public class ShowRunnerService(
         playoutQueue.Enqueue(new PlayoutItem(
             PlayoutItemType.Track, track.Id, track.FilePath, track.Title, track.DurationSeconds, moderator.Id));
 
+        var cap = Math.Max(3, _recentlyEnqueuedCap);
         _recentlyEnqueued.Enqueue(track.Id);
-        while (_recentlyEnqueued.Count > 3)
+        while (_recentlyEnqueued.Count > cap)
         {
             _recentlyEnqueued.Dequeue();
         }
@@ -240,6 +263,17 @@ public class ShowRunnerService(
         _lastEnqueuedTrack = track;
         logger.LogInformation("Enqueued track \"{Title}\"", track.Title);
     }
+
+    private static SelectionSettings MapSelectionSettings(StationSettings settings) => new()
+    {
+        FatigueFactor = settings.FatigueFactor,
+        MaxArtistPlaysPerHour = settings.DefaultMaxArtistPlaysPerHour,
+        ArtistLookbackTracks = settings.DefaultArtistLookbackTracks,
+        SubgenreRotation = settings.SelectionDiversityEnabled,
+        PreferHostGenres = settings.SelectionDiversityEnabled,
+        DiversityEnabled = settings.SelectionDiversityEnabled,
+        RecentExclusionCount = settings.RecentExclusionCount,
+    };
 
     /// <summary>
     /// Plans the talk chain for the gap before the next track. Talks are produced
