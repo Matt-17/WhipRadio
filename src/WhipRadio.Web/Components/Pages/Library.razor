@@ -107,18 +107,67 @@
                             </div>
                             @if (_artistDetail?.Members is { Count: > 0 } members)
                             {
-                                <div class="artist-member-roster">
-                                    @foreach (var member in members)
-                                    {
+                                @if (members.Count == 1)
+                                {
+                                    <div class="artist-member-roster">
                                         <div class="artist-member">
-                                            <div class="artist-member-head">
-                                                <span>@member.Name</span>
-                                                <span class="tag">@member.Role</span>
+                                            <div class="host-photo skeleton artist-member-portrait"></div>
+                                            <div class="artist-member-panel-body">
+                                                <div class="artist-member-head">
+                                                    <span class="artist-member-name">
+                                                        @members[0].Name
+                                                        @if (members[0].HasVoiceReference)
+                                                        {
+                                                            <button type="button" class="member-voice-btn" title="play voice reference"
+                                                                    aria-label="play voice reference"
+                                                                    @onclick="() => PlayMemberVoice(members[0])"><Icon Name="mouth" /></button>
+                                                        }
+                                                    </span>
+                                                    <span class="tag">@members[0].Role</span>
+                                                </div>
+                                                <div class="dim">@members[0].Biography</div>
                                             </div>
-                                            <div class="dim">@member.Biography</div>
                                         </div>
-                                    }
-                                </div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    var activeMember = members.FirstOrDefault(m => m.Id == _selectedMemberId) ?? members[0];
+                                    <div class="artist-member-tabs">
+                                        <div class="artist-member-tablist" role="tablist">
+                                            @foreach (var member in members)
+                                            {
+                                                <button class="artist-member-tab @(member.Id == activeMember.Id ? "active" : null)"
+                                                        role="tab"
+                                                        @onclick="() => _selectedMemberId = member.Id">
+                                                    <div class="host-photo skeleton artist-member-thumb"></div>
+                                                    <span class="artist-member-tab-text">
+                                                        <span class="artist-member-tab-name">@member.Name</span>
+                                                        <span class="artist-member-tab-role">@member.Role</span>
+                                                    </span>
+                                                </button>
+                                            }
+                                        </div>
+                                        <div class="artist-member-panel" role="tabpanel">
+                                            <div class="host-photo skeleton artist-member-portrait"></div>
+                                            <div class="artist-member-panel-body">
+                                                <div class="artist-member-head">
+                                                    <span class="artist-member-name">
+                                                        @activeMember.Name
+                                                        @if (activeMember.HasVoiceReference)
+                                                        {
+                                                            <button type="button" class="member-voice-btn" title="play voice reference"
+                                                                    aria-label="play voice reference"
+                                                                    @onclick="() => PlayMemberVoice(activeMember)"><Icon Name="mouth" /></button>
+                                                        }
+                                                    </span>
+                                                    <span class="tag">@activeMember.Role</span>
+                                                </div>
+                                                <div class="dim">@activeMember.Biography</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
                             }
                         </div>
                         <div class="artist-actions">
@@ -369,6 +418,7 @@
     private string _search = "";
     private int _page = 1;
     private Guid? _selectedArtistId;
+    private Guid? _selectedMemberId;
     private TrackDto? _deleteTarget;
     private ArtistDto? _deleteArtistTarget;
     private string? _deleteError;
@@ -518,6 +568,7 @@
             ? null
             : _artists.FirstOrDefault(a => string.Equals(a.Slug, artistSlug, StringComparison.OrdinalIgnoreCase));
         _selectedArtistId = artist?.Id;
+        _selectedMemberId = null;
         _artistDetail = null;
         _page = 1;
         _deleteTarget = null;
@@ -547,6 +598,9 @@
             await InvokeAsync(StateHasChanged);
         }
     }
+
+    private void PlayMemberVoice(ArtistMemberDto member)
+        => Player.PlayVoice($"{member.Name} — voice reference", Api.ArtistMemberVoiceUrl(member.Id), 0);
 
     private async Task CreateSongAsync()
     {
@@ -741,6 +795,7 @@
                     if (_selectedArtistId == artist.Id)
                     {
                         _artistDetail = artist;
+                        _selectedMemberId = null;
                     }
                     if (_selectedArtistId is not null)
                     {

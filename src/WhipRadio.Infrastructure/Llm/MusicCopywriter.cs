@@ -129,7 +129,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["ArtistLanguage"] = NormalizeSongLanguageCode(FirstNonEmpty(artist.Language, defaultLanguage, "en")),
             ["ArtistCreationHint"] = FirstNonEmpty(artist.CreationHint, "(not recorded)")!,
             ["ArtistPromotionText"] = FirstNonEmpty(artist.PromotionText, "(none)")!,
-            ["ArtistMembers"] = FormatArtistMembers(artist.Members),
+            ["LeadVocalist"] = FormatLeadVocalist(artist.Members),
             ["DefaultLanguage"] = string.IsNullOrWhiteSpace(defaultLanguage) ? "en" : defaultLanguage,
             ["MinDurationSeconds"] = minDurationSeconds.ToString(),
             ["MaxDurationSeconds"] = maxDurationSeconds.ToString(),
@@ -519,6 +519,25 @@ public class MusicCopywriter(ITextGenerationService llm)
             Backend: {track.Backend}
             Generation context: {Trim(track.GenerationPrompt, 1200)}
             """;
+    }
+
+    /// <summary>
+    /// The song planner only needs to know who is singing and how they sound —
+    /// not every member's biography — so the model isn't distracted from the
+    /// band's style and the lead singer's voice.
+    /// </summary>
+    private static string FormatLeadVocalist(IEnumerable<ArtistMember> members)
+    {
+        var lead = ArtistMemberRoster.SelectLeadVocalist(members);
+        if (lead is null)
+        {
+            return "(no lead singer recorded)";
+        }
+
+        var voice = string.IsNullOrWhiteSpace(lead.VoiceCreationPrompt)
+            ? "no voice description recorded"
+            : Trim(lead.VoiceCreationPrompt, 280);
+        return $"{lead.Name} ({lead.Role}): {voice}";
     }
 
     private static string FormatArtistMembers(IEnumerable<ArtistMember> members)

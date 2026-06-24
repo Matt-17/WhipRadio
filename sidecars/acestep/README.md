@@ -22,10 +22,12 @@ lead-vocalist voice clip directly as a `ref_audio` reference.
 
 `start-studios.ps1` also sets:
 
-- `ACESTEP_GENERATION_TIMEOUT=1800` so full-length vocal songs are not killed
-  by ACE-Step's default 600 s internal diffusion guard.
-- `ACESTEP_STUCK_TIMEOUT_SECONDS=2400` so the watchdog only restarts the API
-  server after a genuinely stalled long recording.
+- `ACESTEP_GENERATION_TIMEOUT=600` — hard cap for a single song. A generation
+  that exceeds it is aborted (job → failed, a terminal state), so a slow song
+  never looks like a wedge.
+- `ACESTEP_STUCK_TIMEOUT_SECONDS=1200` — wedge detector. If jobs are pending but
+  none reach a terminal state for this long, the watchdog restarts the API
+  server. Must stay greater than `ACESTEP_GENERATION_TIMEOUT`.
 
 ## Build
 

@@ -2,7 +2,7 @@ namespace WhipRadio.Core.Playout;
 
 public static class TopOfHourScheduler
 {
-    public const int DefaultPrepareAheadMinutes = 10;
+    public const int DefaultPrepareAheadMinutes = 30;
     public const int DefaultLateWindowSeconds = 5 * 60;
     public const int DefaultIntroGraceSeconds = 15;
     public const int DefaultCurrentItemFinishGraceSeconds = 60;

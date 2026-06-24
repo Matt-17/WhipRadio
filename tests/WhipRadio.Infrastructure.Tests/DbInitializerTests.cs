@@ -23,8 +23,8 @@ public class DbInitializerTests
             db.StationSettings.Add(new StationSettings
             {
                 Id = StationSettings.SingletonId,
-                MinTrackDurationSeconds = 180,
-                MaxTrackDurationSeconds = 300,
+                MinTrackDurationSeconds = 150,
+                MaxTrackDurationSeconds = 480,
             });
             await db.SaveChangesAsync();
         }
@@ -38,7 +38,7 @@ public class DbInitializerTests
         {
             var settings = await db.StationSettings.SingleAsync();
             Assert.Equal(150, settings.MinTrackDurationSeconds);
-            Assert.Equal(480, settings.MaxTrackDurationSeconds);
+            Assert.Equal(300, settings.MaxTrackDurationSeconds);
         }
     }
 

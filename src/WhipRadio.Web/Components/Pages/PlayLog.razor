@@ -26,12 +26,11 @@
         <table class="console-table">
             <thead>
                 <tr>
-                    <th>Aired</th>
+                    <th style="width:150px">Aired</th>
                     <th>Type</th>
                     <th>Title</th>
-                    <th>Host</th>
                     <th class="num">Length</th>
-                    <th aria-label="Actions"></th>
+                    <th style="width:1%" aria-label="Actions"></th>
                 </tr>
             </thead>
             <tbody>
@@ -41,8 +40,8 @@
                 @foreach (var entry in _entries)
                 {
                     var isNowPlaying = ReferenceEquals(entry, nowPlayingEntry);
-                    <tr @key="EntryKey(entry)" class="@RowCss(entry, isNowPlaying)">
-                        <td class="dim">
+                    <tr @key="EntryKey(entry)" class="@(EntryKey(entry) == _flashKey ? "playlog-new" : null)">
+                        <td class="dim" style="white-space:nowrap">
                             @if (isNowPlaying)
                             {
                                 <span class="now-on-air" title="currently on air">
@@ -55,7 +54,18 @@
                             }
                         </td>
                         <td>
-                            <span class="tag @(entry.ItemType == "Track" ? "amber" : "")">@(entry.ItemType == "Track" ? "track" : "talk")</span>
+                            @if (entry.ItemType == "Track")
+                            {
+                                <span class="tag">track</span>
+                            }
+                            else if (entry.IsNews)
+                            {
+                                <span class="tag green">news</span>
+                            }
+                            else
+                            {
+                                <span class="tag amber">talk</span>
+                            }
                         </td>
                         <td>
                             @entry.Title
@@ -71,17 +81,33 @@
                                     @artist
                                 }
                             }
+                            @if (entry.Hosts is { Count: > 0 } hosts)
+                            {
+                                @if (hosts.Count > 1)
+                                {
+                                    <span class="dim"> with </span>
+                                }
+                                else
+                                {
+                                    <span class="dim"> from </span>
+                                }
+                                @for (var i = 0; i < hosts.Count; i++)
+                                {
+                                    if (i > 0)
+                                    {
+                                        <span class="dim">@(i == hosts.Count - 1 ? " & " : ", ")</span>
+                                    }
+                                    <a href="@HostHref(hosts[i].Slug)">@hosts[i].Name</a>
+                                }
+                            }
                         </td>
-                        <td class="dim">@(entry.ModeratorName ?? "—")</td>
                         <td class="num dim">@FormatClock(TimeSpan.FromSeconds(entry.DurationSeconds))</td>
                         <td style="white-space:nowrap">
-                            @if (entry.ItemType == "Announcement")
-                            {
-                                <button class="btn small icon-btn" title="play in player" aria-label="play talk"
-                                        @onclick="() => PlayTalk(entry)">
-                                    <Icon Name="play" Size="16" />
-                                </button>
-                            }
+                            <button class="btn small icon-btn" title="play in player"
+                                    aria-label="@(entry.ItemType == "Track" ? "play song" : "play talk")"
+                                    @onclick="() => PlayAsync(entry)">
+                                <Icon Name="play" Size="16" />
+                            </button>
                         </td>
                     </tr>
                 }
@@ -176,19 +202,26 @@
     private static string ArtistHref(string slug)
         => $"/library/artists/{Uri.EscapeDataString(slug)}";
 
-    private string? RowCss(PlayLogEntryDto entry, bool isNowPlaying)
-    {
-        var nowRow = isNowPlaying ? "now-row" : null;
-        var flash = EntryKey(entry) == _flashKey ? "playlog-new" : null;
-        return string.Join(' ', new[] { nowRow, flash }.Where(c => c is not null)) is { Length: > 0 } css
-            ? css
-            : null;
-    }
+    private static string HostHref(string slug)
+        => $"/moderators/{Uri.EscapeDataString(slug)}";
 
-    // Route the talk into the footer player (a seekable preview) rather than a
-    // one-shot clip, so transport controls and volume apply.
-    private void PlayTalk(PlayLogEntryDto entry)
-        => Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds);
+    // Route the logged item into the footer player (a seekable preview) rather
+    // than a one-shot clip, so transport controls and volume apply. Tracks need
+    // the full DTO (votes, lyrics), so they are pulled fresh from the library.
+    private async Task PlayAsync(PlayLogEntryDto entry)
+    {
+        if (entry.ItemType == "Track")
+        {
+            if (await Api.GetTrackAsync(entry.ItemId) is { } track)
+            {
+                Player.PlayTrack(track);
+            }
+        }
+        else
+        {
+            Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds);
+        }
+    }
 
     public void Dispose()
     {

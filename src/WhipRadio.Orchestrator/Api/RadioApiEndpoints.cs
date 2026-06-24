@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
@@ -211,7 +212,7 @@ public static class RadioApiEndpoints
             var members = await db.ArtistMembers.AsNoTracking()
                 .Where(m => m.ArtistId == artist.Id)
                 .OrderBy(m => m.SortOrder)
-                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography))
+                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
                 .ToListAsync(ct);
 
             return Results.Ok(new ArtistDto(
@@ -257,7 +258,7 @@ public static class RadioApiEndpoints
                 stats?.Down ?? 0,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
                     .ToList()));
         });
 
@@ -297,7 +298,7 @@ public static class RadioApiEndpoints
                 artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
                     .ToList(),
                 artist.Language));
         });
@@ -346,6 +347,16 @@ public static class RadioApiEndpoints
 
         // In-library preview playback — intentionally does NOT touch PlayCount;
         // only broadcast plays count.
+        api.MapGet("/library/{id:guid}", async (
+            Guid id, RadioDbContext db, TrackDeletionService deletions, CancellationToken ct) =>
+        {
+            var track = await db.Tracks.AsNoTracking().Include(t => t.Artist)
+                .FirstOrDefaultAsync(t => t.Id == id, ct);
+            return track is null
+                ? Results.NotFound()
+                : Results.Ok(ToDto(track, deletions.IsPending(track.Id)));
+        });
+
         api.MapGet("/library/{id:guid}/audio", async (
             Guid id, RadioDbContext db, IOptions<RadioOptions> radioOptions, CancellationToken ct) =>
         {
@@ -356,6 +367,25 @@ public static class RadioApiEndpoints
             }
 
             var absolutePath = Path.Combine(radioOptions.Value.DataRoot, track.FilePath);
+            if (!System.IO.File.Exists(absolutePath))
+            {
+                return Results.NotFound();
+            }
+
+            return Results.File(absolutePath, "audio/wav", enableRangeProcessing: true);
+        });
+
+        // Plays a band member's voice reference clip in the footer preview player.
+        api.MapGet("/artist-members/{id:guid}/voice", async (
+            Guid id, RadioDbContext db, IOptions<RadioOptions> radioOptions, CancellationToken ct) =>
+        {
+            var member = await db.ArtistMembers.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id, ct);
+            if (member is null || string.IsNullOrEmpty(member.VoiceReferencePath))
+            {
+                return Results.NotFound();
+            }
+
+            var absolutePath = Path.Combine(radioOptions.Value.DataRoot, member.VoiceReferencePath);
             if (!System.IO.File.Exists(absolutePath))
             {
                 return Results.NotFound();
@@ -410,8 +440,37 @@ public static class RadioApiEndpoints
                 .Where(talkBreak => talkBreak.AnnouncementId != null
                     && announcementIds.Contains(talkBreak.AnnouncementId.Value))
                 .ToDictionaryAsync(talkBreak => talkBreak.AnnouncementId!.Value, ct);
-            var moderatorNames = await db.Moderators.AsNoTracking()
-                .ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+            var moderators = await db.Moderators.AsNoTracking()
+                .ToDictionaryAsync(m => m.Id, m => new PlayLogHostDto(m.Name, m.Slug), ct);
+
+            // A news package stitches several segments together, each potentially
+            // voiced by a different specialist host (e.g. a news host and a weather
+            // host). The composite announcement only records the lead host, so pull
+            // the full host roster from the package's saved segments.
+            var newsHostIdsByAnnouncement = new Dictionary<Guid, List<int>>();
+            var newsPackages = await db.NewsPackages.AsNoTracking()
+                .Where(p => p.AnnouncementId != null
+                    && announcementIds.Contains(p.AnnouncementId.Value)
+                    && p.ProducedSegmentsJson != null)
+                .Select(p => new { p.AnnouncementId, p.ProducedSegmentsJson })
+                .ToListAsync(ct);
+            foreach (var package in newsPackages)
+            {
+                if (package.AnnouncementId is not { } annId || package.ProducedSegmentsJson is not { } json)
+                {
+                    continue;
+                }
+
+                var hostIds = (JsonSerializer.Deserialize<List<NewsPackageSegmentState>>(json) ?? [])
+                    .Select(s => s.SegmentHostModeratorId)
+                    .Where(id => id != 0)
+                    .Distinct()
+                    .ToList();
+                if (hostIds.Count > 0)
+                {
+                    newsHostIdsByAnnouncement[annId] = hostIds;
+                }
+            }
 
             var result = entries.Select(e =>
             {
@@ -419,6 +478,8 @@ public static class RadioApiEndpoints
                 string? transcript = null;
                 string? artistName = null;
                 string? artistSlug = null;
+                var isNews = false;
+                IReadOnlyList<PlayLogHostDto>? hosts = null;
                 if (e.ItemType == PlayoutItemType.Track)
                 {
                     var track = tracks.GetValueOrDefault(e.ItemId);
@@ -430,14 +491,30 @@ public static class RadioApiEndpoints
                 {
                     var announcement = announcements.GetValueOrDefault(e.ItemId);
                     title = talkBreaks.ContainsKey(e.ItemId) ? "Announcement" : announcement?.Kind.ToString() ?? "(announcement)";
+                    isNews = announcement?.Kind == AnnouncementKind.News;
                     transcript = announcement?.VoicedText is { } voiced
                         ? SpeechMarkerNormalizer.ToPlainText(voiced)
                         : null;
+
+                    // News carries its multi-host roster; other talk has the single
+                    // host who voiced it.
+                    if (newsHostIdsByAnnouncement.TryGetValue(e.ItemId, out var newsHostIds))
+                    {
+                        hosts = newsHostIds
+                            .Select(id => moderators.GetValueOrDefault(id))
+                            .Where(host => host is not null)
+                            .Select(host => host!)
+                            .ToList();
+                    }
+                    else if (e.ModeratorId is int id && moderators.TryGetValue(id, out var host))
+                    {
+                        hosts = [host];
+                    }
                 }
 
                 return new PlayLogEntryDto(
                     e.PlayedAt, e.ItemType.ToString(), e.ItemId, title,
-                    e.ModeratorId is int id ? moderatorNames.GetValueOrDefault(id) : null,
+                    hosts is { Count: > 0 } ? hosts : null,
                     e.DurationSeconds, transcript,
                     talkBreaks.TryGetValue(e.ItemId, out var talkBreak)
                         ? talkBreak.Parts
@@ -446,7 +523,8 @@ public static class RadioApiEndpoints
                             .ToList()
                         : null,
                     artistName,
-                    artistSlug);
+                    artistSlug,
+                    isNews);
             }).ToList();
 
             return Results.Ok(result);
@@ -2206,7 +2284,9 @@ public static class RadioApiEndpoints
         package.PlayedAtUtc,
         package.FailureReason,
         package.ProductionState,
-        package.SourceSummary);
+        package.SourceSummary,
+        package.StepIndex,
+        package.StepTotal);
 
     private static WeatherProductionDto ToWeatherProductionDto(
         StationSettings settings,

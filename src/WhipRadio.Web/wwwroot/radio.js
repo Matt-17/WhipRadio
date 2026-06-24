@@ -51,6 +51,7 @@ window.whipRadio = {
   _shortcutHandler: null,
   _mediaSessionRef: null,
   _mediaSessionInitialized: false,
+  _mediaSessionMeta: null,
 
   attachProgressBar(element, dotNetRef, min = 0, max = 100, step = 1, wheelStep = 0) {
     if (!element) {
@@ -597,6 +598,15 @@ window.whipRadio = {
       this._audio.addEventListener("error", recover);
       this._audio.addEventListener("ended", recover);
       this._audio.addEventListener("stalled", recover);
+
+      // The OS media card (Windows SMTC) follows the element's real play state.
+      // Re-assert metadata + playbackState whenever the element actually starts
+      // or stops — the live stream is cache-busted/reconnected behind the scenes,
+      // which otherwise tears the card down. A finite preview file never churns,
+      // which is why previews showed reliably but the live stream did not.
+      this._audio.addEventListener("play", () => this._syncMediaSessionState());
+      this._audio.addEventListener("playing", () => this._syncMediaSessionState());
+      this._audio.addEventListener("pause", () => this._syncMediaSessionState());
     }
     if (this._audio.src !== url) {
       this._audio.src = url;
@@ -616,6 +626,10 @@ window.whipRadio = {
       audio.src = fresh;
       audio.load();
       await audio.play();
+      // Assert the OS media card right after a confirmed start. The "play"
+      // events fire too, but doing it here guarantees the card appears even if
+      // an event is missed.
+      this._syncMediaSessionState();
       this._applyOutputVolume();
       await this._resumeSpectrumContext();
       this._clearLiveUnlock();
@@ -678,6 +692,7 @@ window.whipRadio = {
         audio.src = url;
       }
       await audio.play();
+      this._syncMediaSessionState();
       await this._resumeSpectrumContext();
       this._storePlayState("track", true);
       return true;
@@ -714,16 +729,27 @@ window.whipRadio = {
     this._mediaSessionRef = dotNetRef;
 
     if (!this._mediaSessionInitialized) {
-      navigator.mediaSession.setActionHandler("play", () => {
-        this._invokeDotNetMediaSession("HandleMediaSessionPlay");
-      });
+      const setHandler = (action, handler) => {
+        try {
+          navigator.mediaSession.setActionHandler(action, handler);
+        } catch {
+          // A few actions are unsupported on some browsers; ignore those.
+        }
+      };
 
-      navigator.mediaSession.setActionHandler("pause", () => {
-        this._invokeDotNetMediaSession("HandleMediaSessionPause");
-      });
-
-      navigator.mediaSession.setActionHandler("nexttrack", () => { });
-      navigator.mediaSession.setActionHandler("previoustrack", () => { });
+      setHandler("play", () => this._invokeDotNetMediaSession("HandleMediaSessionPlay"));
+      setHandler("pause", () => this._invokeDotNetMediaSession("HandleMediaSessionPause"));
+      // Windows also exposes a stop button on the overlay/lock-screen controls;
+      // treat it like pause so that media key works too.
+      setHandler("stop", () => this._invokeDotNetMediaSession("HandleMediaSessionPause"));
+      // "Previous" = jump back to the live edge. Only meaningful while previewing
+      // a library item (matches the UI's "back to live" button), so it's toggled
+      // dynamically via setMediaSessionCanReturnToLive. Start disabled (null) so
+      // the OS hides it while we're already live.
+      setHandler("previoustrack", null);
+      // There is no forward track list, so "next" stays unhandled — the OS then
+      // hides that button instead of showing a control that does nothing.
+      setHandler("nexttrack", null);
       this._mediaSessionInitialized = true;
     }
 
@@ -731,31 +757,123 @@ window.whipRadio = {
   },
 
   setMediaSessionMetadata(title, artist, album, artworkUrl, isPlaying) {
+    // No title means no now-playing info yet — leave any existing card untouched
+    // rather than showing a placeholder; this window is rare and brief.
     if (!("mediaSession" in navigator) || !title) {
       return false;
     }
 
+    // Cache the latest now-playing info so the element's play/playing events can
+    // re-assert it after a reconnect without another round-trip to Blazor.
+    this._mediaSessionMeta = { title, artist, album, artworkUrl };
+    this._applyMediaSessionMetadata();
+
+    // Trust the audio element's real state over the Blazor isPlaying hint: this
+    // re-asserts metadata across live reconnects and corrects a "paused" card
+    // that is actually audible (e.g. metadata pushed before play() resolved).
+    this._syncMediaSessionState();
+
+    return true;
+  },
+
+  _applyMediaSessionMetadata() {
+    if (!("mediaSession" in navigator) || !this._mediaSessionMeta) {
+      return;
+    }
+
+    const meta = this._mediaSessionMeta;
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title,
-        artist,
-        album,
-        artwork: artworkUrl
-          ? [{
-            src: artworkUrl,
-            sizes: "512x512",
-            type: "image/png"
-          }]
+        title: meta.title,
+        // Coerce null/undefined to "" so the OS never prints the literal "null".
+        artist: meta.artist || "",
+        album: meta.album || "",
+        // sizes:"any" + no type: works for the station logo today and for real
+        // artwork (any size/format) later, without lying about dimensions.
+        artwork: meta.artworkUrl
+          ? [{ src: meta.artworkUrl, sizes: "any" }]
           : []
       });
-      navigator.mediaSession.playbackState = isPlaying ? "playing" : "paused";
-      return true;
     } catch (e) {
-      if (!this._spectrumWarned) {
-        console.warn("whipRadio: media session metadata unavailable", e);
-        this._spectrumWarned = true;
+      console.warn("whipRadio: media session metadata unavailable", e);
+    }
+  },
+
+  _syncMediaSessionState() {
+    if (!("mediaSession" in navigator)) {
+      return;
+    }
+
+    const playing = this._isPlaying();
+    // Reapply metadata on (re)start so the card survives live reconnects.
+    if (playing) {
+      this._applyMediaSessionMetadata();
+    }
+
+    try {
+      navigator.mediaSession.playbackState = playing ? "playing" : "paused";
+    } catch {
+      // playbackState is best-effort.
+    }
+  },
+
+  setMediaSessionCanReturnToLive(enabled) {
+    if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setActionHandler !== "function") {
+      return;
+    }
+
+    try {
+      navigator.mediaSession.setActionHandler(
+        "previoustrack",
+        enabled ? () => this._invokeDotNetMediaSession("HandleMediaSessionPrevious") : null);
+    } catch {
+      // The action may be unsupported on some browsers; ignore.
+    }
+  },
+
+  // Console aid: run `whipRadio.mediaSessionDebug()` while the live stream plays
+  // to see whether the element is really producing audio and whether the OS
+  // session has metadata. Helps pin down why a live card may not appear.
+  mediaSessionDebug() {
+    const a = this._audio;
+    const ms = ("mediaSession" in navigator) ? navigator.mediaSession : null;
+    return {
+      hasAudio: !!a,
+      paused: a ? a.paused : null,
+      ended: a ? a.ended : null,
+      readyState: a ? a.readyState : null,
+      networkState: a ? a.networkState : null,
+      duration: a ? a.duration : null,
+      currentTime: a ? a.currentTime : null,
+      muted: a ? a.muted : null,
+      volume: a ? a.volume : null,
+      wantLive: this._wantLive,
+      usingWebAudio: !!this._spectrumOutput,
+      src: a ? a.src : null,
+      mediaSessionSupported: !!ms,
+      metadataTitle: ms && ms.metadata ? ms.metadata.title : null,
+      playbackState: ms ? ms.playbackState : null,
+    };
+  },
+
+  setMediaSessionPosition(duration, position) {
+    if (!("mediaSession" in navigator) || typeof navigator.mediaSession.setPositionState !== "function") {
+      return;
+    }
+
+    try {
+      if (isFinite(duration) && duration > 0 && isFinite(position) && position >= 0) {
+        navigator.mediaSession.setPositionState({
+          duration,
+          position: Math.min(position, duration),
+          playbackRate: 1,
+        });
+      } else {
+        // Live edge / unknown length: clear any stale progress bar.
+        navigator.mediaSession.setPositionState();
       }
-      return false;
+    } catch {
+      // Position state is optional and can throw on odd values; ignore.
     }
   },
 

@@ -306,6 +306,55 @@ public class AudioMixerEngineTests
             e => e.Level == LogLevel.Information && e.Message.Contains("fading current audio"));
     }
 
+    [TestMethod]
+    public async Task TimedPackage_IsNotFadedOutByTopOfHourHold_WhilePackageStillQueued()
+    {
+        // Regression: once the timed interrupt put the package composite on air, the
+        // still-active top-of-hour hold faded EVERY active source — the package
+        // included — so the package went silent ~2 s in and (after the dispatcher
+        // cleared the guard) a song started. The hold must fade music only, never
+        // the scheduled package announcement. With no track on air, the hold must
+        // therefore do nothing — and must NOT log that it is fading current audio.
+        await using var db = await DbFixture.CreateAsync();
+        await db.SetIntroGraceAsync(0);
+        // Queued package whose boundary just passed → the top-of-hour hold is active
+        // for the whole session (the dispatcher, not the mixer, flips it to Played).
+        await db.SetPackageAsync(NewsPackageStatus.Queued, DateTime.UtcNow.AddMilliseconds(-200));
+        var fix = Fixture.Create(dbFactory: db, collectLogs: true);
+
+        // The package must outlast the 60 s "let the current item finish" grace, or
+        // the hold would let it ride regardless — real top-of-hour packages run ~3 min.
+        var package = new PlayoutItem(
+            PlayoutItemType.Announcement,
+            Guid.NewGuid(),
+            "library/announcements/news.wav",
+            "Top of hour - news and weather",
+            120);
+        fix.TimedInterrupts.Schedule(new TimedPlayoutInterrupt(
+            package,
+            DateTime.UtcNow.AddMilliseconds(-100),
+            FadeOutSeconds: 1,
+            GraceSeconds: 15,
+            LateWindowSeconds: 300));
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var sink = new FakeEncoderSink(hasExited: false);
+        // ~4 s of audio — long enough for the buggy hold to fade the just-started
+        // package, but a tiny fraction of the 120 s package so a healthy one is
+        // still squarely on air.
+        var pace = new PacingStream(cts, cancelAfterWrites: 180, delayMs: 1);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == package.ItemId);
+        // No track is on air, so the only thing the hold could be "fading" is the
+        // package composite itself — which is the bug.
+        Assert.DoesNotContain(fix.Logger.Entries,
+            e => e.Message.Contains("fading current audio"));
+        // And the package must actually be producing audio, not silence.
+        Assert.True(pace.NonZeroBytes > 0, "the top-of-hour package produced no audio");
+    }
+
     // --- fakes -----------------------------------------------------------------
 
     private sealed class FakeQueue : IPlayoutQueue

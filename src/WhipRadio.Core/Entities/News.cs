@@ -112,4 +112,46 @@ public class NewsPackage
     public string? ProductionState { get; set; }
 
     public string? SourceSummary { get; set; }
+
+    /// <summary>
+    /// Current high-level production step (1-based) for the in-progress package,
+    /// surfaced as "k/N" in the Production page. 0 when not producing.
+    /// </summary>
+    public int StepIndex { get; set; }
+
+    /// <summary>Total high-level production steps for the in-progress package. 0 when not producing.</summary>
+    public int StepTotal { get; set; }
+
+    /// <summary>
+    /// JSON-serialized list of <see cref="NewsPackageSegmentState"/> for segments already produced.
+    /// Lets a restart/retry reuse finished segments (their written text + rendered audio) instead of
+    /// re-producing the whole package, and lets a recreate expire the old segment audio precisely.
+    /// </summary>
+    public string? ProducedSegmentsJson { get; set; }
+}
+
+/// <summary>
+/// A single produced top-of-hour segment, persisted on the package so production is resumable.
+/// Holds the already-rendered announcement ids (intro/body/gap line), the voicing host, and the
+/// news items it consumed, so a resumed run can re-attach them without re-writing or re-recording.
+/// </summary>
+public class NewsPackageSegmentState
+{
+    public string Key { get; set; } = string.Empty;
+
+    public bool Done { get; set; }
+
+    public Guid IntroAnnouncementId { get; set; }
+
+    public Guid? BodyAnnouncementId { get; set; }
+
+    public Guid? GapLineAnnouncementId { get; set; }
+
+    public int SegmentHostModeratorId { get; set; }
+
+    public string? DegradationReason { get; set; }
+
+    public string SourceSummary { get; set; } = string.Empty;
+
+    public List<Guid> SelectedItemIds { get; set; } = [];
 }

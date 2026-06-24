@@ -585,10 +585,23 @@ public sealed class AudioMixerEngine(
             return false;
         }
 
-        var naturalEnd = actives
-            .Where(source => source.EndAtMaster > masterPos)
+        // The hold-fade clears MUSIC off the air at the boundary so the scheduled
+        // package can start cleanly. It must NEVER fade the package announcement
+        // itself: once the timed interrupt has put the package composite on air,
+        // the guard is still active for the ~2 s until the dispatcher flips the
+        // package to Played, and fading everything here silenced the top-of-hour
+        // package ~2 s in and handed straight back to a song.
+        var tracks = actives
+            .Where(source => source.Item.ItemType == PlayoutItemType.Track
+                && source.EndAtMaster > masterPos)
+            .ToList();
+        if (tracks.Count == 0)
+        {
+            return false;
+        }
+
+        var naturalEnd = tracks
             .Select(source => source.EndAtMaster)
-            .DefaultIfEmpty(masterPos)
             .Max();
         var remainingSeconds = Format.SamplesToSeconds(naturalEnd - masterPos);
         var naturalEndUtc = DateTime.UtcNow.AddSeconds(remainingSeconds);
@@ -600,7 +613,7 @@ public sealed class AudioMixerEngine(
         var fadeSamples = Format.SecondsToSamples(
             TopOfHourScheduler.NormalizeFadeOutSeconds(guard.FadeOutSeconds));
         var fadeEnd = masterPos + Math.Max(1, fadeSamples);
-        foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+        foreach (var active in tracks)
         {
             var currentGain = active.Slot.Envelope.GainAt(masterPos);
             active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);

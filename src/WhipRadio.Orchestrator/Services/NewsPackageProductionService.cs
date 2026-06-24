@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
@@ -54,6 +55,7 @@ public sealed class NewsPackageProductionService(
     {
         StationSettings settings;
         PackagePlan? plan;
+        Guid? resumePackageId = null;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
@@ -74,16 +76,38 @@ public sealed class NewsPackageProductionService(
             }
 
             var targetUtc = plan.TargetLocal.UtcDateTime;
-            if (await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour && package.TargetUtc == targetUtc, ct))
+            var existing = await db.NewsPackages.AsNoTracking()
+                .Where(package => package.Kind == NewsPackageKind.TopOfHour && package.TargetUtc == targetUtc)
+                .Select(package => new { package.Id, package.Status })
+                .FirstOrDefaultAsync(ct);
+            if (existing is not null)
             {
-                return;
+                // A Ready/Queued/Played package already owns this slot — leave it.
+                if (existing.Status is not (NewsPackageStatus.Failed
+                    or NewsPackageStatus.Pending
+                    or NewsPackageStatus.Retrying))
+                {
+                    return;
+                }
+
+                // A leftover incomplete/failed package for an upcoming target: re-attempt it,
+                // reusing whatever segments were already produced. This covers a restart that
+                // lands inside the prep window (after the prepare point, before air time) —
+                // production must pick back up, not stall.
+                resumePackageId = existing.Id;
             }
         }
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
         budget.CancelAfter(ProductionBudget);
-        await ProducePackageAsync(settings, plan.TargetLocal.UtcDateTime, plan, ct, budget.Token);
+        await ProducePackageAsync(
+            settings,
+            plan.TargetLocal.UtcDateTime,
+            plan,
+            ct,
+            budget.Token,
+            reusePackageId: resumePackageId,
+            reuseSegments: resumePackageId is not null);
     }
 
     private async Task<bool> TryResumePendingPackageAsync(StationSettings settings, CancellationToken ct)
@@ -101,9 +125,15 @@ public sealed class NewsPackageProductionService(
                 .ToListAsync(ct);
             foreach (var package in expired)
             {
+                // Expire any segment audio already produced so it can never be picked up
+                // independently of its (now failed) package.
+                await ExpireSegmentAnnouncementsAsync(db, DeserializeSegments(package.ProducedSegmentsJson), ct);
                 package.Status = NewsPackageStatus.Failed;
                 package.FailureReason = "Production did not finish before the top-of-hour late window.";
                 package.ProductionState = null;
+                package.ProducedSegmentsJson = null;
+                package.StepIndex = 0;
+                package.StepTotal = 0;
             }
 
             if (expired.Count > 0)
@@ -127,7 +157,7 @@ public sealed class NewsPackageProductionService(
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
             budget.CancelAfter(ProductionBudget);
             var plan = BuildPackagePlan(settings, ToLocalTime(pending.TargetUtc, timeProvider.GetLocalNow().Offset));
-            await ProducePackageAsync(settings, pending.TargetUtc, plan, ct, budget.Token, pending.Id);
+            await ProducePackageAsync(settings, pending.TargetUtc, plan, ct, budget.Token, pending.Id, reuseSegments: true);
             return true;
         }
     }
@@ -177,6 +207,7 @@ public sealed class NewsPackageProductionService(
 
             targetUtc = package.TargetUtc;
             oldAnnouncementId = package.AnnouncementId;
+            var oldSegments = DeserializeSegments(package.ProducedSegmentsJson);
 
             // Mark the package as Pending immediately so the dispatcher (1s cycle) cannot
             // race in and queue/schedule the OLD composite during recreate production.
@@ -184,6 +215,11 @@ public sealed class NewsPackageProductionService(
             package.AnnouncementId = null;
             package.ProductionState = "Recreating package.";
             package.FailureReason = null;
+            // A recreate is a deliberate fresh start: drop the persisted segments so production
+            // re-writes everything, and expire the old segment audio so it can't air on its own.
+            package.ProducedSegmentsJson = null;
+            package.StepIndex = 0;
+            package.StepTotal = 0;
 
             // Reset selected news items so the new production can re-select them.
             foreach (var item in await db.NewsItems
@@ -202,6 +238,14 @@ public sealed class NewsPackageProductionService(
             if (oldAnnouncementId is { } oldId)
             {
                 await ExpireOldCompositeAsync(db, oldId, ct);
+            }
+
+            // Expire the OLD per-segment intros/bodies/gap lines too, otherwise they linger
+            // as a "second package" that can air independently of the recreated composite.
+            if (oldSegments.Count > 0)
+            {
+                await ExpireSegmentAnnouncementsAsync(db, oldSegments, ct);
+                await db.SaveChangesAsync(ct);
             }
         }
 
@@ -249,11 +293,14 @@ public sealed class NewsPackageProductionService(
         PackagePlan plan,
         CancellationToken stoppingToken,
         CancellationToken ct,
-        Guid? reusePackageId = null)
+        Guid? reusePackageId = null,
+        bool reuseSegments = false)
     {
         var includedContributors = plan.Segments;
-        var isMultiSegment = includedContributors.Count > 1;
+        // High-level steps surfaced as "k/N": load context (1) + one per segment + schedule + render + finalize.
+        var totalSteps = includedContributors.Count + 4;
         NewsPackage package;
+        List<NewsPackageSegmentState> producedSegments;
         var step = "creating package";
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
@@ -261,6 +308,7 @@ public sealed class NewsPackageProductionService(
             {
                 package = await db.NewsPackages.FirstOrDefaultAsync(candidate => candidate.Id == packageId, ct)
                     ?? throw new KeyNotFoundException("News package was not found.");
+                producedSegments = reuseSegments ? DeserializeSegments(package.ProducedSegmentsJson) : [];
                 package.Kind = NewsPackageKind.TopOfHour;
                 package.Status = NewsPackageStatus.Pending;
                 package.TargetUtc = targetUtc;
@@ -272,9 +320,14 @@ public sealed class NewsPackageProductionService(
                 package.FailureReason = null;
                 package.ProductionState = "Starting package production.";
                 package.SourceSummary = null;
+                // Keep already-produced segments when resuming; drop them on a deliberate fresh run.
+                package.ProducedSegmentsJson = reuseSegments ? package.ProducedSegmentsJson : null;
+                package.StepIndex = 0;
+                package.StepTotal = totalSteps;
             }
             else
             {
+                producedSegments = [];
                 package = new NewsPackage
                 {
                     Id = Guid.NewGuid(),
@@ -284,6 +337,7 @@ public sealed class NewsPackageProductionService(
                     TargetDurationSeconds = TargetDurationSeconds(settings, plan),
                     CreatedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
                     ProductionState = "Starting package production.",
+                    StepTotal = totalSteps,
                 };
                 db.NewsPackages.Add(package);
             }
@@ -300,7 +354,7 @@ public sealed class NewsPackageProductionService(
         try
         {
             step = "loading current show context";
-            await UpdatePackageProductionStateAsync(package.Id, "Loading show context.", ct);
+            await UpdateStepAsync(package.Id, 1, totalSteps, "Loading show context.", ct);
             var context = await schedule.GetCurrentAsync(ct);
 
             var expiresAt = targetUtc.AddMinutes(15);
@@ -318,14 +372,48 @@ public sealed class NewsPackageProductionService(
             for (var i = 0; i < includedContributors.Count; i++)
             {
                 var contributor = includedContributors[i];
+                var stepNo = 2 + i;
                 var position = i == 0
                     ? SegmentPosition.First
                     : i == includedContributors.Count - 1
                         ? SegmentPosition.Last
                         : SegmentPosition.Middle;
 
+                // Resume: if this segment was already written + rendered on an earlier run,
+                // re-attach its audio instead of re-producing it.
+                var saved = producedSegments.FirstOrDefault(s => s.Key == contributor.Key && s.Done);
+                if (saved is not null)
+                {
+                    var reused = await TryLoadSavedSegmentAsync(saved, ct);
+                    if (reused is not null)
+                    {
+                        await UpdateStepAsync(package.Id, stepNo, totalSteps, $"Reusing {contributor.Key} segment.", ct);
+                        firstSegmentHost ??= reused.Host;
+                        fallbackModerator ??= reused.Host;
+                        producedAnnouncements.Add(reused.Intro);
+                        if (reused.Body is not null)
+                        {
+                            producedAnnouncements.Add(reused.Body);
+                        }
+                        if (reused.GapLine is not null)
+                        {
+                            producedAnnouncements.Add(reused.GapLine);
+                        }
+                        allItems.AddRange(reused.Items);
+                        if (saved.DegradationReason is not null)
+                        {
+                            degradationReasons.Add(saved.DegradationReason);
+                        }
+                        previousSegmentHost = reused.Host;
+                        continue;
+                    }
+
+                    // The saved audio is gone — forget it and re-produce.
+                    producedSegments.RemoveAll(s => s.Key == contributor.Key);
+                }
+
                 step = $"producing {contributor.Key} segment";
-                await UpdatePackageProductionStateAsync(package.Id, $"Producing {contributor.Key} segment.", ct);
+                await UpdateStepAsync(package.Id, stepNo, totalSteps, $"Producing {contributor.Key} segment.", ct);
 
                 var segmentContext = new SegmentProductionContext(
                     settings,
@@ -377,6 +465,22 @@ public sealed class NewsPackageProductionService(
                         degradationReasons.Add(result.DegradationReason);
                     }
                     previousSegmentHost = result.SegmentHost;
+
+                    // Persist immediately so a restart resumes from here instead of re-writing.
+                    producedSegments.RemoveAll(s => s.Key == contributor.Key);
+                    producedSegments.Add(new NewsPackageSegmentState
+                    {
+                        Key = contributor.Key,
+                        Done = true,
+                        IntroAnnouncementId = result.Intro.Id,
+                        BodyAnnouncementId = result.Body?.Id,
+                        GapLineAnnouncementId = result.GapLine?.Id,
+                        SegmentHostModeratorId = result.SegmentHost.Id,
+                        DegradationReason = result.DegradationReason,
+                        SourceSummary = result.SourceSummary,
+                        SelectedItemIds = result.SelectedItems.Select(item => item.Id).ToList(),
+                    });
+                    await PersistSegmentsAsync(package.Id, producedSegments, ct);
                 }
             }
 
@@ -391,16 +495,16 @@ public sealed class NewsPackageProductionService(
             }
 
             step = "marking package announcements as scheduled";
-            await UpdatePackageProductionStateAsync(package.Id, "Scheduling package audio.", ct);
+            await UpdateStepAsync(package.Id, totalSteps - 2, totalSteps, "Scheduling package audio.", ct);
             await MarkScheduledAsync(producedAnnouncements.Select(a => a.Id).ToList(), targetUtc, targetEnd, expiresAt, ct);
             step = "rendering package audio";
-            await UpdatePackageProductionStateAsync(package.Id, "Rendering package audio.", ct);
+            await UpdateStepAsync(package.Id, totalSteps - 1, totalSteps, "Rendering package audio.", ct);
             var fallback = fallbackModerator ?? context.Moderator;
             var composite = producedAnnouncements.Count == 1
                 ? producedAnnouncements[0]
                 : await renderer.RenderAsync(producedAnnouncements, fallback, ct);
             step = "finalizing package";
-            await UpdatePackageProductionStateAsync(package.Id, "Finalizing package.", ct);
+            await UpdateStepAsync(package.Id, totalSteps, totalSteps, "Finalizing package.", ct);
             await FinalizePackageAsync(
                 package.Id,
                 composite,
@@ -639,6 +743,161 @@ public sealed class NewsPackageProductionService(
         await db.SaveChangesAsync(ct);
         await productionUpdates.PublishNewsChangedAsync(ct);
     }
+
+    /// <summary>
+    /// Advances the high-level step counter (and production text) shown as "k/N" in the
+    /// Production page. Fine-grained, per-contributor progress goes through
+    /// <see cref="UpdatePackageProductionStateAsync"/>, which keeps the current step number.
+    /// </summary>
+    private async Task UpdateStepAsync(
+        Guid packageId,
+        int index,
+        int total,
+        string state,
+        CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var package = await db.NewsPackages.FirstOrDefaultAsync(p => p.Id == packageId, ct);
+        if (package is null || package.Status is not (NewsPackageStatus.Pending or NewsPackageStatus.Retrying))
+        {
+            return;
+        }
+
+        package.Status = NewsPackageStatus.Pending;
+        package.StepIndex = index;
+        package.StepTotal = total;
+        package.ProductionState = state.Length <= 500 ? state : state[..500];
+        await db.SaveChangesAsync(ct);
+        await productionUpdates.PublishNewsChangedAsync(ct);
+    }
+
+    private async Task PersistSegmentsAsync(
+        Guid packageId,
+        IReadOnlyList<NewsPackageSegmentState> segments,
+        CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var package = await db.NewsPackages.FirstOrDefaultAsync(p => p.Id == packageId, ct);
+        if (package is null)
+        {
+            return;
+        }
+
+        package.ProducedSegmentsJson = SerializeSegments(segments);
+        await db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>
+    /// Re-loads an already-produced segment's announcements, host, and news items so a resumed
+    /// run can re-attach them. Returns null when the saved audio is missing (the caller then
+    /// re-produces the segment).
+    /// </summary>
+    private async Task<ReusedSegment?> TryLoadSavedSegmentAsync(NewsPackageSegmentState saved, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var intro = await db.Announcements.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == saved.IntroAnnouncementId, ct);
+        if (intro is null)
+        {
+            return null;
+        }
+
+        Announcement? body = null;
+        if (saved.BodyAnnouncementId is { } bodyId)
+        {
+            body = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == bodyId, ct);
+            if (body is null)
+            {
+                return null;
+            }
+        }
+
+        Announcement? gapLine = null;
+        if (saved.GapLineAnnouncementId is { } gapId)
+        {
+            gapLine = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == gapId, ct);
+            if (gapLine is null)
+            {
+                return null;
+            }
+        }
+
+        var host = await db.Moderators.AsNoTracking()
+            .FirstOrDefaultAsync(m => m.Id == saved.SegmentHostModeratorId, ct);
+        if (host is null)
+        {
+            return null;
+        }
+
+        var items = saved.SelectedItemIds.Count == 0
+            ? []
+            : await db.NewsItems.AsNoTracking()
+                .Include(item => item.Feed)
+                .Where(item => saved.SelectedItemIds.Contains(item.Id))
+                .ToListAsync(ct);
+
+        return new ReusedSegment(host, intro, body, gapLine, items);
+    }
+
+    /// <summary>
+    /// Expires the intro/body/gap-line audio of the given segments and marks the announcements as
+    /// played so no playout path can air them independently of their package. The caller saves.
+    /// </summary>
+    private static async Task ExpireSegmentAnnouncementsAsync(
+        RadioDbContext db,
+        IReadOnlyCollection<NewsPackageSegmentState> segments,
+        CancellationToken ct)
+    {
+        var ids = segments
+            .SelectMany(segment => new[]
+            {
+                (Guid?)segment.IntroAnnouncementId,
+                segment.BodyAnnouncementId,
+                segment.GapLineAnnouncementId,
+            })
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return;
+        }
+
+        var breaks = await db.TalkBreaks
+            .Include(talkBreak => talkBreak.Parts)
+            .Where(talkBreak => talkBreak.AnnouncementId != null && ids.Contains(talkBreak.AnnouncementId.Value))
+            .ToListAsync(ct);
+        foreach (var talkBreak in breaks)
+        {
+            talkBreak.Status = TalkBreakStatus.Expired;
+            foreach (var part in talkBreak.Parts)
+            {
+                part.Status = TalkPartStatus.Expired;
+            }
+        }
+
+        foreach (var announcement in await db.Announcements.Where(a => ids.Contains(a.Id)).ToListAsync(ct))
+        {
+            announcement.WasPlayed = true;
+            announcement.PlayoutIntent = AnnouncementPlayoutIntent.ScheduledOnly;
+        }
+    }
+
+    private static List<NewsPackageSegmentState> DeserializeSegments(string? json)
+        => string.IsNullOrWhiteSpace(json)
+            ? []
+            : JsonSerializer.Deserialize<List<NewsPackageSegmentState>>(json) ?? [];
+
+    private static string SerializeSegments(IReadOnlyList<NewsPackageSegmentState> segments)
+        => JsonSerializer.Serialize(segments);
+
+    private sealed record ReusedSegment(
+        Moderator Host,
+        Announcement Intro,
+        Announcement? Body,
+        Announcement? GapLine,
+        IReadOnlyList<NewsItem> Items);
 
     private async Task MarkPackageFailedAsync(
         Guid packageId,

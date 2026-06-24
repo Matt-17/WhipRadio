@@ -609,14 +609,7 @@ public class MusicProductionService(
     }
 
     private static IReadOnlyList<ArtistMember> VocalMembers(Artist artist)
-    {
-        var members = artist.Members.OrderBy(member => member.SortOrder).ToList();
-        var vocalists = members
-            .Where(member => ContainsAny(member.Role, "vocal", "singer", "voice", "front"))
-            .ToList();
-
-        return vocalists.Count > 0 ? vocalists : members;
-    }
+        => ArtistMemberRoster.VocalMembers(artist.Members);
 
     private static string FormatArtistMembersForPrompt(
         IEnumerable<ArtistMember> members,

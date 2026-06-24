@@ -59,15 +59,5 @@ public sealed class ArtistVoiceReferenceResolver(
     }
 
     public static ArtistMember? SelectLeadVocalist(IEnumerable<ArtistMember> members)
-    {
-        var ordered = members.OrderBy(member => member.SortOrder).ToList();
-        return ordered.FirstOrDefault(member => ContainsVocalRole(member.Role))
-            ?? ordered.FirstOrDefault();
-    }
-
-    private static bool ContainsVocalRole(string role)
-        => ContainsAny(role, "vocal", "singer", "voice", "front");
-
-    private static bool ContainsAny(string value, params string[] needles)
-        => needles.Any(needle => value.Contains(needle, StringComparison.OrdinalIgnoreCase));
+        => ArtistMemberRoster.SelectLeadVocalist(members);
 }

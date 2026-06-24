@@ -74,7 +74,8 @@ public sealed record ArtistMemberDto(
     Guid Id,
     string Name,
     string Role,
-    string Biography);
+    string Biography,
+    bool HasVoiceReference = false);
 
 public sealed record ArtistPostDto(
     Guid Id,
@@ -109,12 +110,15 @@ public sealed record PlayLogEntryDto(
     string ItemType,
     Guid ItemId,
     string Title,
-    string? ModeratorName,
+    IReadOnlyList<PlayLogHostDto>? Hosts,
     double DurationSeconds,
     string? Transcript,
     IReadOnlyList<TalkPartDto>? TalkParts = null,
     string? ArtistName = null,
-    string? ArtistSlug = null);
+    string? ArtistSlug = null,
+    bool IsNews = false);
+
+public sealed record PlayLogHostDto(string Name, string Slug);
 
 public sealed record TalkPartDto(
     int SortOrder,
@@ -281,7 +285,9 @@ public sealed record NewsPackageDto(
     DateTime? PlayedAtUtc,
     string? FailureReason,
     string? ProductionState,
-    string? SourceSummary);
+    string? SourceSummary,
+    int StepIndex,
+    int StepTotal);
 
 public sealed record NewsProductionDto(
     bool NewsEnabled,

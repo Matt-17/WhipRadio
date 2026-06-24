@@ -119,6 +119,27 @@ public sealed class TopOfHourPackageDispatcher(
             return;
         }
 
+        // An announcement airs exactly once. Once the playback reporter flips
+        // WasPlayed, the package is done — record it as played and stop. Without
+        // this guard the package is re-armed every cycle: MarkPlayedPackagesAsync
+        // flips the tracked package to Played in memory, the next/overdue queries
+        // hand back that same tracked entity (so the duplicate guard, gated on
+        // Status==Queued, is skipped), and the Ready→Queued promotion below
+        // resurrects it to Queued and re-schedules the timed interrupt — which
+        // makes the mixer restart the top-of-hour package on a ~2 s loop.
+        if (announcement.WasPlayed)
+        {
+            if (next.Status != NewsPackageStatus.Played)
+            {
+                next.Status = NewsPackageStatus.Played;
+                next.PlayedAtUtc = now;
+            }
+
+            await db.SaveChangesAsync(ct);
+            await productionUpdates.PublishNewsChangedAsync(ct);
+            return;
+        }
+
         // The composite TalkBreak.Title is set by FinalizePackageAsync to reflect
         // the planned package variant ("Top of hour", "Weather", "News update"),
         // so we read it directly instead of guessing from AnnouncementKind.

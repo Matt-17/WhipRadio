@@ -81,11 +81,15 @@ app.MapGet("/media/live", (IHttpClientFactory factory, IConfiguration config, Ht
     ProxyMediaAsync(
         context,
         factory.CreateClient("live-stream"),
-        config["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3"));
+        config["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3",
+        live: true));
 
 app.MapGet("/media/voice-preview/{handle}", (string handle, IHttpClientFactory factory, HttpContext context) =>
     ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"),
         $"/api/voices/{Uri.EscapeDataString(handle)}/preview"));
+
+app.MapGet("/media/artist-member-voice/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/artist-members/{id}/voice"));
 
 app.Run();
 
@@ -94,10 +98,18 @@ static string GetOrchestratorEndpoint(IConfiguration configuration, IHostEnviron
         ?? configuration["Orchestrator:Endpoint"]
         ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
 
-static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl)
+static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl, bool live = false)
 {
     using var request = new HttpRequestMessage(HttpMethod.Get, upstreamUrl);
-    if (context.Request.Headers.TryGetValue("Range", out var range))
+    // A live mount is an endless, NON-seekable resource. If we forward the
+    // browser's Range probe and echo Accept-Ranges/Content-Range/Content-Length
+    // back, the browser treats the stream as a short seekable FILE: it reports a
+    // tiny finite `duration`, which disqualifies it from the OS media controls
+    // (Windows SMTC / media keys ignore sub-threshold "sound effect" media — this
+    // is why the live card only appeared after a real, long track had played in
+    // the same <audio> element). For live we therefore never negotiate ranges and
+    // advertise Accept-Ranges: none so the browser sees a true infinite stream.
+    if (!live && context.Request.Headers.TryGetValue("Range", out var range))
     {
         request.Headers.TryAddWithoutValidation("Range", (string)range!);
     }
@@ -111,19 +123,28 @@ static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string
     // restart is exactly the "weird sounds" failure mode.
     context.Response.Headers.CacheControl = "no-store, no-cache";
     context.Response.Headers.Pragma = "no-cache";
-    if (response.Content.Headers.ContentLength is { } length)
-    {
-        context.Response.ContentLength = length;
-    }
 
-    if (response.Content.Headers.ContentRange is { } contentRange)
+    if (live)
     {
-        context.Response.Headers.ContentRange = contentRange.ToString();
+        // Non-seekable, unbounded: no length, no range support, no content-range.
+        context.Response.Headers.AcceptRanges = "none";
     }
-
-    if (response.Headers.AcceptRanges.Count > 0)
+    else
     {
-        context.Response.Headers.AcceptRanges = string.Join(",", response.Headers.AcceptRanges);
+        if (response.Content.Headers.ContentLength is { } length)
+        {
+            context.Response.ContentLength = length;
+        }
+
+        if (response.Content.Headers.ContentRange is { } contentRange)
+        {
+            context.Response.Headers.ContentRange = contentRange.ToString();
+        }
+
+        if (response.Headers.AcceptRanges.Count > 0)
+        {
+            context.Response.Headers.AcceptRanges = string.Join(",", response.Headers.AcceptRanges);
+        }
     }
 
     // Live streams are endless — no buffering between Icecast and the listener.

@@ -43,7 +43,7 @@ public class StationSettings
     /// <summary>Generated track length range.</summary>
     public int MinTrackDurationSeconds { get; set; } = 150;
 
-    public int MaxTrackDurationSeconds { get; set; } = 480;
+    public int MaxTrackDurationSeconds { get; set; } = 300;
 
     // --- Speech ------------------------------------------------------------------
 

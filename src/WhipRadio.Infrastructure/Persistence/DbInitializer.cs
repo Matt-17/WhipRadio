@@ -22,8 +22,8 @@ public static class DbInitializer
 
     private const string AccidentalPhase3bSlogan = "Every song made for this moment.";
     private const string PreviousLlamaSlogan = "Llamas whipped that radio's mix.";
-    private const int PreviousDefaultMinTrackDurationSeconds = 180;
-    private const int PreviousDefaultMaxTrackDurationSeconds = 300;
+    private const int PreviousDefaultMinTrackDurationSeconds = 150;
+    private const int PreviousDefaultMaxTrackDurationSeconds = 480;
     private const string LegacyNewsPresenterName = "Maya Current";
     private const string SeedNewsPresenterName = "Maya Vale";
     private const string LocalhostAceStepUrl = "http://localhost:8101";

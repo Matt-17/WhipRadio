@@ -134,6 +134,7 @@
     private DotNetObjectReference<FooterPlayer>? _interopRef;
     private bool _mediaSessionEnabled;
     private const string ThinSpace = "\u2009";
+    private const string PlaceholderArtwork = "/skeleton-art.png";
 
     private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
     private sealed record AutoplayStatus(bool Supported, string? Policy, bool Blocked, bool PendingUnlock);
@@ -316,6 +317,17 @@
         }
     }
 
+    [JSInvokable]
+    public async Task HandleMediaSessionPrevious()
+    {
+        // Only act while previewing; when already live there is no "back to live"
+        // target, so do nothing — never re-tune/reload the running stream.
+        if (!Player.IsLive)
+        {
+            await BackToLiveAsync(shouldPlay: true);
+        }
+    }
+
     private async Task TickAsync()
     {
         if (!Player.IsLive && _songPlaying)
@@ -330,6 +342,8 @@
                 return;
             }
         }
+
+        await UpdateMediaSessionPositionAsync();
 
         var autoplayChanged = await UpdateAutoplayStatusAsync();
 
@@ -593,8 +607,49 @@
                 info.Title,
                 info.Artist,
                 info.Album,
-                info.ArtworkUrl,
+                // No per-artist artwork exists yet, so fall back to the station
+                // logo as a placeholder; real band photos can populate ArtworkUrl later.
+                info.ArtworkUrl ?? PlaceholderArtwork,
                 IsAudible);
+
+            // "Previous" = back to live; only offer it while previewing a library
+            // item, mirroring the on-screen "back to live" button.
+            await Js.InvokeVoidAsync("whipRadio.setMediaSessionCanReturnToLive", !Player.IsLive);
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit is gone during shutdown.
+        }
+
+        await UpdateMediaSessionPositionAsync();
+    }
+
+    private (double Duration, double Position) GetMediaSessionPosition()
+    {
+        if (!Player.IsLive)
+        {
+            return (SongDuration, _songPos);
+        }
+
+        if (Live.NowPlaying is { } np && np.DurationSeconds > 0)
+        {
+            return (np.DurationSeconds, Math.Clamp(Elapsed.TotalSeconds, 0, np.DurationSeconds));
+        }
+
+        return (0, 0);
+    }
+
+    private async Task UpdateMediaSessionPositionAsync()
+    {
+        if (!_mediaSessionEnabled)
+        {
+            return;
+        }
+
+        var (duration, position) = GetMediaSessionPosition();
+        try
+        {
+            await Js.InvokeVoidAsync("whipRadio.setMediaSessionPosition", duration, position);
         }
         catch (JSDisconnectedException)
         {

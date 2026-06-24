@@ -325,7 +325,13 @@ else
         };
 
     private static string AddButtonText(string kind)
-        => kind == "WriterRoom" ? "+ add room" : "+ add";
+        => kind switch
+        {
+            "WriterRoom" => "+ add room",
+            "Recording" => "+ add studio",
+            "VoiceBooth" => "+ add booth",
+            _ => "+ add"
+        };
 
     private static string BusyLabel(string kind)
         => kind == "WriterRoom" ? "WORK" : "REC";

@@ -410,7 +410,12 @@ else
                 : $"create package for {_news.NextPackageTargetUtc.ToLocalTime():ddd HH:mm}";
 
     private static string PackageLine(NewsPackageDto package)
-        => FirstNonEmpty(package.ProductionState, package.SourceSummary, package.FailureReason, "-");
+    {
+        var line = FirstNonEmpty(package.ProductionState, package.SourceSummary, package.FailureReason, "-");
+        return package.Status is "Pending" or "Retrying" && package.StepTotal > 0
+            ? $"{line} ({package.StepIndex}/{package.StepTotal})"
+            : line;
+    }
 
     private static string? PackageTitle(NewsPackageDto package)
         => FirstNonEmpty(package.ProductionState, package.FailureReason, package.SourceSummary);

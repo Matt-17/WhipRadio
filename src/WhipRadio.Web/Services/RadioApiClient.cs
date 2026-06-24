@@ -58,6 +58,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         return await SafeGetAsync<List<TrackDto>>(url, ct) ?? [];
     }
 
+    public async Task<TrackDto?> GetTrackAsync(Guid id, CancellationToken ct = default)
+        => await SafeGetAsync<TrackDto>($"/api/library/{id}", ct);
+
     public async Task<List<ArtistDto>> GetArtistsAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<ArtistDto>>("/api/artists", ct) ?? [];
 
@@ -148,6 +151,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     /// <summary>Same-origin media proxy URL — browser-safe regardless of scheme/host.</summary>
     public string TrackAudioUrl(Guid id) => $"/media/track/{id}";
+
+    /// <summary>Same-origin media proxy URL for a band member's voice reference clip.</summary>
+    public string ArtistMemberVoiceUrl(Guid id) => $"/media/artist-member-voice/{id}";
 
     public async Task<List<PlayLogEntryDto>> GetPlayLogAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<PlayLogEntryDto>>("/api/playlog", ct) ?? [];

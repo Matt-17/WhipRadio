@@ -242,7 +242,7 @@ public class NewsPackageProductionServiceTests
     [TestMethod]
     public void ResolveNextPreparationPlan_ReturnsWeatherPlanWithinWindow()
     {
-        // News=60, Weather=30, at 02:21 → 02:30 is 9 min away (within 10-min window) → weather-only plan.
+        // News=60, Weather=30, at 02:21 → 02:30 is 9 min away (within 30-min window) → weather-only plan.
         var settings = new StationSettings
         {
             NewsPackageCadenceMinutes = 60,
@@ -264,14 +264,14 @@ public class NewsPackageProductionServiceTests
     [TestMethod]
     public void ResolveNextPreparationPlan_WaitsOutsidePrepareWindow()
     {
-        // News=60, Weather=30, at 02:19 → 02:30 is 11 min away (outside 10-min window) → null.
+        // News=60, Weather=60, at 02:20 → 03:00 is 40 min away (outside 30-min window) → null.
         var settings = new StationSettings
         {
             NewsPackageCadenceMinutes = 60,
             WeatherEnabled = true,
-            WeatherCadenceMinutes = 30,
+            WeatherCadenceMinutes = 60,
         };
-        var localNow = new DateTimeOffset(2026, 6, 21, 2, 19, 0, TimeSpan.FromHours(2));
+        var localNow = new DateTimeOffset(2026, 6, 21, 2, 20, 0, TimeSpan.FromHours(2));
 
         var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
 
