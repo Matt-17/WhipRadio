@@ -16,6 +16,7 @@ else
     [Parameter] public string Placeholder { get; set; } = string.Empty;
     [Parameter] public int UpdateInterval { get; set; } = 5000;
     [Parameter] public bool ShowTooltip { get; set; } = true;
+    [Parameter] public TimeSpan? AbsoluteAfter { get; set; }
 
     private Timer? _timer;
     private bool _disposed;
@@ -67,6 +68,9 @@ else
         if (ts.TotalSeconds < 0)
             return "in the future";
 
+        if (AbsoluteAfter is { } cutoff && ts > cutoff)
+            return FormatAbsolute(dt, now);
+
         switch (ts.TotalSeconds)
         {
             case < 10:
@@ -108,6 +112,11 @@ else
         var years = months / 12;
         return Ago(Math.Max(1, years), "year");
     }
+
+    private static string FormatAbsolute(DateTime value, DateTime now)
+        => value.Date == now.Date
+            ? value.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : value.ToString("dd.MM. HH:mm", CultureInfo.InvariantCulture);
 
     private static string Ago(int value, string unit)
         => value > 1

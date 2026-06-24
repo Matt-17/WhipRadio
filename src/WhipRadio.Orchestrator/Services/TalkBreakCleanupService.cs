@@ -13,6 +13,7 @@ public sealed class TalkBreakCleanupService(
     ILogger<TalkBreakCleanupService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan TerminalTalkRetention = TimeSpan.FromHours(24);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -82,17 +83,87 @@ public sealed class TalkBreakCleanupService(
         }
 
         await db.SaveChangesAsync(ct);
+        var removedTerminalTalks = await DeleteTerminalTalksAsync(db, now - TerminalTalkRetention, ct);
         var removedOrphans = await DeleteOrphanAnnouncementFilesAsync(db, now, ct);
 
-        if (expired.Count > 0 || removedOrphans > 0)
+        if (expired.Count > 0 || removedTerminalTalks > 0 || removedOrphans > 0)
         {
             logger.LogInformation(
-                "TalkBreak cleanup expired {Expired} break(s), removed {Announcements} stale announcement row(s), deleted {Orphans} orphan WAV(s)",
+                "TalkBreak cleanup expired {Expired} break(s), removed {Announcements} stale announcement row(s), pruned {TerminalTalks} terminal talk(s), deleted {Orphans} orphan WAV(s)",
                 expired.Count,
                 removedAnnouncements,
+                removedTerminalTalks,
                 removedOrphans);
         }
     }
+
+    private async Task<int> DeleteTerminalTalksAsync(RadioDbContext db, DateTime cutoffUtc, CancellationToken ct)
+    {
+        var terminal = await db.TalkBreaks
+            .Include(talkBreak => talkBreak.Parts)
+            .Where(talkBreak =>
+                (talkBreak.Status == TalkBreakStatus.Played
+                    && talkBreak.PlayedAtUtc != null
+                    && talkBreak.PlayedAtUtc <= cutoffUtc)
+                || (talkBreak.Status == TalkBreakStatus.Expired
+                    && (talkBreak.ExpiresAtUtc ?? talkBreak.CreatedAtUtc) <= cutoffUtc)
+                || (talkBreak.Status == TalkBreakStatus.Failed
+                    && talkBreak.CreatedAtUtc <= cutoffUtc))
+            .OrderBy(talkBreak => talkBreak.PlayedAtUtc ?? talkBreak.ExpiresAtUtc ?? talkBreak.CreatedAtUtc)
+            .ThenBy(talkBreak => talkBreak.Id)
+            .Take(100)
+            .ToListAsync(ct);
+        if (terminal.Count == 0)
+        {
+            return 0;
+        }
+
+        var announcementIds = terminal
+            .SelectMany(talkBreak => talkBreak.Parts.Select(part => part.AnnouncementId))
+            .Concat(terminal.Select(talkBreak => talkBreak.AnnouncementId))
+            .Where(id => id is not null)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var announcements = announcementIds.Count == 0
+            ? []
+            : await db.Announcements
+                .Where(announcement => announcementIds.Contains(announcement.Id))
+                .ToListAsync(ct);
+        var candidatePaths = announcements
+            .Select(announcement => announcement.FilePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        db.TalkBreaks.RemoveRange(terminal);
+        db.Announcements.RemoveRange(announcements);
+        await db.SaveChangesAsync(ct);
+
+        await DeleteUnreferencedFilesAsync(db, candidatePaths, ct);
+        return terminal.Count;
+    }
+
+    private async Task DeleteUnreferencedFilesAsync(
+        RadioDbContext db,
+        IReadOnlyList<string> relativePaths,
+        CancellationToken ct)
+    {
+        foreach (var relativePath in relativePaths)
+        {
+            if (await IsReferencedAsync(db, relativePath, ct))
+            {
+                continue;
+            }
+
+            DeleteAnnouncementFile(relativePath);
+        }
+    }
+
+    private static async Task<bool> IsReferencedAsync(RadioDbContext db, string relativePath, CancellationToken ct)
+        => await db.Announcements.AsNoTracking().AnyAsync(a => a.FilePath == relativePath, ct)
+            || await db.TalkBitRenditions.AsNoTracking().AnyAsync(r => r.FilePath == relativePath, ct);
 
     private async Task<int> DeleteOrphanAnnouncementFilesAsync(RadioDbContext db, DateTime nowUtc, CancellationToken ct)
     {

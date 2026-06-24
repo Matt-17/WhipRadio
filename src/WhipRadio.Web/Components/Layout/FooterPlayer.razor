@@ -36,7 +36,7 @@
                         @preview.ArtistName
                     }
                 </span>
-                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream">
+                <button class="btn small live-btn" @onclick="BackToLiveAsync" title="back to the live stream (B)">
                     <span class="live-dot" aria-hidden="true"></span>
                     <span>back to live</span>
                 </button>
@@ -84,11 +84,15 @@
     </div>
 
     <div class="player-votes">
-        <button class="btn vote-up" disabled="@(!CanVote)" @onclick="() => VoteAsync(1)">
+        <button class="btn vote-up @(_myVote == 1 ? "voted" : null)" disabled="@(!CanVote)"
+                aria-pressed="@(_myVote == 1)" @onclick="() => VoteAsync(1)"
+                title="@(_myVote == 1 ? "remove thumbs up (L)" : "thumbs up (L)")">
             <Icon Name="thumb-up" Size="20" Class="player-vote-icon" />
             <span>@VoteUp</span>
         </button>
-        <button class="btn vote-down" disabled="@(!CanVote)" @onclick="() => VoteAsync(-1)">
+        <button class="btn vote-down @(_myVote == -1 ? "voted" : null)" disabled="@(!CanVote)"
+                aria-pressed="@(_myVote == -1)" @onclick="() => VoteAsync(-1)"
+                title="@(_myVote == -1 ? "remove thumbs down (H)" : "thumbs down (H)")">
             <Icon Name="thumb-down" Size="20" Class="player-vote-icon" />
             <span>@VoteDown</span>
         </button>
@@ -130,6 +134,8 @@
     private bool _autoplayBlocked;
     private string? _autoplayPolicy;
     private bool _autoplayPolicySupported;
+    private int _myVote;
+    private Guid? _voteItemId;
     private Timer? _ticker;
     private DotNetObjectReference<FooterPlayer>? _interopRef;
     private bool _mediaSessionEnabled;
@@ -138,17 +144,26 @@
 
     private sealed record AudioStatus(double Position, double Duration, bool Paused, bool Ended);
     private sealed record AutoplayStatus(bool Supported, string? Policy, bool Blocked, bool PendingUnlock);
-    private sealed record PreviewState(string Title, string? ArtistName, string Type);
+    private sealed record PreviewState(
+        string Title,
+        string? ArtistName,
+        string Type,
+        string? PanelHeader,
+        string? PanelByline,
+        string? PanelBody);
     private sealed record MediaSessionState(string Title, string? Artist, string? Album, string? ArtworkUrl);
 
     private bool IsAudible => Player.IsLive ? _livePlaying : _songPlaying;
 
-    // Panel slides open only for live segments with the toggle on; keeping the
-    // last header/body lets the close animation show content while sliding down.
+    // Panel slides open for live segments and for previews alike (whenever the
+    // toggle is on and there is text to show); keeping the last header/body lets
+    // the close animation show content while sliding down.
     private bool ShowTranscriptPanel => _transcriptEnabled
-        && Player.IsLive
-        && Live.NowPlaying is { } np
-        && (np.Transcript is not null || np.Lyrics is not null);
+        && (Player.IsLive
+            ? Live.NowPlaying is { } np && (np.Transcript is not null || np.Lyrics is not null)
+            : Preview is { PanelBody: not null });
+
+    private static string? OrNull(string? text) => string.IsNullOrWhiteSpace(text) ? null : text;
 
     private static string PanelHeaderFor(NowPlayingDto np) => np.ItemType switch
     {
@@ -167,23 +182,34 @@
             ?? Player.CurrentAnnouncement?.DurationSeconds
             ?? 0;
 
+    // Feedback is only meaningful for songs: a library-track preview or a live
+    // track. Voice/jingle/announcement previews leave the buttons disabled.
     private bool CanVote => Player.CurrentVoice is null
         && Player.CurrentJingle is null
         && Player.CurrentAnnouncement is null
         && (Player.CurrentTrack is not null || Live.NowPlaying?.ItemType == "Track");
+
+    // The track the feedback buttons act on, or null when nothing is votable.
+    private Guid? CurrentVoteItemId => !CanVote
+        ? null
+        : Player.CurrentTrack?.Id ?? Live.NowPlaying?.ItemId;
 
     private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
 
     private int VoteDown => Player.CurrentTrack?.DownVotes ?? Live.NowPlaying?.DownVotes ?? 0;
 
     private PreviewState? Preview => Player.CurrentTrack is { } track
-        ? new PreviewState(track.Title, track.ArtistName, "song")
+        ? new PreviewState(track.Title, track.ArtistName, "song",
+            $"Lyrics — {track.Title}",
+            track.ArtistName is { } artist ? $"by {artist}" : null,
+            OrNull(track.Lyrics))
         : Player.CurrentVoice is { } voice
-            ? new PreviewState(voice.Title, null, "voice")
+            ? new PreviewState(voice.Title, null, "voice", null, null, null)
             : Player.CurrentJingle is { } jingle
-                ? new PreviewState(jingle.Jingle.Label, null, "jingle")
+                ? new PreviewState(jingle.Jingle.Label, null, "jingle", null, null, null)
                 : Player.CurrentAnnouncement is { } announcement
-                    ? new PreviewState(announcement.Title, null, "announcement")
+                    ? new PreviewState(announcement.Title, null, "announcement",
+                        announcement.Title, null, OrNull(announcement.Transcript))
                     : null;
 
     private TimeSpan Elapsed => Live.NowPlaying is { } np
@@ -253,6 +279,9 @@
                 shouldRefresh = true;
             }
 
+            await RefreshMyVoteAsync();
+            shouldRefresh = true;
+
             if (shouldRefresh)
             {
                 StateHasChanged();
@@ -298,6 +327,22 @@
 
     [JSInvokable]
     public async Task ToggleMuteShortcut() => await ToggleMuteAsync();
+
+    [JSInvokable]
+    public async Task VoteUpShortcut() => await VoteAsync(1);
+
+    [JSInvokable]
+    public async Task VoteDownShortcut() => await VoteAsync(-1);
+
+    [JSInvokable]
+    public async Task BackToLiveShortcut()
+    {
+        // No-op while already live; mirrors the on-screen button being preview-only.
+        if (!Player.IsLive)
+        {
+            await BackToLiveAsync();
+        }
+    }
 
     [JSInvokable]
     public async Task HandleMediaSessionPlay()
@@ -412,6 +457,7 @@
                 }
             }
 
+            await RefreshMyVoteAsync();
             await UpdateMediaSessionMetadataAsync();
             StateHasChanged();
         });
@@ -419,6 +465,13 @@
 
     private void OnPlayerModeChanged() => _ = InvokeAsync(async () =>
     {
+        if (Preview is { PanelBody: { } body } preview)
+        {
+            _lastHeader = preview.PanelHeader ?? "";
+            _lastByline = preview.PanelByline;
+            _lastBody = body;
+        }
+
         if (Player.CurrentTrack is { } track)
         {
             await StartPreviewAsync(Api.TrackAudioUrl(track.Id), track.DurationSeconds);
@@ -440,6 +493,7 @@
             await UpdateMediaSessionMetadataAsync();
         }
 
+        await RefreshMyVoteAsync();
         StateHasChanged();
     });
 
@@ -657,16 +711,61 @@
         }
     }
 
+    // Loads "did I already vote on the current track?" from client storage so the
+    // toggle buttons reflect a recent vote (kept for at least an hour). Only reloads
+    // when the votable item actually changes, so it survives unrelated re-renders.
+    private async Task RefreshMyVoteAsync()
+    {
+        var id = CurrentVoteItemId;
+        if (id == _voteItemId)
+        {
+            return;
+        }
+
+        _voteItemId = id;
+        if (id is not { } itemId)
+        {
+            _myVote = 0;
+            return;
+        }
+
+        try
+        {
+            _myVote = await Js.InvokeAsync<int>("whipRadio.getVote", itemId);
+        }
+        catch (JSException)
+        {
+            _myVote = 0;
+        }
+        catch (JSDisconnectedException)
+        {
+            _myVote = 0;
+        }
+    }
+
+    // Toggle feedback: clicking the active button takes the vote back (client-side
+    // only — the server tally is increment-only for now); clicking the other button
+    // switches like a radio group. A fresh direction is registered with the server.
     private async Task VoteAsync(int direction)
     {
-        if (Player.CurrentTrack is { } track)
+        if (!CanVote || CurrentVoteItemId is not { } itemId)
         {
-            await Api.VoteAsync(track.Id, direction);
+            return;
         }
-        else if (Live.NowPlaying is { ItemType: "Track" } np)
+
+        if (_myVote == direction)
         {
-            await Api.VoteAsync(np.ItemId, direction);
+            _myVote = 0;
+            await Js.InvokeVoidAsync("whipRadio.setVote", itemId, 0);
+            StateHasChanged();
+            return;
         }
+
+        _myVote = direction;
+        await Js.InvokeVoidAsync("whipRadio.setVote", itemId, direction);
+        StateHasChanged();
+
+        await Api.VoteAsync(itemId, direction);
     }
 
     public async ValueTask DisposeAsync()

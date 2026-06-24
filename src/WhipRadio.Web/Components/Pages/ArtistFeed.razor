@@ -42,7 +42,7 @@
                         <div class="artist-feed-meta">
                             <a class="artist-feed-artist" href="@ArtistHref(post)">@post.ArtistName</a>
                             <span class="artist-feed-dot">&bull;</span>
-                            <span class="artist-feed-time"><TimeAgo Date="@AsUtc(post.CreatedAtUtc)" /></span>
+                            <span class="artist-feed-time"><TimeAgo Date="@AsUtc(post.CreatedAtUtc)" AbsoluteAfter="@OneDay" /></span>
                         </div>
                         <div class="artist-feed-body">@post.Body</div>
                     </div>
@@ -67,6 +67,7 @@
 
 @code {
     private const int PageSize = 20;
+    private static readonly TimeSpan OneDay = TimeSpan.FromDays(1);
 
     private readonly List<ArtistPostDto> _posts = [];
     private int _page = 1;

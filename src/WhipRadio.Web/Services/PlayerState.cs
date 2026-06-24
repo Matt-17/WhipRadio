@@ -11,7 +11,7 @@ public sealed record VoicePreview(string Title, string Url, double DurationSecon
 
 public sealed record JinglePreview(JingleDto Jingle, string Url);
 
-public sealed record AnnouncementPreview(Guid Id, string Title, string Url, double DurationSeconds);
+public sealed record AnnouncementPreview(Guid Id, string Title, string Url, double DurationSeconds, string? Transcript = null);
 
 public class PlayerState
 {
@@ -61,9 +61,9 @@ public class PlayerState
         Changed?.Invoke();
     }
 
-    public void PlayAnnouncement(Guid id, string title, string url, double durationSeconds)
+    public void PlayAnnouncement(Guid id, string title, string url, double durationSeconds, string? transcript = null)
     {
-        CurrentAnnouncement = new AnnouncementPreview(id, title, url, durationSeconds);
+        CurrentAnnouncement = new AnnouncementPreview(id, title, url, durationSeconds, transcript);
         CurrentTrack = null;
         CurrentVoice = null;
         CurrentJingle = null;

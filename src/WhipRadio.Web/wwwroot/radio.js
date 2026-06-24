@@ -1001,6 +1001,60 @@ window.whipRadio = {
     return active;
   },
 
+  // Listener feedback is remembered client-side only (no per-user server tally
+  // yet). Entries live for at least an hour so the toggle reflects a recent vote.
+  _voteTtlMs: 60 * 60 * 1000,
+
+  getVote(itemId) {
+    try {
+      const raw = localStorage.getItem("whipradio.votes");
+      if (!raw) {
+        return 0;
+      }
+
+      const map = JSON.parse(raw);
+      const entry = map[itemId];
+      if (!entry) {
+        return 0;
+      }
+
+      if (Date.now() - entry.t > this._voteTtlMs) {
+        delete map[itemId];
+        localStorage.setItem("whipradio.votes", JSON.stringify(map));
+        return 0;
+      }
+
+      return entry.d || 0;
+    } catch {
+      return 0;
+    }
+  },
+
+  setVote(itemId, direction) {
+    try {
+      const raw = localStorage.getItem("whipradio.votes");
+      const map = raw ? JSON.parse(raw) : {};
+      const now = Date.now();
+
+      // Prune stale votes on write so the store does not grow without bound.
+      for (const key of Object.keys(map)) {
+        if (now - map[key].t > this._voteTtlMs) {
+          delete map[key];
+        }
+      }
+
+      if (direction === 0) {
+        delete map[itemId];
+      } else {
+        map[itemId] = { d: direction, t: now };
+      }
+
+      localStorage.setItem("whipradio.votes", JSON.stringify(map));
+    } catch {
+      // localStorage unavailable (e.g. private mode); votes are simply not remembered.
+    }
+  },
+
   registerFooterShortcuts(dotNetRef) {
     this.disposeFooterShortcuts();
     this._shortcutRef = dotNetRef;
@@ -1027,6 +1081,18 @@ window.whipRadio = {
           const muted = this._flipFooterToggleVisual("mute");
           this.setMuted(muted);
           dotNetRef.invokeMethodAsync("ToggleMuteShortcut");
+        },
+        "l": () => {
+          event.preventDefault();
+          dotNetRef.invokeMethodAsync("VoteUpShortcut");
+        },
+        "h": () => {
+          event.preventDefault();
+          dotNetRef.invokeMethodAsync("VoteDownShortcut");
+        },
+        "b": () => {
+          event.preventDefault();
+          dotNetRef.invokeMethodAsync("BackToLiveShortcut");
         },
       };
 

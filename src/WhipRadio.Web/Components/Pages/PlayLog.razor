@@ -50,7 +50,7 @@
                             }
                             else
                             {
-                                <TimeAgo Date="@AsUtc(entry.PlayedAt)" />
+                                <TimeAgo Date="@AsUtc(entry.PlayedAt)" AbsoluteAfter="@OneHour" />
                             }
                         </td>
                         <td>
@@ -126,6 +126,7 @@
     // The freshly-aired row to flash, cleared once the arrival animation ends.
     private string? _flashKey;
     private CancellationTokenSource? _flashCts;
+    private static readonly TimeSpan OneHour = TimeSpan.FromHours(1);
 
     protected override async Task OnInitializedAsync()
     {
@@ -219,7 +220,7 @@
         }
         else
         {
-            Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds);
+            Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds, entry.Transcript);
         }
     }
 
