@@ -1,8 +1,9 @@
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Personality;
 using WhipRadio.Core.Slugs;
 using WhipRadio.Infrastructure.Llm;
@@ -24,11 +25,6 @@ public sealed class SpecialistHostCreationService(
     IProductionUpdatePublisher productionUpdates,
     ILogger<SpecialistHostCreationService> logger)
 {
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     public async Task<Moderator> CreateAsync(
         SpecialistHostRole role,
         string? hint,
@@ -135,7 +131,9 @@ public sealed class SpecialistHostCreationService(
             var userPrompt = attempt == 0
                 ? prompt
                 : $"{prompt}\n\nPrevious reply rejected: {lastError?.Message}. Return only valid JSON matching the schema.";
-            var raw = await llm.CompleteAsync(systemPrompt, userPrompt, jobLabel, ct);
+            var raw = await llm.CompleteAsync(
+                new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<SpecialistHostPlan>(), "specialistHost"),
+                ct);
             try
             {
                 return ParsePlan(raw);
@@ -183,9 +181,10 @@ public sealed class SpecialistHostCreationService(
 
     private static SpecialistHostPlan ParsePlan(string raw)
     {
-        var json = ExtractJsonObject(CleanStructuredOutput(raw));
-        var plan = JsonSerializer.Deserialize<SpecialistHostPlan>(json, JsonOptions)
-            ?? throw new InvalidOperationException("JSON was empty.");
+        var result = StructuredJson.Parse<SpecialistHostPlan>(raw);
+        var plan = result.IsValid
+            ? result.Value!
+            : throw new InvalidOperationException(result.Error ?? "JSON was empty.");
 
         _ = Require(plan.Name, "name");
         _ = Require(plan.Gender, "gender");
@@ -193,35 +192,6 @@ public sealed class SpecialistHostCreationService(
         _ = Require(plan.PersonaPrompt, "personaPrompt");
         _ = Require(plan.VoiceDescription, "voiceDescription");
         return plan;
-    }
-
-    private static string CleanStructuredOutput(string value)
-    {
-        var trimmed = value.Trim();
-        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
-        {
-            return trimmed;
-        }
-
-        var lines = trimmed.Split('\n');
-        if (lines.Length < 3)
-        {
-            return trimmed.Trim('`').Trim();
-        }
-
-        return string.Join('\n', lines.Skip(1).Take(lines.Length - 2)).Trim();
-    }
-
-    private static string ExtractJsonObject(string value)
-    {
-        var start = value.IndexOf('{');
-        var end = value.LastIndexOf('}');
-        if (start < 0 || end <= start)
-        {
-            throw new InvalidOperationException("No JSON object was found.");
-        }
-
-        return value[start..(end + 1)];
     }
 
     private static string EnsureUniqueName(string requestedName, IReadOnlyList<string> existingNames)
@@ -371,12 +341,16 @@ public sealed class SpecialistHostCreationService(
 
     private sealed class SpecialistHostPlan
     {
+        [JsonRequired]
         public string? Name { get; set; }
 
+        [JsonRequired]
         public string? Gender { get; set; }
 
+        [JsonRequired]
         public string? Style { get; set; }
 
+        [JsonRequired]
         public string? PersonaPrompt { get; set; }
 
         public string? PreferredGenres { get; set; }
@@ -385,6 +359,7 @@ public sealed class SpecialistHostCreationService(
 
         public SpecialistTraitPlan? Traits { get; set; }
 
+        [JsonRequired]
         public string? VoiceDescription { get; set; }
     }
 

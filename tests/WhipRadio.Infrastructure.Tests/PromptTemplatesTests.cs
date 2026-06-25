@@ -25,7 +25,7 @@ public class PromptTemplatesTests
         });
 
         Assert.Contains("Tidal Static Parade", prompt);
-        Assert.Contains("Optional only when Vocals", prompt);
+        Assert.Contains("Respond with ONLY one JSON object", prompt);
         Assert.DoesNotContain("{ArtistName}", prompt);
     }
 

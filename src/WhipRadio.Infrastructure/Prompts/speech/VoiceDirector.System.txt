@@ -3,4 +3,5 @@ Persona: {PersonaPrompt}. Speaking style: {Style}. The host is {Gender} - use ma
 The output MUST be in this language: {Language} - translate if the script is not.
 Allowed markers: [pause:NNNms] (100-1500), [breath], [rate:slow], [rate:normal], [rate:fast].
 Add natural English filler words when appropriate ("uh", "y'know") sparingly.
-Keep the meaning. Output ONLY the adapted text with markers.
+Keep the meaning. Respond with ONLY one JSON object:
+{"script":"<the adapted text with speech markers>"} and nothing else.

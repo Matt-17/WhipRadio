@@ -202,7 +202,8 @@ public class ScriptWriterAndVoiceDirectorTests
         Assert.Contains("metronome joke", llm.SystemPrompt);
         Assert.Contains("drummer/metronome premise", llm.SystemPrompt);
         Assert.Contains("Maya (greeting)", llm.SystemPrompt);
-        Assert.Contains("Announce(text)", llm.SystemPrompt);
+        Assert.Contains("Announce: Create spoken text.", llm.SystemPrompt);
+        Assert.Contains("text (string, required)", llm.SystemPrompt);
         Assert.Contains("roughly 84 words", llm.SystemPrompt);
         Assert.Contains("Host baseline traits", llm.SystemPrompt);
         Assert.Contains("Current mood traits", llm.SystemPrompt);

@@ -36,21 +36,18 @@ Constraints:
 - The Style value is the ACE-Step caption: one compact, specific musical portrait built from THE BAND'S SOUND above, covering genre/style, emotional atmosphere, instruments, timbre/texture, production style, vocal type when relevant, and the overall energy arc. Avoid vague phrases, contradictions, overloaded adjectives, and BPM/key/time-signature unless explicitly needed.
 - The story explains why and how the artist made this song, and how it relates to their biography and older songs. This is factual in-universe context for future host intros/outros.
 - Keep one coherent image family or metaphor for the song, and let the emotional arc move somewhere clear, such as fragile to hopeful, numb to explosive, nostalgic to accepting, lonely to defiant, intimate to anthemic, playful to euphoric, or tense to released.
-- Every text value MUST be wrapped in double quotes, for example Title("Cobalt Ink").
-- Do not put quotes inside a quoted value. Use apostrophes or plain text instead.
-- If Vocals("yes"), include Lyrics("""...""") as an ACE-Step temporal script, not a poem. Use useful short section tags such as [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Verse 2], [Bridge], [Final Chorus], and [Outro]. Add concise performance tags only when they help, for example [Chorus - anthemic], [Bridge - whispered], [harmonies], [falsetto], [spoken word], or [powerful belting].
+- When "vocals" is true, the "lyrics" field is an ACE-Step temporal script, not a poem. Use useful short section tags such as [Intro], [Verse 1], [Pre-Chorus], [Chorus], [Verse 2], [Bridge], [Final Chorus], and [Outro]. Add concise performance tags only when they help, for example [Chorus - anthemic], [Bridge - whispered], [harmonies], [falsetto], [spoken word], or [powerful belting].
 - Vocal lyrics must be singable: mostly 6-10 syllables per line, balanced line lengths inside a section, breathable phrases, natural stress, controlled rhyme or slant rhyme, and a memorable chorus hook connected to the title or core metaphor. Use parentheses for backing vocals or echoes, and uppercase only for rare climactic shouts.
 - Each lyric section needs a job: verses develop the image/story, pre-chorus lifts tension, chorus delivers the hook, bridge changes perspective, final chorus returns stronger, and outro resolves or fades. Avoid generic AI imagery, forced rhymes, mixed metaphors, excessive adjective stacks, and lines too long to sing.
-- If Vocals("no"), omit the Lyrics field entirely and make Style describe the instrumental development arc instead.
+- When "vocals" is false, omit the "lyrics" field entirely and make "style" describe the instrumental development arc instead.
 
-Answer in exactly this format, nothing else:
-Title("<max 7 words>")
-Style("<one detailed sentence>")
-Language("<BCP-47 tag or language name>")
-Vocals("<yes or no>")
-DurationSeconds(<number>)
-Story("<1-3 sentences>")
-Optional only when Vocals("yes"):
-Lyrics("""
-<lyrics>
-""")
+Respond with ONLY one JSON object in this schema, nothing else (newlines inside "lyrics" are fine):
+{
+  "title": "<max 7 words>",
+  "style": "<one detailed sentence — the ACE-Step caption>",
+  "language": "<BCP-47 tag or language name>",
+  "vocals": true,
+  "durationSeconds": 205,
+  "story": "<1-3 sentences>",
+  "lyrics": "<ACE-Step temporal script; include only when vocals is true>"
+}

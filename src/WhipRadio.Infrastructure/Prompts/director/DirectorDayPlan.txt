@@ -9,7 +9,14 @@ Rules:
 - Weekdays should feel similar to each other; weekends may differ. Add at most ONE special
   block per day (e.g. a Friday night party with hard electronic music).
 - Reuse existing formats and hosts where they fit; only invent something new when needed.
-- Answer with ONLY lines in exactly this format (24h clock), one block per line:
-HH:MM-HH:MM | Format Name | genre/subgenre | HOST=existing host name
-- To invent a new host, use instead: HOST=new:Name|m or f|en|short style
-- Finish with exactly one line: REASON: <one sentence why this day plan works>
+
+Respond with ONLY one JSON object in this schema (24h clock, no markdown, no commentary):
+{
+  "blocks": [
+    {"start": "HH:MM", "end": "HH:MM", "format": "Format Name", "genre": "genre", "subgenre": "subgenre", "host": "existing host name"}
+  ],
+  "reason": "one sentence why this day plan works"
+}
+- List consecutive blocks covering all 24 hours, earliest first.
+- "subgenre" is optional; omit it when there is none.
+- To invent a new host, set "host" to "new:Name|m or f|en|short style".

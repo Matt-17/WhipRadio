@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Persistence;
@@ -120,13 +121,17 @@ public sealed class ModeratorMemoryService(
                     Purpose: "Distill host day memory"),
                 ct);
 
-            var summary = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
-                "Condense the host's day memory into durable continuity notes. " +
-                "Keep only facts, recurring jokes, promises, callbacks, and useful relationship context. " +
-                "Output 1-3 concise sentences, no bullet list.\n\n" + context.RenderSituation(),
-                string.Join("\n", memories),
-                "Distilling host memory",
-                ct));
+            var summary = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+                new TextGenerationRequest(
+                    "Condense the host's day memory into durable continuity notes. " +
+                    "Keep only facts, recurring jokes, promises, callbacks, and useful relationship context. " +
+                    """Respond with ONLY one JSON object: {"text":"<1-3 concise sentences, no bullet list>"}.""" + "\n\n" +
+                    context.RenderSituation(),
+                    string.Join("\n", memories),
+                    "Distilling host memory",
+                    StructuredJson.SchemaFor<TextDto>(),
+                    "text"),
+                ct)));
 
             return string.IsNullOrWhiteSpace(summary)
                 ? fallback

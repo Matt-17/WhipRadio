@@ -5,4 +5,4 @@ Artist: {ArtistName}
 Genre: {Genre} ({Subgenre})
 Signature sound: {Style}
 
-Answer with ONLY the backstory text, nothing else.
+Respond with ONLY one JSON object: {"text":"<the 2-3 sentence backstory>"} and nothing else.

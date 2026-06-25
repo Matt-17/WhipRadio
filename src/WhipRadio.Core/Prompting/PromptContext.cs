@@ -227,16 +227,18 @@ public sealed class PromptContext
 
         if (Tools.Count > 0)
         {
-            builder.AppendLine("Available character tools:");
+            builder.AppendLine(
+                "If you are choosing an action, respond with exactly one JSON object and nothing else, " +
+                """in the form {"tool":"<ToolName>","arguments":{"<argument>":"<value>"}}. """ +
+                "Available tools:");
             foreach (var tool in Tools)
             {
-                var args = string.Join(", ", tool.Arguments.Select(a => a.IsRequired ? a.Name : $"{a.Name}?"));
-                builder.AppendLine($"- {tool.Name}({args}): {tool.Description}");
+                var args = tool.Arguments.Count == 0
+                    ? "(no arguments)"
+                    : string.Join(", ", tool.Arguments.Select(a =>
+                        $"{a.Name} ({a.JsonType}{(a.IsRequired ? ", required" : ", optional")})"));
+                builder.AppendLine($"- {tool.Name}: {tool.Description} — arguments: {args}");
             }
-
-            builder.AppendLine(
-                "If you are choosing an action, output exactly one JSON object: " +
-                """{"tool":"ToolName","arguments":{"argumentName":"value"}}""");
         }
 
         return builder.ToString().Trim();

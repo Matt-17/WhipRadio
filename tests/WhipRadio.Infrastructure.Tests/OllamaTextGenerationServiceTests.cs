@@ -4,6 +4,8 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Json;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -56,6 +58,36 @@ public class OllamaTextGenerationServiceTests
         Assert.Equal("user", messages[1].GetProperty("role").GetString());
         Assert.Equal("user prompt", messages[1].GetProperty("content").GetString());
     }
+
+    [TestMethod]
+    public async Task CompleteAsync_OmitsFormatWhenNoSchema()
+    {
+        var handler = OkHandler();
+        var service = CreateService(handler);
+
+        await service.CompleteAsync("s", "u", CancellationToken.None);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        Assert.False(body.RootElement.TryGetProperty("format", out _));
+    }
+
+    [TestMethod]
+    public async Task CompleteAsync_IncludesFormatSchemaWhenSupplied()
+    {
+        var handler = OkHandler();
+        var service = CreateService(handler);
+        var schema = StructuredJson.SchemaFor<SampleDto>();
+
+        await service.CompleteAsync(
+            new TextGenerationRequest("s", "u", "label", schema, "sample"), CancellationToken.None);
+
+        using var body = JsonDocument.Parse(handler.LastRequestBody!);
+        var format = body.RootElement.GetProperty("format");
+        Assert.Equal("object", format.GetProperty("type").GetString());
+        Assert.True(format.GetProperty("properties").TryGetProperty("name", out _));
+    }
+
+    private sealed record SampleDto([property: System.Text.Json.Serialization.JsonRequired] string Name);
 
     [TestMethod]
     public async Task CompleteAsync_ParsesAssistantContent()

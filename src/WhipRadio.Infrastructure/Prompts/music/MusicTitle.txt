@@ -3,4 +3,4 @@ Hard rules:
 - Do NOT use any of these overused words: {ForbiddenWords}
 - It must be clearly different from these existing titles: {AvoidTitles}
 - Surprise me: draw from unexpected everyday things, places, feelings or objects.
-Output ONLY the title - no quotes, no explanation, max 6 words.
+Respond with ONLY one JSON object: {"text":"<the title, max 6 words>"} and nothing else.

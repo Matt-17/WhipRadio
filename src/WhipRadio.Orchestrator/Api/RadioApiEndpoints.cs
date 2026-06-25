@@ -506,10 +506,12 @@ public static class RadioApiEndpoints
                 string? artistSlug = null;
                 var isNews = false;
                 IReadOnlyList<PlayLogHostDto>? hosts = null;
+                var isDeleted = false;
                 if (e.ItemType == PlayoutItemType.Track)
                 {
                     var track = tracks.GetValueOrDefault(e.ItemId);
-                    title = track?.Title ?? "(deleted track)";
+                    isDeleted = track is null;
+                    title = track?.Title ?? "deleted track";
                     artistName = track?.Artist?.Name;
                     artistSlug = track?.Artist?.Slug;
                 }
@@ -552,7 +554,8 @@ public static class RadioApiEndpoints
                         : null,
                     artistName,
                     artistSlug,
-                    isNews);
+                    isNews,
+                    isDeleted);
             }).ToList();
 
             return Results.Ok(result);

@@ -55,8 +55,16 @@ public static partial class LlmOutputSanitizer
             var root = SelectToolObject(doc.RootElement);
             if (root.ValueKind != JsonValueKind.Object)
             {
-                error = "The model returned JSON that is not a character tool object.";
+                error = "The model returned JSON that is not a spoken-text object.";
                 return false;
+            }
+
+            // Preferred envelope: {"script":"…"} (also accept "text" as a synonym).
+            var script = ReadString(root, "script") ?? ReadString(root, "text");
+            if (!string.IsNullOrWhiteSpace(script) && !root.TryGetProperty("arguments", out _))
+            {
+                sanitized = NormalizePlainText(script!);
+                return true;
             }
 
             var toolName = ReadString(root, "tool") ?? ReadString(root, "name");

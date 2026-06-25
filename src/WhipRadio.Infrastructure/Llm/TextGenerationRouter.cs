@@ -25,11 +25,16 @@ public class TextGenerationRouter(
     public const string OpenAiClientName = "llm-openai";
 
     public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
-        => await CompleteAsync(systemPrompt, userPrompt, jobLabel: null, ct);
+        => await CompleteAsync(new TextGenerationRequest(systemPrompt, userPrompt), ct);
 
     public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, string? jobLabel, CancellationToken ct)
+        => await CompleteAsync(new TextGenerationRequest(systemPrompt, userPrompt, jobLabel), ct);
+
+    public async Task<string> CompleteAsync(TextGenerationRequest generation, CancellationToken ct)
     {
-        var label = NormalizeJobLabel(jobLabel);
+        var label = NormalizeJobLabel(generation.JobLabel);
+        var systemPrompt = generation.SystemPrompt;
+        var userPrompt = generation.UserPrompt;
         var settings = await settingsCache.GetAsync(ct);
         var writerRoom = await AcquireWriterRoomAsync(settings, label, ct);
         if (writerRoom is not null)
@@ -37,7 +42,7 @@ public class TextGenerationRouter(
             var success = false;
             try
             {
-                var result = await CompleteWithWriterRoomAsync(writerRoom, settings, systemPrompt, userPrompt, label, ct);
+                var result = await CompleteWithWriterRoomAsync(writerRoom, settings, generation, label, ct);
                 success = true;
                 return result;
             }
@@ -63,7 +68,7 @@ public class TextGenerationRouter(
                 {
                     var openAi = new OpenAiTextGenerationService(
                         httpClientFactory.CreateClient(OpenAiClientName), settings.OpenAiApiKey, settings.OpenAiModel);
-                    return await openAi.CompleteAsync(systemPrompt, userPrompt, token);
+                    return await openAi.CompleteAsync(generation, token);
                 },
                 ct);
         }
@@ -93,7 +98,7 @@ public class TextGenerationRouter(
                     client,
                     llmOptions,
                     loggerFactory.CreateLogger<OllamaTextGenerationService>());
-                return await ollama.CompleteAsync(systemPrompt, userPrompt, token);
+                return await ollama.CompleteAsync(generation, token);
             },
             ct);
     }
@@ -152,11 +157,12 @@ public class TextGenerationRouter(
     private async Task<string> CompleteWithWriterRoomAsync(
         Studio writerRoom,
         StationSettings settings,
-        string systemPrompt,
-        string userPrompt,
+        TextGenerationRequest generation,
         string label,
         CancellationToken ct)
     {
+        var systemPrompt = generation.SystemPrompt;
+        var userPrompt = generation.UserPrompt;
         if (string.Equals(writerRoom.Provider, StudioProviders.OpenAi, StringComparison.OrdinalIgnoreCase))
         {
             var apiKey = string.IsNullOrWhiteSpace(writerRoom.ApiKey)
@@ -182,7 +188,7 @@ public class TextGenerationRouter(
                 {
                     var openAi = new OpenAiTextGenerationService(
                         httpClientFactory.CreateClient(OpenAiClientName), apiKey, settings.OpenAiModel);
-                    return await openAi.CompleteAsync(systemPrompt, userPrompt, token);
+                    return await openAi.CompleteAsync(generation, token);
                 },
                 ct);
         }
@@ -218,7 +224,7 @@ public class TextGenerationRouter(
                     client,
                     llmOptions,
                     loggerFactory.CreateLogger<OllamaTextGenerationService>());
-                return await ollama.CompleteAsync(systemPrompt, userPrompt, token);
+                return await ollama.CompleteAsync(generation, token);
             },
             ct);
     }

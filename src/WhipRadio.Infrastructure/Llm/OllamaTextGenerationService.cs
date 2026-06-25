@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -19,8 +20,13 @@ public class OllamaTextGenerationService(
     private readonly ILogger<OllamaTextGenerationService> _logger =
         logger ?? NullLogger<OllamaTextGenerationService>.Instance;
 
-    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+    public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+        => CompleteAsync(new TextGenerationRequest(systemPrompt, userPrompt), ct);
+
+    public async Task<string> CompleteAsync(TextGenerationRequest generation, CancellationToken ct)
     {
+        var systemPrompt = generation.SystemPrompt;
+        var userPrompt = generation.UserPrompt;
         var configured = options.Value;
         var promptChars = systemPrompt.Length + userPrompt.Length;
         var contextSize = OllamaContextSizer.ChooseContextSize(configured.ContextSize, promptChars);
@@ -34,7 +40,8 @@ public class OllamaTextGenerationService(
             ],
             Stream: false,
             KeepAlive: keepAlive,
-            Options: new ChatOptions(configured.Temperature, contextSize));
+            Options: new ChatOptions(configured.Temperature, contextSize),
+            Format: generation.ResponseSchema);
 
         var sw = Stopwatch.StartNew();
         _logger.LogInformation(
@@ -165,7 +172,10 @@ public class OllamaTextGenerationService(
         [property: JsonPropertyName("keep_alive")]
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         object? KeepAlive,
-        [property: JsonPropertyName("options")] ChatOptions Options);
+        [property: JsonPropertyName("options")] ChatOptions Options,
+        [property: JsonPropertyName("format")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        JsonNode? Format = null);
 
     internal sealed record ChatMessage(
         [property: JsonPropertyName("role")] string Role,

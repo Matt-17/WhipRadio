@@ -1,7 +1,7 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
+using System.Text.Json.Serialization;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Speech;
 
 namespace WhipRadio.Infrastructure.Llm;
@@ -13,27 +13,6 @@ public class MusicCopywriter(ITextGenerationService llm)
         "You are a creative assistant for a radio station's music department. " +
         "Answer exactly as instructed, with no extra commentary.";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
-    private static readonly Regex FunctionValueRegex = new(
-        @"(?im)^\s*(?<name>Title|Style|Language|Vocals|Story)\(\s*(?:""(?<quoted>(?:\\.|[^""\\])*)""|(?<bare>.*?))\s*\)\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    private static readonly Regex DurationRegex = new(
-        @"(?im)^\s*DurationSeconds\(\s*""?(?<value>\d{1,4})""?\s*\)\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    private static readonly Regex ArtistPostRegex = new(
-        @"(?is)^\s*(?<kind>Post|Skip)\(\s*(?:""(?<quoted>(?:\\.|[^""\\])*)""|(?<bare>.*?))\s*\)\s*$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    private static readonly Regex LyricsBlockRegex = new(
-        @"(?is)Lyrics\(\s*(?:""""""(?<block>.*?)""""""|""(?<quoted>(?:\\.|[^""\\])*)""|(?<bare>.*?))\s*\)",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
     public async Task<(string Name, string Style, string? Biography)> InventArtistAsync(
         string genre, string subgenre, IReadOnlyCollection<string> existingNames, CancellationToken ct)
     {
@@ -44,27 +23,17 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidNames"] = existingNames.Count == 0 ? "(none yet)" : string.Join(", ", existingNames.Take(20)),
         });
 
-        var reply = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Inventing artist", ct));
-        string? name = null, style = null, bio = null;
-        foreach (var line in reply.Split('\n', StringSplitOptions.TrimEntries))
-        {
-            if (line.StartsWith("NAME:", StringComparison.OrdinalIgnoreCase))
-            {
-                name = line["NAME:".Length..].Trim();
-            }
-            else if (line.StartsWith("STYLE:", StringComparison.OrdinalIgnoreCase))
-            {
-                style = line["STYLE:".Length..].Trim();
-            }
-            else if (line.StartsWith("BIO:", StringComparison.OrdinalIgnoreCase))
-            {
-                bio = line["BIO:".Length..].Trim();
-            }
-        }
+        var parsed = StructuredJson.Parse<InventArtistDto>(await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Inventing artist", StructuredJson.SchemaFor<InventArtistDto>(), "inventArtist"),
+            ct));
 
-        name = string.IsNullOrWhiteSpace(name) ? $"The {subgenre} Collective" : name;
-        style = string.IsNullOrWhiteSpace(style) ? $"{subgenre}, catchy and radio-friendly" : style;
-        return (name, style, string.IsNullOrWhiteSpace(bio) ? null : bio);
+        var name = parsed.IsValid ? parsed.Value!.Name : null;
+        var style = parsed.IsValid ? parsed.Value!.Style : null;
+        var bio = parsed.IsValid ? parsed.Value!.Bio : null;
+
+        name = string.IsNullOrWhiteSpace(name) ? $"The {subgenre} Collective" : name.Trim();
+        style = string.IsNullOrWhiteSpace(style) ? $"{subgenre}, catchy and radio-friendly" : style.Trim();
+        return (name, style, string.IsNullOrWhiteSpace(bio) ? null : bio.Trim());
     }
 
     /// <summary>Backfills a biography for artists created before bios existed.</summary>
@@ -78,7 +47,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["Style"] = artist.StyleDescriptor,
         });
 
-        var bio = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing artist biography", ct));
+        var bio = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Writing artist biography", StructuredJson.SchemaFor<TextDto>(), "text"),
+            ct)));
         return string.IsNullOrWhiteSpace(bio)
             ? $"{artist.Name} keep their past a mystery; the {artist.Subgenre} speaks for itself."
             : bio.Trim();
@@ -99,7 +70,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidNames"] = existingNames.Count == 0 ? "(none yet)" : string.Join(", ", existingNames.Take(40)),
         });
 
-        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Creating artist profile", ct));
+        var reply = await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Creating artist profile", StructuredJson.SchemaFor<ArtistProfileJson>(), "artistProfile"),
+            ct);
         return ParseArtistProfile(reply, prompt, hint, genre, subgenre);
     }
 
@@ -133,14 +106,18 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["DefaultLanguage"] = string.IsNullOrWhiteSpace(defaultLanguage) ? "en" : defaultLanguage,
             ["MinDurationSeconds"] = minDurationSeconds.ToString(),
             ["MaxDurationSeconds"] = maxDurationSeconds.ToString(),
-            ["VocalCapability"] = supportsVocals ? "Vocals are available." : "Vocals are not available; choose Vocals(\"no\").",
+            ["VocalCapability"] = supportsVocals ? "Vocals are available." : "Vocals are not available; set \"vocals\" to false.",
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(30)),
             ["ForbiddenWords"] = string.Join(", ", TitleWordGuard.MostFrequentWords(existingTitles, take: 8)),
             ["SongHistory"] = FormatHistory(history),
         });
 
-        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Planning artist song", ct));
-        var plan = ParseSongPlan(reply, artist, history, defaultLanguage, minDurationSeconds, maxDurationSeconds, supportsVocals);
+        var reply = await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Planning artist song", StructuredJson.SchemaFor<SongPlanDto>(), "songPlan"),
+            ct);
+        var parsed = StructuredJson.Parse<SongPlanDto>(reply);
+        var dto = parsed.IsValid ? parsed.Value! : new SongPlanDto(string.Empty);
+        var plan = ParseSongPlan(dto, artist, history, defaultLanguage, minDurationSeconds, maxDurationSeconds, supportsVocals);
         if (existingTitles.Any(t => string.Equals(t, plan.Title, StringComparison.OrdinalIgnoreCase)))
         {
             plan = plan with { Title = $"{plan.Title} No. {Random.Shared.Next(2, 99)}" };
@@ -185,7 +162,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["SongHistory"] = FormatHistory(songHistory),
         });
 
-        var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Planning artist social post", ct));
+        var reply = await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Planning artist social post", StructuredJson.SchemaFor<ArtistPostDto>(), "artistPost"),
+            ct);
         return ParseArtistPostPlan(reply, prompt);
     }
 
@@ -202,7 +181,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(15)),
         });
 
-        var title = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing song title", ct));
+        var title = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Writing song title", StructuredJson.SchemaFor<TextDto>(), "text"),
+            ct)));
         var firstLine = title.Split('\n')[0].Trim();
 
         if (existingTitles.Any(t => string.Equals(t, firstLine, StringComparison.OrdinalIgnoreCase)))
@@ -229,8 +210,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["Language"] = string.IsNullOrWhiteSpace(language) ? "en" : language.Trim(),
         });
 
-        var reply = LlmOutputSanitizer.Sanitize(
-            await llm.CompleteAsync(SystemPrompt, prompt, "Writing member self-introduction", ct));
+        var reply = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Writing member self-introduction", StructuredJson.SchemaFor<TextDto>(), "text"),
+            ct)));
         var intro = string.Join(" ", reply
             .Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         return string.IsNullOrWhiteSpace(intro) ? null : intro.Trim();
@@ -243,7 +225,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["Genre"] = genre,
             ["Language"] = language,
         });
-        return LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(SystemPrompt, prompt, "Writing lyrics", ct));
+        return LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+            new TextGenerationRequest(SystemPrompt, prompt, "Writing lyrics", StructuredJson.SchemaFor<TextDto>(), "text"),
+            ct)));
     }
 
     private static ArtistProfilePlan ParseArtistProfile(
@@ -253,23 +237,13 @@ public class MusicCopywriter(ITextGenerationService llm)
         string? suggestedGenre,
         string? suggestedSubgenre)
     {
-        var json = ExtractJsonObject(reply);
-        if (json is null)
+        var parsed = StructuredJson.Parse<ArtistProfileJson>(reply);
+        if (!parsed.IsValid)
         {
-            throw new InvalidOperationException("Artist profile response was not a JSON object.");
+            throw new InvalidOperationException($"Artist profile response was not valid JSON: {parsed.Error}");
         }
 
-        ArtistProfileJson profile;
-        try
-        {
-            profile = JsonSerializer.Deserialize<ArtistProfileJson>(json, JsonOptions)
-                ?? throw new InvalidOperationException("Artist profile JSON was empty.");
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidOperationException("Artist profile response was not valid JSON.", ex);
-        }
-
+        var profile = parsed.Value!;
         var name = RequireField(profile.Name, "name");
         var type = FirstNonEmpty(profile.Type, "Artist")!;
         var genre = FirstNonEmpty(profile.Genre, suggestedGenre, "pop")!;
@@ -314,7 +288,7 @@ public class MusicCopywriter(ITextGenerationService llm)
     }
 
     private static ArtistSongPlan ParseSongPlan(
-        string reply,
+        SongPlanDto dto,
         Artist artist,
         IReadOnlyCollection<ArtistSongHistoryItem> history,
         string defaultLanguage,
@@ -322,34 +296,20 @@ public class MusicCopywriter(ITextGenerationService llm)
         int maxDurationSeconds,
         bool supportsVocals)
     {
-        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match match in FunctionValueRegex.Matches(reply))
-        {
-            values[match.Groups["name"].Value] = CleanFunctionValue(match);
-        }
-
-        var lyricsMatch = LyricsBlockRegex.Match(reply);
-        var lyrics = lyricsMatch.Success ? CleanFunctionValue(lyricsMatch) : null;
-        var title = FirstNonEmpty(values.GetValueOrDefault("Title"), $"Untitled {artist.Subgenre} tune")!;
-        var style = FirstNonEmpty(values.GetValueOrDefault("Style"), artist.StyleDescriptor, artist.Subgenre, artist.Genre)!;
-        var (language, languageWasCorrected) = ResolveSongLanguage(
-            values.GetValueOrDefault("Language"),
-            defaultLanguage,
-            artist,
-            history);
+        var lyrics = string.IsNullOrWhiteSpace(dto.Lyrics) ? null : dto.Lyrics;
+        var title = FirstNonEmpty(dto.Title, $"Untitled {artist.Subgenre} tune")!;
+        var style = FirstNonEmpty(dto.Style, artist.StyleDescriptor, artist.Subgenre, artist.Genre)!;
+        var (language, languageWasCorrected) = ResolveSongLanguage(dto.Language, defaultLanguage, artist, history);
         var story = FirstNonEmpty(
-            values.GetValueOrDefault("Story"),
+            dto.Story,
             $"{artist.Name} shaped this track as the next chapter in their {artist.Subgenre} catalog.")!;
 
-        var duration = (minDurationSeconds + maxDurationSeconds) / 2;
-        var durationMatch = DurationRegex.Match(reply);
-        if (durationMatch.Success && int.TryParse(durationMatch.Groups["value"].Value, out var parsedDuration))
-        {
-            duration = parsedDuration;
-        }
+        var duration = Math.Clamp(
+            dto.DurationSeconds ?? (minDurationSeconds + maxDurationSeconds) / 2,
+            minDurationSeconds,
+            maxDurationSeconds);
 
-        duration = Math.Clamp(duration, minDurationSeconds, maxDurationSeconds);
-        var wantsVocals = supportsVocals && IsAffirmative(values.GetValueOrDefault("Vocals"));
+        var wantsVocals = supportsVocals && dto.Vocals;
         if (wantsVocals && string.IsNullOrWhiteSpace(lyrics))
         {
             wantsVocals = false;
@@ -371,16 +331,14 @@ public class MusicCopywriter(ITextGenerationService llm)
 
     private static ArtistPostPlan ParseArtistPostPlan(string reply, string prompt)
     {
-        var match = ArtistPostRegex.Match(reply);
-        if (!match.Success)
+        var parsed = StructuredJson.Parse<ArtistPostDto>(reply);
+        if (!parsed.IsValid)
         {
-            throw new InvalidOperationException("Artist post response must be Post(\"...\") or Skip(\"...\").");
+            throw new InvalidOperationException($"Artist post response was not valid JSON: {parsed.Error}");
         }
 
-        var value = CleanFunctionValue(match);
-        return string.Equals(match.Groups["kind"].Value, "Post", StringComparison.OrdinalIgnoreCase)
-            ? new ArtistPostPlan(true, value, prompt)
-            : new ArtistPostPlan(false, value, prompt);
+        var dto = parsed.Value!;
+        return new ArtistPostPlan(dto.ShouldPost, (dto.Text ?? string.Empty).Trim(), prompt);
     }
 
     private static (string Language, bool WasCorrected) ResolveSongLanguage(
@@ -460,35 +418,6 @@ public class MusicCopywriter(ITextGenerationService llm)
 
     private static bool IsAsciiLetter(char value)
         => value is >= 'a' and <= 'z';
-
-    private static string CleanStructuredOutput(string text)
-    {
-        var result = text.Trim();
-        if (result.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNewline = result.IndexOf('\n');
-            if (firstNewline >= 0)
-            {
-                result = result[(firstNewline + 1)..];
-            }
-
-            var fenceEnd = result.LastIndexOf("```", StringComparison.Ordinal);
-            if (fenceEnd >= 0)
-            {
-                result = result[..fenceEnd];
-            }
-        }
-
-        return result.Trim();
-    }
-
-    private static string? ExtractJsonObject(string text)
-    {
-        var trimmed = text.Trim();
-        var start = trimmed.IndexOf('{');
-        var end = trimmed.LastIndexOf('}');
-        return start >= 0 && end > start ? trimmed[start..(end + 1)] : null;
-    }
 
     private static string FormatHistory(IReadOnlyCollection<ArtistSongHistoryItem> history)
     {
@@ -582,9 +511,6 @@ public class MusicCopywriter(ITextGenerationService llm)
         return lines.Count == 0 ? "(no member roster recorded)" : string.Join(Environment.NewLine, lines);
     }
 
-    private static bool IsAffirmative(string? value)
-        => value?.Trim().ToLowerInvariant() is "yes" or "true" or "vocal" or "vocals" or "with vocals";
-
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
 
@@ -593,50 +519,47 @@ public class MusicCopywriter(ITextGenerationService llm)
             ? throw new InvalidOperationException($"Artist profile JSON missing required field '{fieldName}'.")
             : value.Trim();
 
-    private static string UnescapeFunctionValue(string value)
-        => value.Replace("\\\"", "\"").Replace("\\n", "\n").Trim();
-
-    private static string CleanFunctionValue(Match match)
-    {
-        var group = match.Groups["block"];
-        if (!group.Success)
-        {
-            group = match.Groups["quoted"];
-        }
-
-        if (!group.Success)
-        {
-            group = match.Groups["bare"];
-        }
-
-        return UnescapeFunctionValue(group.Success ? group.Value : string.Empty)
-            .Trim()
-            .Trim('"');
-    }
-
     private static string Trim(string value, int maxChars)
         => value.Length <= maxChars ? value : value[..maxChars].TrimEnd() + "...";
 }
 
+internal sealed record InventArtistDto(
+    [property: JsonRequired] string Name,
+    string? Style = null,
+    string? Bio = null);
+
+internal sealed record SongPlanDto(
+    [property: JsonRequired] string Title,
+    string? Style = null,
+    string? Language = null,
+    bool Vocals = false,
+    string? Lyrics = null,
+    int? DurationSeconds = null,
+    string? Story = null);
+
+internal sealed record ArtistPostDto(
+    [property: JsonRequired] bool ShouldPost,
+    string? Text = null);
+
 internal sealed record ArtistProfileJson(
-    string? Name,
-    string? Type,
-    string? Genre,
-    string? Subgenre,
-    string? Origin,
-    int? FormationYear,
-    string? Style,
-    string? Language,
-    string? ShortBiography,
-    string? DeepBackgroundBiography,
-    string? PromotionText,
-    IReadOnlyList<ArtistMemberJson>? Members);
+    [property: JsonRequired] string Name,
+    [property: JsonRequired] string ShortBiography,
+    [property: JsonRequired] string DeepBackgroundBiography,
+    [property: JsonRequired] string PromotionText,
+    [property: JsonRequired] IReadOnlyList<ArtistMemberJson> Members,
+    string? Type = null,
+    string? Genre = null,
+    string? Subgenre = null,
+    string? Origin = null,
+    int? FormationYear = null,
+    string? Style = null,
+    string? Language = null);
 
 internal sealed record ArtistMemberJson(
-    string? Name,
-    string? Role,
-    string? Biography,
-    string? VoiceCreationPrompt);
+    [property: JsonRequired] string Name,
+    [property: JsonRequired] string Role,
+    [property: JsonRequired] string Biography,
+    [property: JsonRequired] string VoiceCreationPrompt);
 
 public sealed record ArtistSongPlan(
     string Title,

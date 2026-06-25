@@ -107,20 +107,17 @@ Member(Bjorn Iron-Fist, Vocals/Percussion", A malformed member row.",Deep backgr
     [TestMethod]
     public async Task PlanSongAsync_ParsesArtistSongPlanAndPromptsWithHistory()
     {
-        var llm = new CapturingLlm(""""""
-Title("Manana al Anden")
-Style("Motorik drums, glassy analog synth hooks, clipped bass, and a patient sunrise build with warm Spanish lead vocals.")
-Language("es")
-Vocals("yes")
-DurationSeconds(205)
-Story("Las Curvas wrote it after a delayed train turned into a sunrise rehearsal, answering the restlessness of Luces Viejas.")
-Lyrics("""
-Esperamos en el anden
-La manana sube
-La ciudad respira
-Volvemos al sur
-""")
-"""""");
+        var llm = new CapturingLlm(""""
+{
+  "title": "Manana al Anden",
+  "style": "Motorik drums, glassy analog synth hooks, clipped bass, and a patient sunrise build with warm Spanish lead vocals.",
+  "language": "es",
+  "vocals": true,
+  "durationSeconds": 205,
+  "story": "Las Curvas wrote it after a delayed train turned into a sunrise rehearsal, answering the restlessness of Luces Viejas.",
+  "lyrics": "Esperamos en el anden\nLa manana sube\nLa ciudad respira\nVolvemos al sur"
+}
+"""");
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
         {
@@ -188,20 +185,17 @@ Volvemos al sur
     [TestMethod]
     public async Task PlanSongAsync_FallsBackToEnglishWhenNonDefaultLanguageIsNotExplicitlySupported()
     {
-        var llm = new CapturingLlm(""""""
-Title("El Aliento del Hielo")
-Style("A slow-moving soundscape built from heavily processed guitar washes, synthetic cello drones, and sparse melancholic vocals.")
-Language("es")
-Vocals("yes")
-DurationSeconds(285)
-Story("The band explored Svalbard field recordings and human fragility against deep time.")
-Lyrics("""
-El hielo guarda la voz
-Nada se mueve aqui
-La noche pesa mas
-El viento vuelve al mar
-""")
-"""""");
+        var llm = new CapturingLlm(""""
+{
+  "title": "El Aliento del Hielo",
+  "style": "A slow-moving soundscape built from heavily processed guitar washes, synthetic cello drones, and sparse melancholic vocals.",
+  "language": "es",
+  "vocals": true,
+  "durationSeconds": 285,
+  "story": "The band explored Svalbard field recordings and human fragility against deep time.",
+  "lyrics": "El hielo guarda la voz\nNada se mueve aqui\nLa noche pesa mas\nEl viento vuelve al mar"
+}
+"""");
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
         {
@@ -254,14 +248,14 @@ El viento vuelve al mar
     public async Task PlanSongAsync_AcceptsUnquotedSingleValueFieldsAndOptionalInstrumentalLyrics()
     {
         var llm = new CapturingLlm("""
-Title(Cobalt Ink & Coastal Haze)
-Style(The track is built around a muted, slightly detuned Rhodes piano loop over slow, gentle sub-bass 808s; it features intermittent bursts of magnified vinyl hiss and distant harbor ambience at 85 BPM.)
-Language(en)
-Vocals(no)
-DurationSeconds(320)
-Story(This piece was inspired after spending an afternoon cataloging old travel ephemera. It builds upon the quiet introspection of Velvet Transit Postcard Signals.)
-Lyrics(
-)
+{
+  "title": "Cobalt Ink & Coastal Haze",
+  "style": "The track is built around a muted, slightly detuned Rhodes piano loop over slow, gentle sub-bass 808s; it features intermittent bursts of magnified vinyl hiss and distant harbor ambience at 85 BPM.",
+  "language": "en",
+  "vocals": false,
+  "durationSeconds": 320,
+  "story": "This piece was inspired after spending an afternoon cataloging old travel ephemera. It builds upon the quiet introspection of Velvet Transit Postcard Signals."
+}
 """);
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
@@ -296,12 +290,14 @@ Lyrics(
     public async Task PlanSongAsync_AllowsInstrumentalPlanWithoutLyricsField()
     {
         var llm = new CapturingLlm("""
-Title("Harbor Tape Loop")
-Style("Muted Rhodes piano, slow sub-bass, tape saturation, and harbor field recordings.")
-Language("en")
-Vocals("no")
-DurationSeconds(260)
-Story("The artist built the piece from catalog notes and old travel postcards.")
+{
+  "title": "Harbor Tape Loop",
+  "style": "Muted Rhodes piano, slow sub-bass, tape saturation, and harbor field recordings.",
+  "language": "en",
+  "vocals": false,
+  "durationSeconds": 260,
+  "story": "The artist built the piece from catalog notes and old travel postcards."
+}
 """);
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
@@ -331,17 +327,17 @@ Story("The artist built the piece from catalog notes and old travel postcards.")
     [TestMethod]
     public async Task PlanSongAsync_ForcesInstrumentalWhenVocalsAreUnsupported()
     {
-        var llm = new CapturingLlm(""""""
-Title("Cloud Machines")
-Style("Slow ambient pads, brushed percussion, and a wide instrumental outro.")
-Language("en")
-Vocals("yes")
-DurationSeconds(400)
-Story("The artist made it as a quiet response to their previous single.")
-Lyrics("""
-These words should not be used.
-""")
-"""""");
+        var llm = new CapturingLlm(""""
+{
+  "title": "Cloud Machines",
+  "style": "Slow ambient pads, brushed percussion, and a wide instrumental outro.",
+  "language": "en",
+  "vocals": true,
+  "durationSeconds": 400,
+  "story": "The artist made it as a quiet response to their previous single.",
+  "lyrics": "These words should not be used."
+}
+"""");
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
         {
@@ -371,7 +367,7 @@ These words should not be used.
     [TestMethod]
     public async Task PlanArtistPostAsync_ParsesPostAndIncludesContext()
     {
-        var llm = new CapturingLlm("Post(\"We tuned the harbor until it answered back.\")");
+        var llm = new CapturingLlm("""{"shouldPost":true,"text":"We tuned the harbor until it answered back."}""");
         var writer = new MusicCopywriter(llm);
         var artist = new Artist
         {
@@ -441,7 +437,7 @@ These words should not be used.
     [TestMethod]
     public async Task PlanArtistPostAsync_ParsesSkip()
     {
-        var llm = new CapturingLlm("Skip(\"The act stays silent after releases.\")");
+        var llm = new CapturingLlm("""{"shouldPost":false,"text":"The act stays silent after releases."}""");
         var writer = new MusicCopywriter(llm);
 
         var plan = await writer.PlanArtistPostAsync(

@@ -18,7 +18,7 @@ public class ArtistSocialFeedServiceTests
     {
         await using DbFixture fixture = await DbFixture.CreateAsync();
         var (artistId, trackId) = await SeedArtistWithTracksAsync(fixture);
-        var llm = new CapturingLlm("Post(\"The new signal keeps the old one in its shadow.\")");
+        var llm = new CapturingLlm("""{"shouldPost":true,"text":"The new signal keeps the old one in its shadow."}""");
         var publisher = new CapturingPublisher();
         var service = new ArtistSocialFeedService(
             fixture,
@@ -64,7 +64,7 @@ public class ArtistSocialFeedServiceTests
 
         var service = new ArtistSocialFeedService(
             fixture,
-            new MusicCopywriter(new CapturingLlm("Skip(\"no-op\")")),
+            new MusicCopywriter(new CapturingLlm("""{"shouldPost":false,"text":"no-op"}""")),
             new CapturingPublisher(),
             NullLogger<ArtistSocialFeedService>.Instance);
 
@@ -89,7 +89,7 @@ public class ArtistSocialFeedServiceTests
         Assert.True(body.Length > 280);
         var service = new ArtistSocialFeedService(
             fixture,
-            new MusicCopywriter(new CapturingLlm($$"""Post("{{body}}")""")),
+            new MusicCopywriter(new CapturingLlm($$"""{"shouldPost":true,"text":"{{body}}"}""")),
             new CapturingPublisher(),
             NullLogger<ArtistSocialFeedService>.Instance);
 

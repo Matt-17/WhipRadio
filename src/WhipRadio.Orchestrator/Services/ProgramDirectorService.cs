@@ -1,8 +1,10 @@
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using System.Globalization;
+using System.Text.Json.Serialization;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Personality;
 using WhipRadio.Orchestrator.Api;
 using WhipRadio.Core.Prompting;
@@ -30,9 +32,6 @@ public partial class ProgramDirectorService(
     ILogger<ProgramDirectorService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromMinutes(10);
-
-    [GeneratedRegex(@"^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*\|\s*(?<format>[^|]+)\|\s*(?<genre>[^|]+)\|\s*HOST=(?<host>.+)$")]
-    private static partial Regex PlanLineRegex();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -160,6 +159,19 @@ public partial class ProgramDirectorService(
         int StartMinute, int DurationMinutes, string FormatName, string Genre, string Subgenre,
         string HostSpec, string Reason);
 
+    /// <summary>Schema-constrained shape of the program director's day plan reply.</summary>
+    internal sealed record DayPlanDto(
+        [property: JsonRequired] IReadOnlyList<DayPlanBlockDto> Blocks,
+        string? Reason = null);
+
+    internal sealed record DayPlanBlockDto(
+        [property: JsonRequired] string Start,
+        [property: JsonRequired] string End,
+        [property: JsonRequired] string Format,
+        [property: JsonRequired] string Genre,
+        [property: JsonRequired] string Host,
+        string? Subgenre = null);
+
     private async Task<List<PlannedBlock>?> TryLlmDayPlanAsync(int day, CancellationToken ct)
     {
         try
@@ -199,12 +211,15 @@ public partial class ProgramDirectorService(
                 ct);
 
             var reply = await llm.CompleteAsync(
-                "You are an experienced radio program director. Follow the output format EXACTLY.\n\n"
-                + promptContext.RenderSituation(),
-                prompt,
-                "Planning station day",
+                new TextGenerationRequest(
+                    "You are an experienced radio program director. Return only the requested JSON.\n\n"
+                    + promptContext.RenderSituation(),
+                    prompt,
+                    "Planning station day",
+                    StructuredJson.SchemaFor<DayPlanDto>(),
+                    "dayPlan"),
                 ct);
-            return ParsePlan(LlmOutputSanitizer.Sanitize(reply));
+            return ParsePlan(reply);
         }
         catch (Exception ex)
         {
@@ -215,40 +230,45 @@ public partial class ProgramDirectorService(
 
     internal static List<PlannedBlock>? ParsePlan(string reply)
     {
-        var reason = "planned by the program director";
+        var parsed = StructuredJson.Parse<DayPlanDto>(reply);
+        if (!parsed.IsValid || parsed.Value!.Blocks.Count == 0)
+        {
+            return null;
+        }
+
+        var reason = string.IsNullOrWhiteSpace(parsed.Value.Reason)
+            ? "planned by the program director"
+            : parsed.Value.Reason!.Trim();
         var blocks = new List<PlannedBlock>();
 
-        foreach (var rawLine in reply.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        foreach (var block in parsed.Value.Blocks)
         {
-            if (rawLine.StartsWith("REASON:", StringComparison.OrdinalIgnoreCase))
-            {
-                reason = rawLine["REASON:".Length..].Trim();
-                continue;
-            }
-
-            var match = PlanLineRegex().Match(rawLine);
-            if (!match.Success)
+            if (!TryParseClock(block.Start, out var start) || !TryParseClock(block.End, out var end))
             {
                 continue;
             }
 
-            var start = int.Parse(match.Groups[1].Value) * 60 + int.Parse(match.Groups[2].Value);
-            var endHour = int.Parse(match.Groups[3].Value);
-            var end = (endHour == 0 ? 24 : endHour) * 60 + int.Parse(match.Groups[4].Value);
+            // "00:00" as an end means midnight/end-of-day, not the start of the day.
+            if (end == 0)
+            {
+                end = 24 * 60;
+            }
+
             if (end <= start)
             {
                 end = Math.Min(start + 120, 24 * 60);
             }
 
             var duration = Math.Clamp(end - start, 30, 240);
-            var genreParts = match.Groups["genre"].Value.Trim().Split('/', 2);
+            var genre = (block.Genre ?? string.Empty).Trim().ToLowerInvariant();
+            var subgenre = (block.Subgenre ?? string.Empty).Trim().ToLowerInvariant();
 
             blocks.Add(new PlannedBlock(
                 start, duration,
-                match.Groups["format"].Value.Trim(),
-                genreParts[0].Trim().ToLowerInvariant(),
-                genreParts.Length > 1 ? genreParts[1].Trim().ToLowerInvariant() : string.Empty,
-                match.Groups["host"].Value.Trim(),
+                (block.Format ?? string.Empty).Trim(),
+                genre,
+                subgenre,
+                (block.Host ?? string.Empty).Trim(),
                 reason));
         }
 
@@ -272,6 +292,27 @@ public partial class ProgramDirectorService(
         // Require meaningful coverage, otherwise let the fallback take over.
         var coverage = sanitized.Sum(b => b.DurationMinutes);
         return coverage >= 18 * 60 ? sanitized : null;
+    }
+
+    /// <summary>Parses an "HH:MM" clock string into minutes-since-midnight.</summary>
+    private static bool TryParseClock(string? value, out int minutes)
+    {
+        minutes = 0;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        var parts = value.Trim().Split(':', 2);
+        if (parts.Length != 2
+            || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var hours)
+            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var mins))
+        {
+            return false;
+        }
+
+        minutes = Math.Clamp(hours, 0, 24) * 60 + Math.Clamp(mins, 0, 59);
+        return true;
     }
 
     private static List<PlannedBlock> FallbackDayPlan(int day)
@@ -433,11 +474,16 @@ public partial class ProgramDirectorService(
                     Facts: $"New host name: {name}; gender: {gender}; language: {language}; style: {style}",
                     Purpose: "Create host persona"),
                 ct);
-            persona = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
-                "You write radio host personas. Output only the persona.\n\n" + promptContext.RenderSituation(),
-                prompt,
-                "Creating host persona",
-                ct));
+            persona = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+                new TextGenerationRequest(
+                    "You write radio host personas. " +
+                    """Respond with ONLY one JSON object: {"text":"<the persona>"}.""" + "\n\n" +
+                    promptContext.RenderSituation(),
+                    prompt,
+                    "Creating host persona",
+                    StructuredJson.SchemaFor<TextDto>(),
+                    "text"),
+                ct)));
         }
         catch (Exception ex)
         {

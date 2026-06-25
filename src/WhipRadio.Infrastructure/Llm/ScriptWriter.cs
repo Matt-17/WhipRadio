@@ -1,5 +1,6 @@
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Speech;
 
@@ -24,7 +25,9 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
 
         var userPrompt = BuildUserPrompt(request);
         var jobLabel = ScriptJobLabel(request.Kind);
-        var script = await llm.CompleteAsync(systemPrompt, userPrompt, jobLabel, ct);
+        var script = await llm.CompleteAsync(
+            new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<ScriptDto>(), "script"),
+            ct);
         return await SanitizeOrRetryAsync(script, systemPrompt, userPrompt, jobLabel, ct);
     }
 
@@ -41,8 +44,11 @@ public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
         }
 
         var retryPrompt =
-            $"{userPrompt}\n\nPrevious reply rejected: {error} Return ONLY natural spoken radio copy. Do not return JSON.";
-        var retry = await llm.CompleteAsync(systemPrompt, retryPrompt, $"{jobLabel} retry", ct);
+            $"{userPrompt}\n\nPrevious reply rejected: {error} " +
+            """Return ONLY the JSON object {"script":"…"} with natural spoken radio copy in the script field.""";
+        var retry = await llm.CompleteAsync(
+            new TextGenerationRequest(systemPrompt, retryPrompt, $"{jobLabel} retry", StructuredJson.SchemaFor<ScriptDto>(), "script"),
+            ct);
         if (LlmOutputSanitizer.TrySanitizeSpokenText(retry, out sanitized, out error))
         {
             return sanitized;

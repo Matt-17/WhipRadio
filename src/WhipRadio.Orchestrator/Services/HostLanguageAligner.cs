@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Persistence;
@@ -71,13 +72,17 @@ public class HostLanguageAligner(
                     Purpose: "Translate host persona to station language"),
                 ct);
 
-            var translated = LlmOutputSanitizer.Sanitize(await llm.CompleteAsync(
-                "You translate radio host persona descriptions to English. " +
-                "Keep the character, tone and second-person form. Output ONLY the translated persona.\n\n" +
-                promptContext.RenderSituation(),
-                persona,
-                "Translating host persona",
-                ct));
+            var translated = LlmOutputSanitizer.Sanitize(StructuredJson.ParseTextOrRaw(await llm.CompleteAsync(
+                new TextGenerationRequest(
+                    "You translate radio host persona descriptions to English. " +
+                    "Keep the character, tone and second-person form. " +
+                    """Respond with ONLY one JSON object: {"text":"<the translated persona>"}.""" + "\n\n" +
+                    promptContext.RenderSituation(),
+                    persona,
+                    "Translating host persona",
+                    StructuredJson.SchemaFor<TextDto>(),
+                    "text"),
+                ct)));
             return string.IsNullOrWhiteSpace(translated) ? persona : translated;
         }
         catch (Exception ex)

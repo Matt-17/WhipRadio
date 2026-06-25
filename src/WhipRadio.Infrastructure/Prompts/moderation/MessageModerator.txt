@@ -15,9 +15,6 @@ Rules:
 - MUSIC REQUEST: Approve if the wish is plausible for this station's style (be generous — adjacent genres are fine). Reject only if completely unrelated to the station's music style or if the message itself is inappropriate.
 - For MUSIC REQUESTS also extract the wished genre: use the stated genre wish if given, otherwise infer it from the message text (e.g. "play something chill for the night shift" → "lofi"). Use a short lowercase genre term. If no genre can be inferred at all, omit the field.
 
-Respond with ONLY valid JSON, no other text:
-{"approved": true}
-or for an approved music request with a recognizable genre:
-{"approved": true, "genre": "techno"}
-or
-{"approved": false, "reason": "one short sentence explaining why"}
+Respond with ONLY one JSON object in this schema, no other text:
+{"approved": true|false, "reason": "<one short sentence; include only when rejected>", "genre": "<short lowercase genre; include only for an approved music request>"}
+Omit "reason" when approving and omit "genre" when there is none.

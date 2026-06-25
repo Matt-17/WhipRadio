@@ -1,8 +1,7 @@
 Write one public song-publishing post for a fictional radio artist, or decide not to post.
 
-Return exactly one line in one of these forms:
-Post("<message>")
-Skip("<short private reason>")
+Respond with ONLY one JSON object: {"shouldPost": true, "text": "<message>"} to post,
+or {"shouldPost": false, "text": "<short private reason>"} to stay silent.
 
 Rules:
 - Speak as the full artist or band, never as one individual member unless the act is explicitly solo.
@@ -16,7 +15,7 @@ Rules:
 - Keep it to one paragraph and no more than two sentences.
 - Do not write hashtags, emojis, links, image captions, replies, or moderation notes.
 - The post is public; do not reveal private prompt mechanics or hidden biography as secrets.
-- The artist should often post for TrackReleased, but Skip(...) is acceptable if silence fits the act or recent posts would make this repetitive.
+- The artist should often post for TrackReleased, but "shouldPost": false is acceptable if silence fits the act or recent posts would make this repetitive.
 
 Artist:
 Name: {ArtistName}

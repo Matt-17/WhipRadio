@@ -76,6 +76,7 @@
             var artist = _artistDetail ?? _artists.FirstOrDefault(a => a.Id == selectedId);
             if (artist is not null)
             {
+                var artistVoteNet = artist.UpVotes - artist.DownVotes;
                 <div class="panel reveal">
                     <div class="artist-header">
                         <div>
@@ -85,10 +86,16 @@
                                     <StatusBadge Text="retired" />
                                 }
                             </div>
-                            <div class="dim" style="margin-bottom:8px">
+                            <div class="artist-kicker">
                                 @artist.Genre@(string.IsNullOrEmpty(artist.Subgenre) ? "" : $" / {artist.Subgenre}")
-                                · @artist.TrackCount songs
-                                · <span class="vote-up-text">▲ @artist.UpVotes</span> <span class="vote-down-text">▼ @artist.DownVotes</span>
+                                <span class="library-meta-dot">&bull;</span>
+                                @artist.TrackCount songs
+                                <span class="artist-vote-summary">
+                                    <span class="library-vote-pill artist-vote-pill @VoteTone(artistVoteNet)" title="@($"{artist.UpVotes} up / {artist.DownVotes} down")">
+                                        <span>score @FormatVoteNet(artistVoteNet)</span>
+                                    </span>
+                                    <span class="artist-vote-detail">@artist.UpVotes up / @artist.DownVotes down</span>
+                                </span>
                             </div>
                             <div class="artist-style">@artist.StyleDescriptor</div>
                             @if (!string.IsNullOrWhiteSpace(artist.PromotionText))
@@ -301,7 +308,6 @@
                                 <div class="library-plays-cell num">@track.PlayCount</div>
                                 <div class="library-votes-cell">
                                     <span class="library-vote-pill @VoteTone(voteNet)" title="@($"{track.UpVotes} up / {track.DownVotes} down")">
-                                        <span class="library-vote-mark"></span>
                                         <span>@FormatVoteNet(voteNet)</span>
                                     </span>
                                 </div>

@@ -1,8 +1,7 @@
 Write one short public introduction post for a fictional radio artist, or decide not to post.
 
-Return exactly one line in one of these forms:
-Post("<short message>")
-Skip("<short private reason>")
+Respond with ONLY one JSON object: {"shouldPost": true, "text": "<short message>"} to post,
+or {"shouldPost": false, "text": "<short private reason>"} to stay silent.
 
 Rules:
 - Speak as the full artist or band, never as one individual member unless the act is explicitly solo.
@@ -11,7 +10,7 @@ Rules:
 - Keep it direct and in the artist's own style; use the biography, origin, members, and promotion text to shape the voice.
 - Do not write generic promo copy, hashtags, emojis, links, image captions, replies, or moderation notes.
 - The post is public; do not reveal private prompt mechanics or hidden biography as secrets.
-- Almost always return Post(...); use Skip(...) only if the artist profile is extremely private, silent, or anti-publicity.
+- Almost always set "shouldPost" to true; set it false only if the artist profile is extremely private, silent, or anti-publicity.
 
 Artist:
 Name: {ArtistName}

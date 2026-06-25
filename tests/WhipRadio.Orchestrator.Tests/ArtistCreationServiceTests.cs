@@ -81,7 +81,7 @@ public class ArtistCreationServiceTests
     public async Task CreateArtistAsync_PersistsArtistCreatedPostWhenLlmReturnsPost()
     {
         await using DbFixture fixture = await DbFixture.CreateAsync();
-        var llm = new SequencedLlm(ArtistProfileJson("Wire Signal"), "Post(\"We found a frequency under the loading dock.\")");
+        var llm = new SequencedLlm(ArtistProfileJson("Wire Signal"), """{"shouldPost":true,"text":"We found a frequency under the loading dock."}""");
         var copywriter = new MusicCopywriter(llm);
         var voiceQueue = new ArtistMemberVoiceQueue();
         var service = new ArtistCreationService(

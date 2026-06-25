@@ -1,2 +1,3 @@
 Write song lyrics for a {Genre} track in language: {Language}.
-8-12 short lines, verse-chorus feel, radio-friendly. Output ONLY the lyrics, one line per row.
+8-12 short lines, verse-chorus feel, radio-friendly.
+Respond with ONLY one JSON object: {"text":"<the lyrics, with newline characters between lines>"} and nothing else.

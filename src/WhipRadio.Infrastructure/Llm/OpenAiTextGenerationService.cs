@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using WhipRadio.Core.Abstractions;
 
@@ -9,14 +10,18 @@ namespace WhipRadio.Infrastructure.Llm;
 /// titles, lyrics and program-director reasoning).</summary>
 public class OpenAiTextGenerationService(HttpClient http, string apiKey, string model) : ITextGenerationService
 {
-    public async Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+    public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+        => CompleteAsync(new TextGenerationRequest(systemPrompt, userPrompt), ct);
+
+    public async Task<string> CompleteAsync(TextGenerationRequest generation, CancellationToken ct)
     {
         var request = new ChatRequest(
             model,
             [
-                new ChatMessage("system", systemPrompt),
-                new ChatMessage("user", userPrompt),
-            ]);
+                new ChatMessage("system", generation.SystemPrompt),
+                new ChatMessage("user", generation.UserPrompt),
+            ],
+            ResponseFormat: BuildResponseFormat(generation));
 
         using var message = new HttpRequestMessage(HttpMethod.Post, "/v1/chat/completions")
         {
@@ -32,9 +37,29 @@ public class OpenAiTextGenerationService(HttpClient http, string apiKey, string 
         return completion.Choices?.FirstOrDefault()?.Message?.Content?.Trim() ?? string.Empty;
     }
 
+    private static ResponseFormat? BuildResponseFormat(TextGenerationRequest generation)
+        => generation.ResponseSchema is null
+            ? null
+            : new ResponseFormat("json_schema", new JsonSchemaSpec(
+                Name: string.IsNullOrWhiteSpace(generation.SchemaName) ? "response" : generation.SchemaName!,
+                Strict: true,
+                Schema: generation.ResponseSchema));
+
     internal sealed record ChatRequest(
         [property: JsonPropertyName("model")] string Model,
-        [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages);
+        [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
+        [property: JsonPropertyName("response_format")]
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        ResponseFormat? ResponseFormat = null);
+
+    internal sealed record ResponseFormat(
+        [property: JsonPropertyName("type")] string Type,
+        [property: JsonPropertyName("json_schema")] JsonSchemaSpec JsonSchema);
+
+    internal sealed record JsonSchemaSpec(
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("strict")] bool Strict,
+        [property: JsonPropertyName("schema")] JsonNode Schema);
 
     internal sealed record ChatMessage(
         [property: JsonPropertyName("role")] string Role,

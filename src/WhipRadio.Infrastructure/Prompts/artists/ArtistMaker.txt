@@ -3,7 +3,9 @@ The name must be original and must NOT resemble any of these existing artists: {
 Also describe their signature sound in one sentence (instruments, mood, tempo, production style),
 and write a short fictional backstory (2-3 sentences: where they're from, what drives their music,
 a memorable quirk).
-Answer in EXACTLY this format, nothing else:
-NAME: <artist name, max 4 words>
-STYLE: <one sentence signature sound>
-BIO: <2-3 sentence fictional backstory>
+Respond with ONLY one JSON object in this schema, nothing else:
+{
+  "name": "<artist name, max 4 words>",
+  "style": "<one sentence signature sound>",
+  "bio": "<2-3 sentence fictional backstory>"
+}

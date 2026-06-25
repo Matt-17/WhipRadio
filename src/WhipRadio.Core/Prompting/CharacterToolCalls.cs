@@ -1,4 +1,5 @@
 using System.Text.Json;
+using WhipRadio.Core.Json;
 
 namespace WhipRadio.Core.Prompting;
 
@@ -29,7 +30,7 @@ public sealed class CharacterToolCallParser : ICharacterToolCallParser
 
         try
         {
-            using var doc = JsonDocument.Parse(StripCodeFence(raw));
+            using var doc = JsonDocument.Parse(StructuredJson.StripCodeFence(raw));
             var root = SelectToolObject(doc.RootElement);
             if (root.ValueKind != JsonValueKind.Object)
             {
@@ -119,21 +120,6 @@ public sealed class CharacterToolCallParser : ICharacterToolCallParser
         }
 
         return result;
-    }
-
-    private static string StripCodeFence(string raw)
-    {
-        var trimmed = raw.Trim();
-        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
-        {
-            return trimmed;
-        }
-
-        var firstNewline = trimmed.IndexOf('\n');
-        var lastFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
-        return firstNewline > 0 && lastFence > firstNewline
-            ? trimmed[(firstNewline + 1)..lastFence].Trim()
-            : trimmed;
     }
 
     private static CharacterToolParseResult Invalid(string error)

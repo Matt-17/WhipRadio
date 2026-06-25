@@ -21,4 +21,4 @@ Rules:
   or being an AI or a voice model. This is a personal introduction, never a promo.
 - Write in the language with ISO code "{Language}" (for example en = English, de = German).
 
-Answer with ONLY the spoken sentence(s), no quotes, no narration, nothing else.
+Respond with ONLY one JSON object: {"text":"<the spoken sentence(s)>"} and nothing else.

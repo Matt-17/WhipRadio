@@ -40,7 +40,13 @@
                 @foreach (var entry in _entries)
                 {
                     var isNowPlaying = ReferenceEquals(entry, nowPlayingEntry);
-                    <tr @key="EntryKey(entry)" class="@(EntryKey(entry) == _flashKey ? "playlog-new" : null)">
+                    var entryKey = EntryKey(entry);
+                    var rowClass = string.Join(' ', new[]
+                    {
+                        entryKey == _flashKey ? "playlog-new" : null,
+                        entry.IsDeleted ? "playlog-deleted" : null,
+                    }.Where(value => value is not null));
+                    <tr @key="entryKey" class="@rowClass">
                         <td class="dim" style="white-space:nowrap">
                             @if (isNowPlaying)
                             {
@@ -68,7 +74,7 @@
                             }
                         </td>
                         <td>
-                            @entry.Title
+                            <span class="playlog-title">@entry.Title</span>
                             @if (entry.ArtistName is { Length: > 0 } artist)
                             {
                                 <span class="dim"> by </span>
@@ -103,11 +109,14 @@
                         </td>
                         <td class="num dim">@FormatClock(TimeSpan.FromSeconds(entry.DurationSeconds))</td>
                         <td style="white-space:nowrap">
-                            <button class="btn small icon-btn" title="play in player"
-                                        aria-label="@(entry.ItemType == "Track" ? "play song" : entry.IsNews ? "play news" : "play talk")"
-                                    @onclick="() => PlayAsync(entry)">
-                                <Icon Name="play" Size="16" />
-                            </button>
+                            @if (CanPlay(entry))
+                            {
+                                <button class="btn small icon-btn" title="play in player"
+                                            aria-label="@(entry.ItemType == "Track" ? "play song" : entry.IsNews ? "play news" : "play talk")"
+                                        @onclick="() => PlayAsync(entry)">
+                                    <Icon Name="play" Size="16" />
+                                </button>
+                            }
                         </td>
                     </tr>
                 }
@@ -205,6 +214,9 @@
 
     private static string HostHref(string slug)
         => $"/moderators/{Uri.EscapeDataString(slug)}";
+
+    private static bool CanPlay(PlayLogEntryDto entry)
+        => !entry.IsDeleted;
 
     // Route the logged item into the footer player (a seekable preview) rather
     // than a one-shot clip, so transport controls and volume apply. Tracks need

@@ -1,5 +1,6 @@
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 
@@ -34,7 +35,9 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
             systemPrompt = $"{systemPrompt}\n\n{context.RenderSituation()}";
         }
 
-        var voiced = await llm.CompleteAsync(systemPrompt, script, "Directing voice delivery", ct);
+        var voiced = await llm.CompleteAsync(
+            new TextGenerationRequest(systemPrompt, script, "Directing voice delivery", StructuredJson.SchemaFor<ScriptDto>(), "script"),
+            ct);
         return await SanitizeOrRetryAsync(voiced, systemPrompt, script, ct);
     }
 
@@ -50,8 +53,11 @@ public class VoiceDirector(ITextGenerationService llm) : IVoiceDirector
         }
 
         var retryPrompt =
-            $"{script}\n\nPrevious reply rejected: {error} Return ONLY the adapted spoken text with allowed speech markers. Do not return JSON.";
-        var retry = await llm.CompleteAsync(systemPrompt, retryPrompt, "Directing voice delivery retry", ct);
+            $"{script}\n\nPrevious reply rejected: {error} " +
+            """Return ONLY the JSON object {"script":"…"} with the adapted spoken text (allowed speech markers included) in the script field.""";
+        var retry = await llm.CompleteAsync(
+            new TextGenerationRequest(systemPrompt, retryPrompt, "Directing voice delivery retry", StructuredJson.SchemaFor<ScriptDto>(), "script"),
+            ct);
         if (LlmOutputSanitizer.TrySanitizeSpokenText(retry, out sanitized, out error))
         {
             return sanitized;

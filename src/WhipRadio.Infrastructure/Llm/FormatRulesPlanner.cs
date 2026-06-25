@@ -1,6 +1,7 @@
-using System.Text.Json;
+using System.Text.Json.Serialization;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Json;
 using WhipRadio.Core.Selection;
 
 namespace WhipRadio.Infrastructure.Llm;
@@ -17,11 +18,6 @@ public class FormatRulesPlanner(ITextGenerationService llm)
     private const string SystemPrompt =
         "You are the music-rotation engineer for a radio station. " +
         "Answer with the requested JSON only, no commentary.";
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
 
     public async Task<FormatSelectionRules> PlanAsync(
         Format format,
@@ -42,7 +38,14 @@ public class FormatRulesPlanner(ITextGenerationService llm)
                 ["ArtistCatalog"] = FormatCatalog(artistCatalog),
             });
 
-            var reply = CleanStructuredOutput(await llm.CompleteAsync(SystemPrompt, prompt, "Planning format rules", ct));
+            var reply = await llm.CompleteAsync(
+                new TextGenerationRequest(
+                    SystemPrompt,
+                    prompt,
+                    "Planning format rules",
+                    StructuredJson.SchemaFor<FormatRulesJson>(),
+                    "formatRules"),
+                ct);
             return ParseRules(reply, artistCatalog);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -53,26 +56,13 @@ public class FormatRulesPlanner(ITextGenerationService llm)
 
     public static FormatSelectionRules ParseRules(string reply, IReadOnlyCollection<ArtistCatalogEntry> artistCatalog)
     {
-        var json = ExtractJsonObject(reply);
-        if (json is null)
+        var result = StructuredJson.Parse<FormatRulesJson>(reply);
+        if (!result.IsValid)
         {
             return FormatSelectionRules.Default;
         }
 
-        FormatRulesJson? parsed;
-        try
-        {
-            parsed = JsonSerializer.Deserialize<FormatRulesJson>(json, JsonOptions);
-            if (parsed is null)
-            {
-                return FormatSelectionRules.Default;
-            }
-        }
-        catch (JsonException)
-        {
-            return FormatSelectionRules.Default;
-        }
-
+        var parsed = result.Value!;
         var mode = ParseMode(parsed.Mode);
         var featured = ResolveFeaturedArtist(parsed.FeaturedArtistId, artistCatalog);
 
@@ -132,44 +122,16 @@ public class FormatRulesPlanner(ITextGenerationService llm)
             $"- {entry.Id} | {entry.Name} | {entry.Genre}/{entry.Subgenre}"));
     }
 
-    private static string CleanStructuredOutput(string text)
-    {
-        var result = text.Trim();
-        if (result.StartsWith("```", StringComparison.Ordinal))
-        {
-            var firstNewline = result.IndexOf('\n');
-            if (firstNewline >= 0)
-            {
-                result = result[(firstNewline + 1)..];
-            }
-
-            var fenceEnd = result.LastIndexOf("```", StringComparison.Ordinal);
-            if (fenceEnd >= 0)
-            {
-                result = result[..fenceEnd];
-            }
-        }
-
-        return result.Trim();
-    }
-
-    private static string? ExtractJsonObject(string text)
-    {
-        var trimmed = text.Trim();
-        var start = trimmed.IndexOf('{');
-        var end = trimmed.LastIndexOf('}');
-        return start >= 0 && end > start ? trimmed[start..(end + 1)] : null;
-    }
 }
 
 internal sealed record FormatRulesJson(
-    string? Mode,
-    string? FeaturedArtistId,
-    int? MaxArtistPlaysPerHour,
-    int? ArtistLookbackTracks,
-    bool? SubgenreRotation,
-    bool? PreferHostGenres,
-    string? Theme);
+    [property: JsonRequired] string? Mode,
+    string? FeaturedArtistId = null,
+    int? MaxArtistPlaysPerHour = null,
+    int? ArtistLookbackTracks = null,
+    bool? SubgenreRotation = null,
+    bool? PreferHostGenres = null,
+    string? Theme = null);
 
 /// <summary>One row of the artist catalog passed to the rules planner.</summary>
 public sealed record ArtistCatalogEntry(Guid Id, string Name, string Genre, string Subgenre);

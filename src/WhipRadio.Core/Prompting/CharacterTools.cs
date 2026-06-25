@@ -3,7 +3,8 @@ namespace WhipRadio.Core.Prompting;
 public sealed record CharacterToolArgument(
     string Name,
     string Description,
-    bool IsRequired = true);
+    bool IsRequired = true,
+    string JsonType = "string");
 
 public sealed record CharacterToolDefinition(
     string Name,

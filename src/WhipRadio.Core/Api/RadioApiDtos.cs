@@ -125,7 +125,8 @@ public sealed record PlayLogEntryDto(
     IReadOnlyList<TalkPartDto>? TalkParts = null,
     string? ArtistName = null,
     string? ArtistSlug = null,
-    bool IsNews = false);
+    bool IsNews = false,
+    bool IsDeleted = false);
 
 public sealed record PlayLogHostDto(string Name, string Slug);
 
