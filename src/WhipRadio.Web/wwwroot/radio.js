@@ -674,6 +674,25 @@ window.whipRadio = {
     return await this.play(url);
   },
 
+  // A WhipRadio restart swaps the Icecast source: the element is still draining
+  // several seconds of pre-restart audio (its own buffer + Icecast's burst), so
+  // it lags the now-playing card. Drop that stale buffer and re-tune to the
+  // fresh live edge — but only when the user actually wants live audio and it is
+  // currently playing, so a paused or previewing listener is never yanked into
+  // the stream. If the element already errored/ended, the recover() handler owns
+  // the reconnect, so we leave it alone.
+  async retuneLive() {
+    if (!this._wantLive || !this._liveUrl || !this._isPlaying()) {
+      return false;
+    }
+    if (this._retryTimer) {
+      clearTimeout(this._retryTimer);
+      this._retryTimer = null;
+    }
+    console.info("whipRadio: station restored - re-tuning to live edge");
+    return await this.play(this._liveUrl);
+  },
+
   nextFrame() {
     return new Promise(resolve => requestAnimationFrame(() => resolve()));
   },

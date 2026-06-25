@@ -237,8 +237,24 @@
         // Same-origin proxy: works on http and https pages alike (no mixed content).
         _streamUrl = "/media/live";
         Live.Changed += OnLiveChanged;
+        Live.LiveStreamRestored += OnLiveStreamRestored;
         Player.Changed += OnPlayerModeChanged;
     }
+
+    // The studio came back after a restart and swapped the Icecast source; the
+    // element is still draining pre-restart audio that lags the now-playing card.
+    // Re-tune to the fresh live edge (no-op unless live is actually playing).
+    private void OnLiveStreamRestored() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await Js.InvokeVoidAsync("whipRadio.retuneLive");
+        }
+        catch (JSDisconnectedException)
+        {
+            // Circuit is gone during shutdown.
+        }
+    });
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -805,6 +821,7 @@
     public async ValueTask DisposeAsync()
     {
         Live.Changed -= OnLiveChanged;
+        Live.LiveStreamRestored -= OnLiveStreamRestored;
         Player.Changed -= OnPlayerModeChanged;
         _ticker?.Dispose();
         try

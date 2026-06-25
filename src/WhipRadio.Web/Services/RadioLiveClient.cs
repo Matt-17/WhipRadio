@@ -29,6 +29,13 @@ public class RadioLiveClient(
 
     public event Action? Changed;
 
+    /// <summary>
+    /// Fires when the station transitions back to Online after an encoder crash
+    /// or a studio restart. The live player re-tunes to the fresh Icecast edge so
+    /// it stops draining pre-restart buffer that lags the now-playing card.
+    /// </summary>
+    public event Action? LiveStreamRestored;
+
     public event Action? JinglesChanged;
 
     public event Action? ScheduleChanged;
@@ -67,8 +74,16 @@ public class RadioLiveClient(
 
             _connection.On<StationStatusDto>("StationStatusChanged", status =>
             {
+                // Non-Online → Online means the encoder reattached to the mount
+                // (crash recovery / re-enable): an in-flight player is draining
+                // stale buffer, so push it to the live edge.
+                var cameOnline = StationStatus is { } prev && !IsOnline(prev.Status) && IsOnline(status.Status);
                 StationStatus = status;
                 Changed?.Invoke();
+                if (cameOnline)
+                {
+                    LiveStreamRestored?.Invoke();
+                }
             });
 
             _connection.On<VoteResultDto>("VotesChanged", votes =>
@@ -109,6 +124,15 @@ public class RadioLiveClient(
                     {
                         await _connection.StartAsync();
                         await RefreshSnapshotAsync();
+                        // Auto-reconnect already gave up (~30 s) before Closed fired,
+                        // so this was a real studio outage — the orchestrator (and its
+                        // ffmpeg encoder) restarted and replaced the Icecast source.
+                        // Re-tune any open player off its now-stale buffer.
+                        if (IsOnline(StationStatus?.Status))
+                        {
+                            LiveStreamRestored?.Invoke();
+                        }
+
                         return;
                     }
                     catch (ObjectDisposedException)
@@ -139,6 +163,10 @@ public class RadioLiveClient(
             _gate.Release();
         }
     }
+
+    // Matches StationStatus.Online.ToString() pushed by the orchestrator's reporter.
+    private static bool IsOnline(string? status) =>
+        string.Equals(status, "Online", StringComparison.OrdinalIgnoreCase);
 
     public async Task RefreshSnapshotAsync()
     {
