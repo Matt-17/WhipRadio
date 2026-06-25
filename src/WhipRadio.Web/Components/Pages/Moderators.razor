@@ -195,8 +195,6 @@ else
                 <label>TTS Engine</label>
                 <select @bind="_newEngine">
                     <option value="qwen">qwen (local, designed voice — recommended)</option>
-                    <option value="kokoro">kokoro (local, en)</option>
-                    <option value="piper">piper (local fallback)</option>
                     <option value="elevenlabs">elevenlabs (cloud, needs key)</option>
                 </select>
             </div>
@@ -366,7 +364,7 @@ else
     private string _newName = "";
     private string _newGender = "f";
     private string _stationLanguage = "en";
-    private string _newEngine = "kokoro";
+    private string _newEngine = "qwen";
     private string _newStyle = "";
     private string _newGenres = "";
     private string _newTalkativeness = "0.5";

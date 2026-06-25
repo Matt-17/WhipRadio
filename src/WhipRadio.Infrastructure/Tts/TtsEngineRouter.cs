@@ -8,7 +8,7 @@ namespace WhipRadio.Infrastructure.Tts;
 /// <summary>
 /// Books the first free voice booth for each synthesis. Hosts with an
 /// ElevenLabs voice need an ElevenLabs booth (or the legacy station-settings
-/// key); everyone else records in a local TTS booth (kokoro/piper).
+/// key); everyone else records in the local Qwen booth.
 /// </summary>
 public class TtsEngineRouter(
     IHttpClientFactory httpClientFactory,
@@ -24,7 +24,7 @@ public class TtsEngineRouter(
         if (options.Engine == TtsEngines.ElevenLabs)
         {
             // Prefer a configured ElevenLabs booth; fall back to the legacy
-            // station-settings key; finally degrade to a local default voice.
+            // station-settings key; finally degrade to the local Qwen booth.
             var elBooth = await coordinator.GetFirstActiveAsync(
                 StudioKind.VoiceBooth, StudioProviders.ElevenLabs, ct);
             if (elBooth is not null)
@@ -49,7 +49,8 @@ public class TtsEngineRouter(
                     ct);
             }
 
-            options = options with { Engine = TtsEngines.Kokoro, VoiceId = "af_heart" };
+            // The Qwen booth resolves a missing handle to an existing designed voice.
+            options = options with { Engine = TtsEngines.Qwen, VoiceId = "" };
         }
 
         return await SynthesizeInBoothAsync(StudioProviders.LocalTts, markedUpText, options, ct);

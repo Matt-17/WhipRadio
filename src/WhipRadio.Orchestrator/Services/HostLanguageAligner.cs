@@ -11,12 +11,12 @@ namespace WhipRadio.Orchestrator.Services;
 /// <summary>
 /// The station language is the main language: every host speaks it. Runs at
 /// startup and whenever DefaultLanguage changes. Hosts in another language are
-/// switched over, assigned a compatible voice, and their persona prompt is
-/// translated to the station language too.
+/// switched over and their persona prompt is translated to the station language.
+/// The designed Qwen voice is timbre, not language, so it is left untouched — the
+/// target language is passed per synthesis call.
 /// </summary>
 public class HostLanguageAligner(
     IDbContextFactory<RadioDbContext> dbFactory,
-    VoiceCatalogService voices,
     IServiceScopeFactory scopeFactory,
     ILogger<HostLanguageAligner> logger)
 {
@@ -37,12 +37,6 @@ public class HostLanguageAligner(
         foreach (var host in offLanguageHosts)
         {
             host.Language = language;
-
-            if (host.TtsEngine != TtsEngines.ElevenLabs)
-            {
-                host.VoiceId = await voices.PickVoiceAsync(host, ct);
-            }
-
             host.PersonaPrompt = await TranslatePersonaAsync(host.PersonaPrompt, language, ct);
 
             logger.LogInformation(

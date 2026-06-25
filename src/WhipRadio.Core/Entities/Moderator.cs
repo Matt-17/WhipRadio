@@ -17,12 +17,13 @@ public class Moderator
     /// <summary>"m" | "f" — must match the assigned TTS voice.</summary>
     public string Gender { get; set; } = "f";
 
-    /// <summary>TTS engine key: "kokoro" | "piper" | "elevenlabs".</summary>
-    public string TtsEngine { get; set; } = "kokoro";
+    /// <summary>TTS engine key. Hosts always use "qwen" (designed voices);
+    /// "elevenlabs" remains available as an optional cloud engine.</summary>
+    public string TtsEngine { get; set; } = "qwen";
 
-    /// <summary>TTS voice key: a preset id ("af_heart") or a designed-voice
-    /// handle ("qv-…") — engine-specific, stable across restarts.</summary>
-    public string VoiceId { get; set; } = "af_heart";
+    /// <summary>Designed-voice handle ("qv-…"), stable across restarts. Empty
+    /// until HostVoicePreparationService mints the host's Qwen voice.</summary>
+    public string VoiceId { get; set; } = "";
 
     /// <summary>Free-text timbre/style description the voice was designed from
     /// (Qwen Voice-Design). Also conditions singing voices later (Phase 5).</summary>

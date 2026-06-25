@@ -322,7 +322,8 @@ public static class DbInitializer
 
     /// <summary>
     /// Databases created before gender/engine existed have every host on the
-    /// default female Kokoro voice. Re-sync the well-known seeded hosts once.
+    /// default female voice. Re-sync the well-known seeded hosts once; legacy
+    /// hosts still on a preset voice are migrated to Qwen by HostVoicePreparationService.
     /// </summary>
     private static async Task PatchSeededModeratorsAsync(RadioDbContext db, CancellationToken ct)
     {
@@ -345,7 +346,7 @@ public static class DbInitializer
             {
                 // Unknown legacy host: keep the voice, default the new fields.
                 moderator.Gender = string.IsNullOrEmpty(moderator.Gender) ? ModeratorGenders.Female : moderator.Gender;
-                moderator.TtsEngine = string.IsNullOrEmpty(moderator.TtsEngine) ? TtsEngines.Kokoro : moderator.TtsEngine;
+                moderator.TtsEngine = string.IsNullOrEmpty(moderator.TtsEngine) ? TtsEngines.Qwen : moderator.TtsEngine;
                 patched = true;
             }
 
@@ -484,8 +485,11 @@ public static class DbInitializer
                 Name = "Lena Spark",
                 Language = "en",
                 Gender = ModeratorGenders.Female,
-                TtsEngine = TtsEngines.Kokoro,
-                VoiceId = "af_heart",
+                TtsEngine = TtsEngines.Qwen,
+                VoiceId = "",
+                VoiceDescription =
+                    "A female radio host voice. Style: fast-energetic. Young and bubbly, talks fast with "
+                    + "infectious enthusiasm and boundless energy.",
                 SpeechRate = 1.15,
                 Style = "fast-energetic",
                 Talkativeness = 0.8,
@@ -507,8 +511,11 @@ public static class DbInitializer
                 Name = "Herbert Nightwave",
                 Language = "en",
                 Gender = ModeratorGenders.Male,
-                TtsEngine = TtsEngines.Kokoro,
-                VoiceId = "am_michael",
+                TtsEngine = TtsEngines.Qwen,
+                VoiceId = "",
+                VoiceDescription =
+                    "A male radio host voice. Style: slow-thoughtful. Measured and older, warm timbre, speaks "
+                    + "slowly with well-placed pauses and a touch of nostalgia.",
                 SpeechRate = 0.85,
                 Style = "slow-thoughtful",
                 Talkativeness = 0.5,
@@ -531,8 +538,11 @@ public static class DbInitializer
                 Name = "Charlie Wave",
                 Language = "en",
                 Gender = ModeratorGenders.Male,
-                TtsEngine = TtsEngines.Kokoro,
-                VoiceId = "bm_george",
+                TtsEngine = TtsEngines.Qwen,
+                VoiceId = "",
+                VoiceDescription =
+                    "A male radio host voice. Style: laid-back. Smooth and casual with a dry sense of humor, "
+                    + "like he is broadcasting from a beach bar at sunset.",
                 SpeechRate = 1.0,
                 Style = "laid-back",
                 Talkativeness = 0.35,
@@ -565,8 +575,11 @@ public static class DbInitializer
         Slug = SlugGenerator.FromName(SeedNewsPresenterName),
         Language = "en",
         Gender = ModeratorGenders.Female,
-        TtsEngine = TtsEngines.Kokoro,
-        VoiceId = "af_bella",
+        TtsEngine = TtsEngines.Qwen,
+        VoiceId = "",
+        VoiceDescription =
+            "A female radio host voice. Style: clear-editorial. Clear, professional news-anchor delivery, "
+            + "neutral and authoritative.",
         SpeechRate = 1.02,
         Style = "clear-editorial",
         Talkativeness = 0.45,

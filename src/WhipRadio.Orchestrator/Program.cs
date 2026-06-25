@@ -74,7 +74,7 @@ builder.Services.AddSingleton<IPlayoutQueue>(sp => new TrackedPlayoutQueue(
 builder.Services.AddSingleton<INowPlayingState, NowPlayingState>();
 builder.Services.AddSingleton<IPlaybackReporter, PlaybackReporter>();
 builder.Services.AddSingleton<TrackDeletionService>();
-builder.Services.AddSingleton<VoiceCatalogService>();
+builder.Services.AddSingleton<HostVoiceQueue>();
 builder.Services.AddSingleton<GreetingState>();
 builder.Services.AddSingleton<MusicProductionControl>();
 builder.Services.AddSingleton<DirectorControl>();
@@ -113,6 +113,7 @@ builder.Services.AddHostedService<PlayoutRecoveryService>();
 builder.Services.AddHostedService<PlayoutService>();
 builder.Services.AddHostedService<ShowRunnerService>();
 builder.Services.AddHostedService<ArtistMemberVoicePreparationService>();
+builder.Services.AddHostedService<HostVoicePreparationService>();
 builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
         builder.Services.AddSingleton<NewsFeedPollingService>();
