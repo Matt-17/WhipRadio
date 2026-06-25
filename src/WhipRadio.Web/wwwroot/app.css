@@ -1494,6 +1494,23 @@ table.console-table {
 
 .seg-btn .ico { margin-right: 5px; }
 
+/* ---------- language flags ---------- */
+/* Multicolor SVG flags pushed toward the station's sepia/amber palette so they
+   read as warm monochrome icons rather than bright emoji. Shape (stripe
+   direction, disc, star) still distinguishes each language. */
+.flag {
+    width: 21px;
+    height: 14px;
+    display: inline-block;
+    vertical-align: -2px;
+    border-radius: 2px;
+    border: 1px solid var(--amber-dim);
+    box-shadow: 0 0 4px rgba(255, 180, 84, 0.18);
+    filter: sepia(0.75) saturate(1.5) hue-rotate(-18deg) brightness(0.95);
+}
+
+.field-flag { display: inline-flex; align-items: center; gap: 8px; }
+
 /* ---------- library: artist split view ---------- */
 
 .library-split {

@@ -23,10 +23,13 @@ public sealed class NewsSegmentContributor(
 {
     private const int BlockMaxAttempts = 3;
 
-    /// <summary>How many candidate stories to hand the bulletin writer. We pass more than
-    /// will air: the writer curates — leading with the strongest, merging duplicates, and
-    /// dropping weak items — so it needs a real pool to pick from, not a pre-trimmed five.</summary>
-    private const int MaxCandidateItems = 8;
+    /// <summary>How many candidate stories per topic we hand the bulletin writer. We pass more
+    /// than will air per topic: the writer curates — leading with the strongest, merging
+    /// duplicates, and dropping weak items — so it needs a real pool to pick from.</summary>
+    private const int MaxCandidatesPerCategory = 4;
+
+    /// <summary>Overall cap on the candidate pool handed to the writer across all topics.</summary>
+    private const int MaxCandidateItems = 24;
 
     private static readonly TimeSpan BlockRetryDelay = TimeSpan.FromSeconds(3);
 
@@ -63,14 +66,11 @@ public sealed class NewsSegmentContributor(
                     && item.Feed != null
                     && item.Feed.IsEnabled)
                 .ToListAsync(ct);
-            // Surface the freshest candidates, then arrange that pool in the station's
-            // news running order so the bulletin reads top-priority category first.
-            var freshest = candidates
-                .OrderByDescending(item => item.PublishedAtUtc)
-                .Take(MaxCandidateItems);
-            items = NewsCategoryOrdering
-                .SortItems(freshest, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
-                .ToList();
+            // Build a topic-balanced candidate pool: freshest few per category, in the
+            // station's news running order, so the writer can cover several topics with at
+            // least two stories each rather than a single topic dominating the bulletin.
+            items = SelectBalancedCandidates(
+                candidates, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder)).ToList();
             foreach (var item in items)
             {
                 item.Status = NewsItemStatus.Selected;
@@ -103,12 +103,14 @@ public sealed class NewsSegmentContributor(
         CancellationToken ct)
     {
         var factory = sp.GetRequiredService<AnnouncementFactory>();
-        await context.ReportProgress("Writing news handover.", ct);
+        await context.ReportProgress("Writing news intro.", ct);
         try
         {
+            // The news host opens the block by briefly introducing THEMSELVES (not the show
+            // host introducing them), so the handover is voiced by the news anchor.
             var draft = await factory.WriteScriptDraftAsync(
                 AnnouncementKind.StationId,
-                context.ShowModerator,
+                newsModerator,
                 relatedTrack: null,
                 facts: facts,
                 context.Settings.StationName,
@@ -122,13 +124,13 @@ public sealed class NewsSegmentContributor(
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "News handover LLM failed; falling back to direct text");
-            var fallback = BuildIntroText(context.ShowModerator, newsModerator, context.TargetLocal);
+            logger.LogWarning(ex, "News intro LLM failed; falling back to direct text");
+            var fallback = BuildSelfIntroText(newsModerator, context.TargetLocal);
             var direct = new DirectAnnouncementSpec(
                 AnnouncementKind.StationId,
                 TalkPartKind.StationId,
                 TalkBreakPriority.Scheduled,
-                context.ShowModerator,
+                newsModerator,
                 fallback,
                 "NewsHandover",
                 "Top of hour",
@@ -143,11 +145,11 @@ public sealed class NewsSegmentContributor(
         SegmentProductionContext context, Moderator newsModerator, IReadOnlyList<NewsItem> items)
     {
         var timeText = context.TargetLocal.ToString("HH:mm");
-        var positionNote = context.Position == SegmentPosition.First
-            ? "This is the first segment of the top-of-hour block."
-            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
-        var tease = BuildTease(items.Count > 0, items);
-        return $"Current time: {timeText}. Current host: {context.ShowModerator.Name}. News specialist: {newsModerator.Name}. {positionNote} {tease}";
+        var teaseNote = items.Count > 0
+            ? "Then go straight into the news; do not read any headlines in this intro."
+            : "There are no fresh news items this hour; keep the intro brief.";
+        return $"News anchor (speaking): {newsModerator.Name}. Current time: {timeText}. "
+            + $"This opens the top-of-hour news. {teaseNote}";
     }
 
     private static SlotDraft NewsGapSlot(SegmentProductionContext context, string reason)
@@ -167,16 +169,43 @@ public sealed class NewsSegmentContributor(
             IsGap: true,
             DegradationReason: reason);
 
-    private static string BuildTease(bool hasItems, IReadOnlyList<NewsItem> newsItems)
+    /// <summary>
+    /// Picks a topic-balanced candidate pool: the freshest few stories per category (so each
+    /// topic the writer covers can carry at least two stories), flattened in the station's
+    /// news running order, then capped overall. The writer curates this pool down to air.
+    /// </summary>
+    internal static IReadOnlyList<NewsItem> SelectBalancedCandidates(
+        IEnumerable<NewsItem> candidates, IReadOnlyList<string> categoryOrder)
     {
-        if (newsItems.Count == 0)
+        var perCategory = candidates
+            .GroupBy(item => NormalizeCategory(item.Feed?.Category))
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(item => item.PublishedAtUtc)
+                    .Take(MaxCandidatesPerCategory)
+                    .ToList());
+
+        // Emit categories in the station's priority order first, then any remaining categories.
+        var orderedKeys = categoryOrder
+            .Select(NormalizeCategory)
+            .Concat(perCategory.Keys)
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        var selected = new List<NewsItem>();
+        foreach (var key in orderedKeys)
         {
-            return "There are no fresh news items this hour; keep the handover brief and do not tease headlines.";
+            if (perCategory.TryGetValue(key, out var group))
+            {
+                selected.AddRange(group);
+            }
         }
 
-        var titles = newsItems.Take(3).Select(item => item.Title);
-        return $"Tease the news briefly. Upcoming stories include: {string.Join("; ", titles)}.";
+        return selected.Take(MaxCandidateItems).ToList();
     }
+
+    private static string NormalizeCategory(string? category)
+        => string.IsNullOrWhiteSpace(category) ? "general" : category.Trim().ToLowerInvariant();
 
     private async Task<SlotDraft> WriteBodyAsync(
         IServiceProvider sp,
@@ -205,7 +234,7 @@ public sealed class NewsSegmentContributor(
                 await context.ReportProgress("Extracting article text.", ct);
                 await EnrichItemsAsync(items, context.Settings.NewsExtractionEnabled, extractor, ct);
                 await context.ReportProgress("Writing news script.", ct);
-                var handoff = BuildIntroText(context.ShowModerator, newsModerator, context.TargetLocal);
+                var handoff = BuildSelfIntroText(newsModerator, context.TargetLocal);
                 var draft = await factory.WriteScriptDraftAsync(
                     AnnouncementKind.News,
                     newsModerator,
@@ -213,7 +242,7 @@ public sealed class NewsSegmentContributor(
                     facts: BuildNewsFacts(items, context.TargetLocal),
                     context.Settings.StationName,
                     ct,
-                    lengthHint: $"A full top-of-hour news bulletin of up to {Math.Max(1, context.Settings.NewsPackageMaxDurationSeconds / 60)} minutes. Write one short paragraph per story, lead with the strongest, and drop weak or duplicate stories rather than padding.",
+                    lengthHint: "A full top-of-hour news bulletin of about three to five minutes. Cover eight to ten stories across the topics, at least two per topic where available, one short paragraph per story, topic by topic with no spoken topic transitions. Lead with the strongest and drop weak or duplicate stories rather than padding.",
                     alreadySpokenContext: handoff,
                     localNowOverride: context.TargetLocal,
                     priority: PromptPriority.High,
@@ -321,24 +350,42 @@ public sealed class NewsSegmentContributor(
             ct);
     }
 
-    internal static string BuildIntroText(Moderator currentHost, Moderator newsModerator, DateTimeOffset localNow)
+    /// <summary>The news host's short self-introduction — spoken at the top of the block and
+    /// passed to the bulletin writer as "already said" context so it doesn't repeat it.</summary>
+    internal static string BuildSelfIntroText(Moderator newsModerator, DateTimeOffset localNow)
     {
         var timeText = localNow.ToString("HH:mm");
-        return currentHost.Id == newsModerator.Id
-            ? $"It's {timeText}. Here is the news."
-            : $"It's {timeText}. {newsModerator.Name} has the news.";
+        return $"It's {timeText}. I'm {newsModerator.Name} with your news.";
     }
 
+    /// <summary>
+    /// Renders the candidate stories grouped under topic headings (in the station's news
+    /// running order) so the writer sees the topic structure directly and can cover each
+    /// topic with at least two stories.
+    /// </summary>
     internal static string BuildNewsFacts(IEnumerable<NewsItem> items, DateTimeOffset localNow)
-        => $"Bulletin time: {localNow:yyyy-MM-dd HH:mm} local.\n\n" + string.Join(
-            "\n\n",
-            items.Select((item, index) =>
-                $"{index + 1}. Source: {item.Feed?.Label ?? "Unknown"}\n"
-                + $"Category: {item.Feed?.Category ?? "general"}\n"
-                + $"Title: {item.Title}\n"
-                + $"Published UTC: {item.PublishedAtUtc:O}\n"
-                + $"Summary/source text: {FirstNonEmpty(item.ExtractedSummary, item.Summary, "No summary available.")}\n"
-                + $"URL: {item.Url}"));
+    {
+        var grouped = items
+            .GroupBy(item => NormalizeCategory(item.Feed?.Category))
+            .ToList();
+
+        var blocks = grouped.Select(group =>
+        {
+            var heading = $"== TOPIC: {group.Key} ==";
+            var stories = string.Join(
+                "\n\n",
+                group.Select((item, index) =>
+                    $"{index + 1}. Source: {item.Feed?.Label ?? "Unknown"}\n"
+                    + $"Title: {item.Title}\n"
+                    + $"Published UTC: {item.PublishedAtUtc:O}\n"
+                    + $"Summary/source text: {FirstNonEmpty(item.ExtractedSummary, item.Summary, "No summary available.")}\n"
+                    + $"URL: {item.Url}"));
+            return $"{heading}\n{stories}";
+        });
+
+        return $"Bulletin time: {localNow:yyyy-MM-dd HH:mm} local. Stories are grouped by topic below.\n\n"
+            + string.Join("\n\n", blocks);
+    }
 
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;

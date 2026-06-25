@@ -147,6 +147,10 @@ public class NewsPackageSegmentState
 
     public Guid? GapLineAnnouncementId { get; set; }
 
+    /// <summary>Optional closing line that airs after the body (e.g. the news host returning
+    /// after the weather forecast inside the weather segment).</summary>
+    public Guid? OutroAnnouncementId { get; set; }
+
     public int SegmentHostModeratorId { get; set; }
 
     public string? DegradationReason { get; set; }

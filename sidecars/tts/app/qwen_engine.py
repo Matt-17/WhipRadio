@@ -40,7 +40,7 @@ ATTN_IMPL = os.environ.get("QWEN_TTS_ATTN", "sdpa")
 LANGUAGE_NAMES = {
     "zh": "Chinese", "en": "English", "ja": "Japanese", "ko": "Korean",
     "fr": "French", "ru": "Russian", "pt": "Portuguese",
-    "es": "Spanish", "it": "Italian",
+    "es": "Spanish", "it": "Italian", "de": "German",
 }
 
 DESIGN_SAMPLE_TEXTS = {

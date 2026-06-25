@@ -21,38 +21,25 @@ public class NewsPackageProductionServiceTests
         [NewsContributor, WeatherContributor];
 
     [TestMethod]
-    public void BuildIntroText_UsesCurrentLocalTimeAndVariesByHost()
+    public void BuildSelfIntroText_UsesCurrentLocalTimeAndNewsHostName()
     {
         var airtime = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
-        var currentHost = new Moderator { Id = 1, Name = "Ava" };
         var newsHost = new Moderator { Id = 2, Name = "Maya" };
 
-        var intro = NewsSegmentContributor.BuildIntroText(currentHost, newsHost, airtime);
+        var intro = NewsSegmentContributor.BuildSelfIntroText(newsHost, airtime);
 
-        Assert.Equal("It's 18:00. Maya has the news.", intro);
+        Assert.Equal("It's 18:00. I'm Maya with your news.", intro);
     }
 
     [TestMethod]
-    public void BuildIntroText_UsesScheduledAirtimeAcrossMidnight()
+    public void BuildSelfIntroText_UsesScheduledAirtimeAcrossMidnight()
     {
         var airtime = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.FromHours(2));
-        var currentHost = new Moderator { Id = 1, Name = "Ava" };
         var newsHost = new Moderator { Id = 2, Name = "Maya" };
 
-        var intro = NewsSegmentContributor.BuildIntroText(currentHost, newsHost, airtime);
+        var intro = NewsSegmentContributor.BuildSelfIntroText(newsHost, airtime);
 
-        Assert.Equal("It's 00:00. Maya has the news.", intro);
-    }
-
-    [TestMethod]
-    public void BuildIntroText_UsesShortSameHostVariant()
-    {
-        var localNow = new DateTimeOffset(2026, 6, 20, 18, 0, 0, TimeSpan.Zero);
-        var host = new Moderator { Id = 1, Name = "Ava" };
-
-        var intro = NewsSegmentContributor.BuildIntroText(host, host, localNow);
-
-        Assert.Equal("It's 18:00. Here is the news.", intro);
+        Assert.Equal("It's 00:00. I'm Maya with your news.", intro);
     }
 
     [TestMethod]

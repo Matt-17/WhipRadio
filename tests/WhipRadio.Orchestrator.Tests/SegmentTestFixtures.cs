@@ -192,7 +192,8 @@ internal static class SegmentTestFixtures
             position,
             previousHost,
             scopeServices,
-            (_, _) => Task.CompletedTask);
+            (_, _) => Task.CompletedTask,
+            PreviousSegmentHosts: previousHost is null ? null : [previousHost]);
     }
 
     // --- Fakes ---

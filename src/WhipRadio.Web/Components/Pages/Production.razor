@@ -62,7 +62,7 @@ else
                 <div class="dim">Presenter bulletin from configured RSS sources.</div>
             </div>
             <div class="field production-block-cadence">
-                <label>Cadence</label>
+                <label>Top-of-hour cadence</label>
                 <select value="@_newsCadence" @onchange="SetNewsCadenceAsync">
                     @foreach (var cadence in CadenceOptions)
                     {
@@ -78,16 +78,7 @@ else
         <div class="admin-row production-block-row">
             <div>
                 <strong>Weather</strong>
-                <div class="dim">Forecast report appended to top-of-hour packages.</div>
-            </div>
-            <div class="field production-block-cadence">
-                <label>Cadence</label>
-                <select value="@_weatherCadence" @onchange="SetWeatherCadenceAsync">
-                    @foreach (var cadence in CadenceOptions)
-                    {
-                        <option value="@cadence.Value">@cadence.Label</option>
-                    }
-                </select>
+                <div class="dim">Forecast appended to the top-of-hour news block (shares its cadence).</div>
             </div>
             <UiSwitch Value="@_weatherEnabled"
                       ValueChanged="ToggleWeatherEnabledAsync"

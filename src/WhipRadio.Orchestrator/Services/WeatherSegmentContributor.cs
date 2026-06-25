@@ -28,8 +28,10 @@ public sealed class WeatherSegmentContributor(
 
     public bool IsEnabled(StationSettings settings) => settings.WeatherEnabled;
 
+    // Weather now rides the single top-of-hour cadence so it always airs inside the news
+    // block (when news is on) rather than on its own separate schedule.
     public int CadenceMinutes(StationSettings settings)
-        => WeatherScheduler.NormalizeCadence(settings.WeatherCadenceMinutes);
+        => TopOfHourScheduler.NormalizeCadence(settings.NewsPackageCadenceMinutes);
 
     public bool IsIncludedAt(StationSettings settings, DateTimeOffset targetLocal)
         => settings.WeatherEnabled && IsCadenceBoundary(targetLocal, CadenceMinutes(settings));
@@ -46,14 +48,25 @@ public sealed class WeatherSegmentContributor(
             specialistHosts,
             ct);
 
-        var handoverFacts = BuildHandoverFacts(context, weatherModerator);
+        // The news host hands over to the weather (and returns afterwards). When weather leads
+        // the block (news off), the weather host introduces themselves and there is no return.
+        var newsHost = context.PriorHosts.LastOrDefault();
+        var handoverFacts = BuildHandoverFacts(context, weatherModerator, newsHost);
+        var handoverHost = newsHost ?? weatherModerator;
         var jobs = new List<SegmentDraftJob>
         {
             new(SegmentSlot.Handover, 0, "weather handoff",
-                (sp, token) => WriteHandoverAsync(sp, context, weatherModerator, handoverFacts, token)),
+                (sp, token) => WriteHandoverAsync(sp, context, handoverHost, weatherModerator, newsHost is null, handoverFacts, token)),
             new(SegmentSlot.Body, 1, "weather forecast",
                 (sp, token) => WriteBodyAsync(sp, context, weatherModerator, token)),
         };
+
+        if (newsHost is not null)
+        {
+            var returnFacts = BuildReturnFacts(context, weatherModerator, newsHost);
+            jobs.Add(new(SegmentSlot.Outro, 2, "weather return",
+                (sp, token) => WriteReturnAsync(sp, context, newsHost, weatherModerator, returnFacts, token)));
+        }
 
         return new SegmentDraftPlan(Key, weatherModerator, [], "Weather forecast", jobs);
     }
@@ -61,7 +74,9 @@ public sealed class WeatherSegmentContributor(
     private async Task<SlotDraft> WriteHandoverAsync(
         IServiceProvider sp,
         SegmentProductionContext context,
+        Moderator handoverHost,
         Moderator weatherModerator,
+        bool isSelfIntro,
         string facts,
         CancellationToken ct)
     {
@@ -71,7 +86,7 @@ public sealed class WeatherSegmentContributor(
         {
             var draft = await factory.WriteScriptDraftAsync(
                 AnnouncementKind.StationId,
-                context.ShowModerator,
+                handoverHost,
                 relatedTrack: null,
                 facts: facts,
                 context.Settings.StationName,
@@ -86,12 +101,15 @@ public sealed class WeatherSegmentContributor(
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Weather handoff LLM failed; falling back to direct text");
+            var fallback = isSelfIntro
+                ? $"I'm {weatherModerator.Name} with your weather."
+                : $"Now {weatherModerator.Name} has the weather.";
             var direct = new DirectAnnouncementSpec(
                 AnnouncementKind.StationId,
                 TalkPartKind.WeatherHandoff,
                 TalkBreakPriority.Scheduled,
-                context.ShowModerator,
-                $"{weatherModerator.Name} has the weather.",
+                handoverHost,
+                fallback,
                 "WeatherHandoff",
                 "Weather handoff",
                 context.ExpiresAtUtc,
@@ -101,13 +119,63 @@ public sealed class WeatherSegmentContributor(
         }
     }
 
-    private static string BuildHandoverFacts(SegmentProductionContext context, Moderator weatherModerator)
+    private async Task<SlotDraft> WriteReturnAsync(
+        IServiceProvider sp,
+        SegmentProductionContext context,
+        Moderator newsHost,
+        Moderator weatherModerator,
+        string facts,
+        CancellationToken ct)
     {
-        var positionNote = context.Position == SegmentPosition.First
-            ? "This is the first segment of the block."
-            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
-        return $"Current host: {context.ShowModerator.Name}. Weather specialist: {weatherModerator.Name}. {positionNote}";
+        var factory = sp.GetRequiredService<AnnouncementFactory>();
+        await context.ReportProgress("Writing weather return.", ct);
+        try
+        {
+            var draft = await factory.WriteScriptDraftAsync(
+                AnnouncementKind.StationId,
+                newsHost,
+                relatedTrack: null,
+                facts: facts,
+                context.Settings.StationName,
+                ct,
+                lengthHint: "One short, natural sentence.",
+                alreadySpokenContext: null,
+                localNowOverride: context.TargetLocal,
+                priority: PromptPriority.High,
+                purpose: "WeatherReturn");
+            return new SlotDraft(draft, null, IsGap: false, DegradationReason: null);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Weather return LLM failed; falling back to direct text");
+            var direct = new DirectAnnouncementSpec(
+                AnnouncementKind.StationId,
+                TalkPartKind.StationId,
+                TalkBreakPriority.Scheduled,
+                newsHost,
+                $"Thanks, {weatherModerator.Name}. And that's your news and weather. Back to you, {context.ShowModerator.Name}.",
+                "WeatherReturn",
+                "Weather return",
+                context.ExpiresAtUtc,
+                DesiredDurationSeconds: 6,
+                WordBudget: 18);
+            return new SlotDraft(null, direct, IsGap: false, DegradationReason: null);
+        }
     }
+
+    private static string BuildHandoverFacts(
+        SegmentProductionContext context, Moderator weatherModerator, Moderator? newsHost)
+        => newsHost is null
+            ? $"Weather specialist (speaking, self-introducing): {weatherModerator.Name}. "
+                + "Weather leads this block; introduce yourself briefly before the forecast."
+            : $"News host (speaking): {newsHost.Name}. Weather specialist: {weatherModerator.Name}. "
+                + "The news bulletin just finished; hand over to the weather specialist.";
+
+    private static string BuildReturnFacts(
+        SegmentProductionContext context, Moderator weatherModerator, Moderator newsHost)
+        => $"News host (speaking): {newsHost.Name}. Weather specialist who just finished: {weatherModerator.Name}. "
+            + $"Show host to hand back to: {context.ShowModerator.Name}. "
+            + "Wrap the news and weather and hand back to the show host.";
 
     private static SlotDraft WeatherGapSlot(SegmentProductionContext context, string reason)
         => new(

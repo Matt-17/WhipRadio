@@ -19,7 +19,12 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
         var systemPrompt = PromptTemplates.Render("AnnouncementWriter.System", new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
-            ["Language"] = request.Language,
+            // Write in the STATION language carried by the prompt context (sourced from station
+            // settings), not the host's own Language — that field is for voice/accent and the
+            // occasional native-language show (see PromptContextBuilder).
+            ["Language"] = request.PromptContext?.Language is { Length: > 0 } stationLanguage
+                ? stationLanguage
+                : request.Language,
             ["LengthHint"] = string.IsNullOrEmpty(request.LengthHint) ? "2-5 sentences." : request.LengthHint,
             ["HostName"] = moderator.Name,
             ["PersonaPrompt"] = moderator.PersonaPrompt,
@@ -151,6 +156,8 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
         {
             "NewsHandover" => "ScriptWriter.NewsHandover",
             "WeatherHandoff" => "ScriptWriter.WeatherHandoff",
+            "WeatherReturn" => "ScriptWriter.WeatherReturn",
+            "ShowReturn" => "ScriptWriter.ShowReturn",
             _ => "ScriptWriter.StationId",
         };
 

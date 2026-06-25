@@ -83,6 +83,7 @@ public class WeatherSegmentContributorTests
         await using var db = await SegmentTestFixtures.CreateDbAsync();
         await SegmentTestFixtures.SeedStationSettingsAsync(db);
         await SegmentTestFixtures.SeedModeratorAsync(db, 1, "Ava");
+        await SegmentTestFixtures.SeedModeratorAsync(db, 2, "Maya", isNewsSpecialist: true);
         await SegmentTestFixtures.SeedModeratorAsync(db, 3, "Alex", isWeatherSpecialist: true);
 
         var throwingFactory = CreateFactoryWithThrowingScriptWriter(db);
@@ -93,12 +94,72 @@ public class WeatherSegmentContributorTests
         var contributor = new WeatherSegmentContributor(
             db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
 
-        var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
+        // News led the block, so the news host hands over to weather.
+        var context = SegmentTestFixtures.CreateContext(
+            settings, ShowHost(), scopeServices, position: SegmentPosition.Middle, previousHost: NewsHost());
         var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
-        // LLM path throws → falls back to ProduceDirectAsync with "Alex has the weather."
+        // LLM path throws → falls back to ProduceDirectAsync with "Now Alex has the weather."
+        // Voiced by the news host (Maya), not the show host.
         Assert.NotNull(result.Intro);
         Assert.Contains("Alex has the weather", result.Intro.ScriptText);
+        Assert.Equal(2, result.Intro.ModeratorId);
+    }
+
+    [TestMethod]
+    public async Task ProduceAsync_NewsHostHandsOverAndReturnsWhenNewsLed()
+    {
+        await using var db = await SegmentTestFixtures.CreateDbAsync();
+        await SegmentTestFixtures.SeedStationSettingsAsync(db);
+        await SegmentTestFixtures.SeedModeratorAsync(db, 1, "Ava");
+        await SegmentTestFixtures.SeedModeratorAsync(db, 2, "Maya", isNewsSpecialist: true);
+        await SegmentTestFixtures.SeedModeratorAsync(db, 3, "Alex", isWeatherSpecialist: true);
+
+        var factory = SegmentTestFixtures.CreateFactory(db, TempRoot);
+        var weatherSource = new FakeWeatherReportSource();
+        var scopeServices = SegmentTestFixtures.CreateScopeServices(db, factory, weatherSource: weatherSource);
+
+        var settings = SegmentTestFixtures.DefaultSettings();
+        var contributor = new WeatherSegmentContributor(
+            db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
+
+        var context = SegmentTestFixtures.CreateContext(
+            settings, ShowHost(), scopeServices, position: SegmentPosition.Middle, previousHost: NewsHost());
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
+
+        // News host (id 2) voices both the hand-over into the weather and the return after it.
+        Assert.Equal(2, result.Intro.ModeratorId);
+        Assert.NotNull(result.Body);
+        Assert.NotNull(result.Outro);
+        Assert.Equal(2, result.Outro!.ModeratorId);
+        // The weather segment is still hosted by the weather specialist (id 3).
+        Assert.Equal(3, result.SegmentHost.Id);
+    }
+
+    [TestMethod]
+    public async Task ProduceAsync_NoReturnWhenWeatherLeads()
+    {
+        await using var db = await SegmentTestFixtures.CreateDbAsync();
+        await SegmentTestFixtures.SeedStationSettingsAsync(db);
+        await SegmentTestFixtures.SeedModeratorAsync(db, 1, "Ava");
+        await SegmentTestFixtures.SeedModeratorAsync(db, 3, "Alex", isWeatherSpecialist: true);
+
+        var factory = SegmentTestFixtures.CreateFactory(db, TempRoot);
+        var weatherSource = new FakeWeatherReportSource();
+        var scopeServices = SegmentTestFixtures.CreateScopeServices(db, factory, weatherSource: weatherSource);
+
+        var settings = SegmentTestFixtures.DefaultSettings();
+        var contributor = new WeatherSegmentContributor(
+            db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
+
+        // Weather leads (news disabled): the weather host self-introduces, no news-host return.
+        var context = SegmentTestFixtures.CreateContext(
+            settings, ShowHost(), scopeServices, position: SegmentPosition.First, previousHost: null);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
+
+        Assert.Equal(3, result.Intro.ModeratorId);
+        Assert.NotNull(result.Body);
+        Assert.Null(result.Outro);
     }
 
     [TestMethod]
@@ -135,8 +196,8 @@ public class WeatherSegmentContributorTests
             db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
 
         var settings = SegmentTestFixtures.DefaultSettings();
-        // Weather cadence is 30 min, so :00 and :30 are boundaries.
-        var target = new DateTimeOffset(2026, 6, 21, 3, 30, 0, TimeSpan.Zero);
+        // Weather now rides the top-of-hour cadence (60 min), so :00 is a boundary.
+        var target = new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.Zero);
         Assert.True(contributor.IsIncludedAt(settings, target));
     }
 

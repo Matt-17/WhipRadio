@@ -1,6 +1,7 @@
 @page "/moderators"
 @page "/moderators/{HostSlug}"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Entities
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
 @inject PlayerState Player
@@ -69,7 +70,7 @@ else
                     <div class="host-detail-info">
                         <div class="mod-name">@host.Name</div>
                         <div class="mod-meta">
-                            <span class="tag">@host.Language</span>
+                            <span class="tag"><Flag Code="@host.Language" Size="14" /> @host.Language</span>
                             <span class="tag">@(host.Gender == "m" ? "male" : "female")</span>
                             @if (!string.IsNullOrWhiteSpace(host.Style))
                             {
@@ -185,7 +186,10 @@ else
             </div>
             <div class="field">
                 <label>Language</label>
-                <input value="@_stationLanguage (station language)" disabled />
+                <div class="field-flag">
+                    <Flag Code="@_stationLanguage" />
+                    <input value="@_stationLanguage (station language)" disabled />
+                </div>
             </div>
             <div class="field" hidden>
                 <label>TTS Engine</label>

@@ -181,13 +181,34 @@ public static class TextProviders
 /// <summary>
 /// Languages the station can broadcast in (limited by local TTS voice support).
 /// The station language is the main language: hosts and all spoken texts follow it.
+/// The set is English plus the full Qwen3-TTS language list.
 /// </summary>
 public static class StationLanguages
 {
-    public static readonly IReadOnlyList<string> All = ["en"];
+    public static readonly IReadOnlyList<string> All =
+        ["en", "de", "es", "fr", "it", "pt", "ru", "zh", "ja", "ko"];
+
+    private static readonly IReadOnlyDictionary<string, string> Names =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["en"] = "English",
+            ["de"] = "German",
+            ["es"] = "Spanish",
+            ["fr"] = "French",
+            ["it"] = "Italian",
+            ["pt"] = "Portuguese",
+            ["ru"] = "Russian",
+            ["zh"] = "Chinese",
+            ["ja"] = "Japanese",
+            ["ko"] = "Korean",
+        };
 
     public static string Normalize(string? language)
         => All.FirstOrDefault(l => string.Equals(l, language, StringComparison.OrdinalIgnoreCase)) ?? "en";
+
+    /// <summary>English display name for a language code (falls back to English).</summary>
+    public static string DisplayName(string? language)
+        => Names.TryGetValue(Normalize(language), out var name) ? name : "English";
 }
 
 public static class TtsEngines

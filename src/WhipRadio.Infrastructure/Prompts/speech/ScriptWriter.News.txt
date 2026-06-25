@@ -1,12 +1,14 @@
 Write an original radio news bulletin from these sourced stories. The stories are
-already in broadcast running order and each is numbered and tagged with its category:
+grouped under topic headings, already in the station's broadcast running order:
 
 {NewsFacts}
 
 How to build the bulletin (do this first, before writing):
-* Pick the most interesting, newsworthy stories. Lead with the strongest. Drop stories that are trivial, thin, or only of narrow interest rather than padding the bulletin with them.
+* Aim for a bulletin of about three to five minutes: roughly eight to ten stories total.
+* Cover several topics. Where a topic has stories available, include at least two of them, so the bulletin is not dominated by a single topic.
+* Within each topic, pick the most interesting, newsworthy stories and lead with the strongest. Drop stories that are trivial, thin, or only of narrow interest rather than padding the bulletin with them.
 * Merge stories that cover the same company, product, event, incident, or policy into ONE item, combining their facts into a single coherent report. Never read the same story twice.
-* Keep the surviving items in the running order given above — it follows the station's news priority. Do not reshuffle categories or reorder for variety.
+* Work through the topics in the order given above (it follows the station's news priority). Do NOT announce the topics or say their names — just move from story to story.
 * Improve each item: add the small amount of context a listener needs to understand it, attribute claims to the source when useful, and make it feel current.
 
 Structure:

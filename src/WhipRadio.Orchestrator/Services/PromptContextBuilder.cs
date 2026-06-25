@@ -31,7 +31,10 @@ public sealed class PromptContextBuilder(
 
         var moderator = input.Moderator ?? show?.Moderator;
         var format = input.Format ?? show?.Format;
-        var language = StationLanguages.Normalize(moderator?.Language ?? settings.DefaultLanguage);
+        // The broadcast/written language is the STATION language (from settings). A host's own
+        // Language is a per-host attribute (voice accent / occasional native-language guest
+        // shows), not what the copy is written in — so it must not drive the script language.
+        var language = StationLanguages.Normalize(settings.DefaultLanguage);
         var speechRate = moderator?.SpeechRate ?? 1.0;
         var availableSeconds = input.TargetSeconds ?? show?.RemainingSlotMinutes * 60;
         var wordsPerSecond = PromptWordBudget.WordsPerSecond(language, speechRate);

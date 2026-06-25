@@ -118,6 +118,7 @@ builder.Services.AddHostedService<AnnouncementProductionService>();
         builder.Services.AddSingleton<NewsFeedPollingService>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, NewsSegmentContributor>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, WeatherSegmentContributor>();
+        builder.Services.AddSingleton<ITopOfHourSegmentContributor, ShowReturnSegmentContributor>();
         builder.Services.AddSingleton<NewsPackageProductionService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<NewsPackageProductionService>());
 builder.Services.AddHostedService<TopOfHourPackageDispatcher>();

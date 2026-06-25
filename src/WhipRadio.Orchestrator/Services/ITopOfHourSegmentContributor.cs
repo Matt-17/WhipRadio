@@ -16,11 +16,13 @@ public enum SegmentPosition
 }
 
 /// <summary>Which part of a segment a draft job produces: the spoken handover into the
-/// segment, or the segment body (bulletin/forecast, which may degrade to a gap line).</summary>
+/// segment, the segment body (bulletin/forecast, which may degrade to a gap line), or a
+/// closing outro that airs after the body (e.g. the news host returning after the weather).</summary>
 public enum SegmentSlot
 {
     Handover,
     Body,
+    Outro,
 }
 
 /// <summary>A ready-to-voice direct announcement (no LLM): used for handover fallbacks and
@@ -80,9 +82,10 @@ public sealed record SegmentLabel(AnnouncementKind Kind, string Purpose, string 
 
 /// <summary>
 /// The host that voices a contributor's segments, plus the produced intro,
-/// body, and an optional gap line. The intro always airs; the body may be null
-/// when no data is available or production failed (in which case GapLine +
-/// DegradationReason describe the gap).
+/// body, an optional gap line, and an optional outro that airs after the body
+/// (e.g. the news host returning after the weather). The intro always airs; the
+/// body may be null when no data is available or production failed (in which case
+/// GapLine + DegradationReason describe the gap).
 /// </summary>
 public sealed record SegmentResult(
     Moderator SegmentHost,
@@ -91,7 +94,8 @@ public sealed record SegmentResult(
     Announcement? GapLine,
     IReadOnlyList<NewsItem> SelectedItems,
     string? DegradationReason,
-    string SourceSummary);
+    string SourceSummary,
+    Announcement? Outro = null);
 
 /// <summary>
 /// Everything a contributor needs to produce its segments for one package.
@@ -100,6 +104,14 @@ public sealed record SegmentResult(
 /// SpecialistHostCreationService, etc.) from <see cref="ScopeServices"/>.
 /// <paramref name="ReportProgress"/> is the orchestrator's progress publisher
 /// so contributors can surface "Resolving news specialist." etc. to the UI.
+/// <para>
+/// <see cref="PreviousSegmentHosts"/> is the ordered list of every specialist that
+/// already spoke earlier in this block (the news host before weather, etc.). The news
+/// host brackets the weather, and the closing show-return thanks every prior host, so a
+/// contributor only ever needs to name hosts that came before it — no forward resolution.
+/// <see cref="CurrentFormatName"/>/<see cref="NextFormatName"/>/<see cref="NewShowStartsAtTarget"/>
+/// let the show-return reflect whether the show is continuing or a new one is starting.
+/// </para>
 /// </summary>
 public sealed record SegmentProductionContext(
     StationSettings Settings,
@@ -110,7 +122,15 @@ public sealed record SegmentProductionContext(
     SegmentPosition Position,
     Moderator? PreviousSegmentHost,
     IServiceProvider ScopeServices,
-    Func<string, CancellationToken, Task> ReportProgress);
+    Func<string, CancellationToken, Task> ReportProgress,
+    IReadOnlyList<Moderator>? PreviousSegmentHosts = null,
+    string? CurrentFormatName = null,
+    string? NextFormatName = null,
+    bool NewShowStartsAtTarget = false)
+{
+    /// <summary>Every specialist that already spoke in this block, in air order (never null).</summary>
+    public IReadOnlyList<Moderator> PriorHosts => PreviousSegmentHosts ?? Array.Empty<Moderator>();
+}
 
 /// <summary>
 /// A self-contained producer of one kind of top-of-hour segment (news,

@@ -1,0 +1,71 @@
+@using WhipRadio.Core.Entities
+@* Tiny inline SVG language flags. Recognizable by shape (stripe direction, disc,
+   star); a CSS sepia/amber filter (.flag in app.css) unifies the colors into the
+   station's amber palette so they read as monochrome amber icons, not emoji. *@
+<svg class="flag @Class" viewBox="0 0 24 16" role="img" aria-label="@StationLanguages.DisplayName(Code)"
+     style="@(Size is { } s ? $"width:{s}px;height:{Math.Round(s * 2.0 / 3.0)}px" : null)">
+    @switch (Normalized)
+    {
+        case "de": @* black / red / gold *@
+            <rect width="24" height="16" fill="#111"/>
+            <rect y="5.33" width="24" height="5.34" fill="#d11"/>
+            <rect y="10.67" width="24" height="5.33" fill="#fc0"/>
+            break;
+        case "es": @* red / yellow / red *@
+            <rect width="24" height="16" fill="#c60b1e"/>
+            <rect y="4" width="24" height="8" fill="#ffc400"/>
+            break;
+        case "fr": @* blue | white | red (vertical) *@
+            <rect width="8" height="16" fill="#0055a4"/>
+            <rect x="8" width="8" height="16" fill="#fff"/>
+            <rect x="16" width="8" height="16" fill="#ef4135"/>
+            break;
+        case "it": @* green | white | red (vertical) *@
+            <rect width="8" height="16" fill="#009246"/>
+            <rect x="8" width="8" height="16" fill="#fff"/>
+            <rect x="16" width="8" height="16" fill="#ce2b37"/>
+            break;
+        case "pt": @* green | red with disc *@
+            <rect width="24" height="16" fill="#d52b1e"/>
+            <rect width="9.6" height="16" fill="#060"/>
+            <circle cx="9.6" cy="8" r="2.6" fill="none" stroke="#ffce00" stroke-width="1.1"/>
+            break;
+        case "ru": @* white / blue / red (horizontal) *@
+            <rect width="24" height="16" fill="#fff"/>
+            <rect y="5.33" width="24" height="5.34" fill="#0039a6"/>
+            <rect y="10.67" width="24" height="5.33" fill="#d52b1e"/>
+            break;
+        case "zh": @* red field + star *@
+            <rect width="24" height="16" fill="#de2910"/>
+            <polygon points="6,2.6 6.9,5.3 9.7,5.3 7.4,7 8.3,9.7 6,8 3.7,9.7 4.6,7 2.3,5.3 5.1,5.3"
+                     fill="#ffde00"/>
+            break;
+        case "ja": @* white + red disc *@
+            <rect width="24" height="16" fill="#fff"/>
+            <circle cx="12" cy="8" r="4.2" fill="#bc002d"/>
+            break;
+        case "ko": @* white + split disc (simplified taegeuk) *@
+            <rect width="24" height="16" fill="#fff"/>
+            <path d="M12 3.8a4.2 4.2 0 0 1 0 8.4Z" fill="#cd2e3a"/>
+            <path d="M12 3.8a4.2 4.2 0 0 0 0 8.4Z" fill="#0047a0"/>
+            break;
+        default: @* en — stars-and-stripes (simplified) *@
+            <rect width="24" height="16" fill="#fff"/>
+            <rect y="0" width="24" height="2.28" fill="#b22234"/>
+            <rect y="4.57" width="24" height="2.29" fill="#b22234"/>
+            <rect y="9.14" width="24" height="2.29" fill="#b22234"/>
+            <rect y="13.71" width="24" height="2.29" fill="#b22234"/>
+            <rect width="10" height="8.57" fill="#3c3b6e"/>
+            break;
+    }
+</svg>
+
+@code {
+    [Parameter, EditorRequired] public string Code { get; set; } = "en";
+
+    [Parameter] public string? Class { get; set; }
+
+    [Parameter] public int? Size { get; set; }
+
+    private string Normalized => StationLanguages.Normalize(Code);
+}

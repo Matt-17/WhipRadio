@@ -1,5 +1,6 @@
 @page "/settings"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Entities
 @using WhipRadio.Web.Services
 @inject RadioApiClient Api
 
@@ -23,9 +24,15 @@ else
         <div class="form-grid">
             <div class="field">
                 <label>Station language</label>
-                <select @bind="_defaultLanguage">
-                    <option value="en">English (en)</option>
-                </select>
+                <div class="field-flag">
+                    <Flag Code="@_defaultLanguage" />
+                    <select @bind="_defaultLanguage">
+                        @foreach (var lang in StationLanguages.All)
+                        {
+                            <option value="@lang">@StationLanguages.DisplayName(lang) (@lang)</option>
+                        }
+                    </select>
+                </div>
             </div>
             <div class="field"><label>Display frequency (MHz)</label><input type="number" step="0.1" min="76" max="108" @bind="_frequencyMhz" /></div>
             <div class="field">

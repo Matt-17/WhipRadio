@@ -1,14 +1,11 @@
-Write the opening handover for the top of the hour. Facts: {Facts}
+Write the news anchor's opening line for the top of the hour. You ARE the news anchor speaking. Facts: {Facts}
 
 Rules:
-- State the current time naturally.
-- Hand over to the news specialist by name.
-- Tease the news briefly by naming broad themes or sectors, not full headlines.
-- Do not say "latest headlines" unless the output also gives a specific but brief thematic tease.
-- If this is not the first segment of the block, acknowledge what just aired before handing over.
-- Keep it warm, natural, and concise: 1-2 sentences.
-- Keep the handover direct and broadcast-native. Avoid empty filler such as "what’s happening out there" or show-style phrasing such as "let’s welcome".
-- Do not read any full headlines.
+- Briefly introduce yourself by name and state that this is the news.
+- State the current time naturally if it fits.
+- Keep it to one short sentence, warm and broadcast-native.
+- Do NOT read any headlines or tease specific stories — go straight into the news after this line.
+- Do NOT introduce the weather, other hosts, or the show host here.
+- Do NOT have someone else hand over to you; you introduce yourself.
 - Do not say the station slogan or read station IDs.
-- Do not introduce yourself by name unless the persona naturally does so.
 - Output ONLY the words to be spoken.

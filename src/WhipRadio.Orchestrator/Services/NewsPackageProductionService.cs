@@ -437,6 +437,14 @@ public sealed class NewsPackageProductionService(
                 DateTime.SpecifyKind(targetUtc, DateTimeKind.Utc),
                 TimeSpan.Zero).ToOffset(localNow.Offset);
 
+            // Whether the current show ends at the top of the hour (so the show host returns
+            // by STARTING a new format) or runs through it (CONTINUING). Best-effort from the
+            // schedule; the show-return prompt phrases the handover accordingly.
+            var minutesUntilTarget = (targetLocal - localNow).TotalMinutes;
+            var newShowStartsAtTarget = context.RemainingSlotMinutes is { } remainingSlotMinutes
+                && remainingSlotMinutes <= minutesUntilTarget + 1.0
+                && !string.IsNullOrWhiteSpace(context.NextFormatName);
+
             using var scope = scopeFactory.CreateScope();
             var renderer = scope.ServiceProvider.GetRequiredService<SegmentRenderer>();
 
@@ -444,6 +452,10 @@ public sealed class NewsPackageProductionService(
             // the host/items and capture the (text-only) draft jobs to run. No GPU work yet.
             var prepared = new List<PreparedSegment>();
             Moderator? previousSegmentHost = null;
+            // Every specialist that already spoke this block, in air order: the news host
+            // brackets the weather and the show-return thanks them all, so a contributor only
+            // ever names hosts ahead of it in this list — no forward host resolution needed.
+            var priorHosts = new List<Moderator>();
             for (var i = 0; i < includedContributors.Count; i++)
             {
                 var contributor = includedContributors[i];
@@ -461,6 +473,7 @@ public sealed class NewsPackageProductionService(
                     {
                         prepared.Add(PreparedSegment.FromReuse(reused, saved.DegradationReason));
                         previousSegmentHost = reused.Host;
+                        priorHosts.Add(reused.Host);
                         continue;
                     }
 
@@ -480,13 +493,18 @@ public sealed class NewsPackageProductionService(
                     position,
                     previousSegmentHost,
                     scope.ServiceProvider,
-                    (state, token) => UpdatePackageProductionStateAsync(package.Id, state, token));
+                    (state, token) => UpdatePackageProductionStateAsync(package.Id, state, token),
+                    PreviousSegmentHosts: priorHosts.ToList(),
+                    CurrentFormatName: context.Format?.Name,
+                    NextFormatName: context.NextFormatName,
+                    NewShowStartsAtTarget: newShowStartsAtTarget);
 
                 try
                 {
                     var draftPlan = await contributor.PlanDraftsAsync(segmentContext, ct);
                     prepared.Add(PreparedSegment.FromPlan(draftPlan));
                     previousSegmentHost = draftPlan.Host;
+                    priorHosts.Add(draftPlan.Host);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -535,6 +553,10 @@ public sealed class NewsPackageProductionService(
                     {
                         producedAnnouncements.Add(reused.GapLine);
                     }
+                    if (reused.Outro is not null)
+                    {
+                        producedAnnouncements.Add(reused.Outro);
+                    }
                     allItems.AddRange(reused.Items);
                     if (prep.SavedDegradationReason is not null)
                     {
@@ -561,6 +583,10 @@ public sealed class NewsPackageProductionService(
                 if (result.GapLine is not null)
                 {
                     producedAnnouncements.Add(result.GapLine);
+                }
+                if (result.Outro is not null)
+                {
+                    producedAnnouncements.Add(result.Outro);
                 }
                 allItems.AddRange(result.Items);
                 degradationReasons.AddRange(result.DegradationReasons);
@@ -904,6 +930,16 @@ public sealed class NewsPackageProductionService(
             }
         }
 
+        Announcement? outro = null;
+        if (saved.OutroAnnouncementId is { } outroId)
+        {
+            outro = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == outroId, ct);
+            if (outro is null)
+            {
+                return null;
+            }
+        }
+
         var host = await db.Moderators.AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == saved.SegmentHostModeratorId, ct);
         if (host is null)
@@ -918,7 +954,7 @@ public sealed class NewsPackageProductionService(
                 .Where(item => saved.SelectedItemIds.Contains(item.Id))
                 .ToListAsync(ct);
 
-        return new ReusedSegment(host, intro, body, gapLine, items);
+        return new ReusedSegment(host, intro, body, gapLine, items, outro);
     }
 
     /// <summary>
@@ -936,6 +972,7 @@ public sealed class NewsPackageProductionService(
                 (Guid?)segment.IntroAnnouncementId,
                 segment.BodyAnnouncementId,
                 segment.GapLineAnnouncementId,
+                segment.OutroAnnouncementId,
             })
             .Where(id => id is not null)
             .Select(id => id!.Value)
@@ -993,6 +1030,7 @@ public sealed class NewsPackageProductionService(
         Announcement? intro = null;
         Announcement? body = null;
         Announcement? gapLine = null;
+        Announcement? outro = null;
         var degradations = new List<string>();
         foreach (var slot in slots)
         {
@@ -1004,6 +1042,10 @@ public sealed class NewsPackageProductionService(
             if (slot.Slot == SegmentSlot.Handover)
             {
                 intro = slot.Announcement;
+            }
+            else if (slot.Slot == SegmentSlot.Outro)
+            {
+                outro = slot.Announcement;
             }
             else if (slot.IsGap)
             {
@@ -1029,6 +1071,7 @@ public sealed class NewsPackageProductionService(
                     IntroAnnouncementId = intro.Id,
                     BodyAnnouncementId = body?.Id,
                     GapLineAnnouncementId = gapLine?.Id,
+                    OutroAnnouncementId = outro?.Id,
                     SegmentHostModeratorId = plan.Host.Id,
                     DegradationReason = degradations.FirstOrDefault(),
                     SourceSummary = plan.SourceSummary,
@@ -1042,7 +1085,7 @@ public sealed class NewsPackageProductionService(
             }
         }
 
-        return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, body, gapLine, plan.Items, degradations);
+        return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, body, gapLine, plan.Items, degradations, outro);
     }
 
     /// <summary>Write one slot's script (its own DI scope), then voice it. Each write and each
@@ -1138,7 +1181,8 @@ public sealed class NewsPackageProductionService(
         Announcement? Body,
         Announcement? GapLine,
         IReadOnlyList<NewsItem> Items,
-        IReadOnlyList<string> DegradationReasons);
+        IReadOnlyList<string> DegradationReasons,
+        Announcement? Outro = null);
 
     private sealed record SlotRunResult(
         SegmentSlot Slot, Announcement? Announcement, bool IsGap, string? DegradationReason);
@@ -1155,7 +1199,8 @@ public sealed class NewsPackageProductionService(
         Announcement Intro,
         Announcement? Body,
         Announcement? GapLine,
-        IReadOnlyList<NewsItem> Items);
+        IReadOnlyList<NewsItem> Items,
+        Announcement? Outro = null);
 
     private async Task MarkPackageFailedAsync(
         Guid packageId,

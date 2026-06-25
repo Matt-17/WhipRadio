@@ -130,10 +130,11 @@ public class NewsSegmentContributorTests
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
         var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
-        // The intro LLM path throws → falls back to ProduceDirectAsync with BuildIntroText.
-        // BuildIntroText for Ava (id=1) and Maya (id=2) → "It's 03:00. Maya has the news."
+        // The intro LLM path throws → falls back to ProduceDirectAsync with BuildSelfIntroText.
+        // The news host introduces THEMSELVES → "It's 03:00. I'm Maya with your news."
         Assert.NotNull(result.Intro);
-        Assert.Contains("Maya has the news", result.Intro.ScriptText);
+        Assert.Contains("Maya with your news", result.Intro.ScriptText);
+        Assert.Equal(2, result.Intro.ModeratorId);
     }
 
     [TestMethod]
@@ -211,6 +212,40 @@ public class NewsSegmentContributorTests
         var settings = SegmentTestFixtures.DefaultSettings();
         var target = new DateTimeOffset(2026, 6, 21, 3, 30, 0, TimeSpan.Zero);
         Assert.False(contributor.IsIncludedAt(settings, target));
+    }
+
+    [TestMethod]
+    public void SelectBalancedCandidates_BalancesAcrossTopicsInPriorityOrder()
+    {
+        var order = new[] { "general", "business", "technology" };
+        var items = new List<NewsItem>();
+        void Add(string category, string title, int minutesAgo) => items.Add(new NewsItem
+        {
+            Title = title,
+            Feed = new NewsFeed { Category = category },
+            PublishedAtUtc = new DateTime(2026, 6, 21, 3, 0, 0, DateTimeKind.Utc).AddMinutes(-minutesAgo),
+        });
+
+        // 5 general (only 4 survive the per-category cap), 2 business, 1 technology.
+        for (var i = 0; i < 5; i++)
+        {
+            Add("general", $"g{i}", i);
+        }
+        Add("business", "b0", 1);
+        Add("business", "b1", 2);
+        Add("technology", "t0", 1);
+
+        var result = NewsSegmentContributor.SelectBalancedCandidates(items, order);
+
+        // 4 general (capped) + 2 business + 1 technology = 7, in priority order.
+        Assert.Equal(7, result.Count);
+        Assert.True(result.Take(4).All(item => item.Feed!.Category == "general"));
+        Assert.Equal("business", result[4].Feed!.Category);
+        Assert.Equal("business", result[5].Feed!.Category);
+        Assert.Equal("technology", result[6].Feed!.Category);
+        // At least two stories for each topic that has them.
+        Assert.Equal(4, result.Count(item => item.Feed!.Category == "general"));
+        Assert.Equal(2, result.Count(item => item.Feed!.Category == "business"));
     }
 
     private static Moderator ShowHost() => new() { Id = 1, Name = "Ava", Language = "en" };

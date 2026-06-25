@@ -1,0 +1,10 @@
+Write the news host's return line after the weather. You ARE the news host speaking. Facts: {Facts}
+
+Rules:
+- The weather forecast just finished. Briefly thank the weather specialist by name.
+- Wrap the news and weather, then hand back to the show host by name.
+- Keep it to one short, natural sentence.
+- Do not read any news or weather details again.
+- Do not introduce a song or the next show — just hand back to the show host.
+- Do not say the station slogan.
+- Output ONLY the words to be spoken.

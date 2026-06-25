@@ -47,6 +47,7 @@ public static class SegmentProductionRunner
         Announcement? intro = null;
         Announcement? body = null;
         Announcement? gapLine = null;
+        Announcement? outro = null;
         string? degradationReason = null;
 
         foreach (var job in plan.Jobs.OrderBy(job => job.Order))
@@ -58,6 +59,10 @@ public static class SegmentProductionRunner
             if (job.Slot == SegmentSlot.Handover)
             {
                 intro = announcement;
+            }
+            else if (job.Slot == SegmentSlot.Outro)
+            {
+                outro = announcement;
             }
             else if (draft.IsGap)
             {
@@ -76,6 +81,7 @@ public static class SegmentProductionRunner
             gapLine,
             plan.Items,
             degradationReason,
-            plan.SourceSummary);
+            plan.SourceSummary,
+            outro);
     }
 }
