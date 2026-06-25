@@ -77,6 +77,7 @@ public static class RadioApiEndpoints
             string? transcript = null;
             string? lyrics = null;
             string? announcementKind = null;
+            var title = current.Title;
             var upVotes = 0;
             var downVotes = 0;
 
@@ -96,6 +97,7 @@ public static class RadioApiEndpoints
                 var voicedText = announcement?.VoicedText;
                 transcript = voicedText is null ? null : SpeechMarkerNormalizer.ToPlainText(voicedText);
                 announcementKind = announcement?.Kind.ToString();
+                title = RadioDisplayNames.AnnouncementTitle(announcementKind);
             }
 
             string? formatName = null;
@@ -109,7 +111,7 @@ public static class RadioApiEndpoints
             }
 
             return Results.Ok(new NowPlayingDto(
-                current.ItemType.ToString(), current.ItemId, current.Title, current.StartedAtUtc,
+                current.ItemType.ToString(), current.ItemId, title, current.StartedAtUtc,
                 current.DurationSeconds, current.ModeratorName, artistName, transcript, upVotes, downVotes,
                 formatName, lyrics, announcementKind));
         });
@@ -490,8 +492,10 @@ public static class RadioApiEndpoints
                 else
                 {
                     var announcement = announcements.GetValueOrDefault(e.ItemId);
-                    title = talkBreaks.ContainsKey(e.ItemId) ? "Announcement" : announcement?.Kind.ToString() ?? "(announcement)";
                     isNews = announcement?.Kind == AnnouncementKind.News;
+                    title = announcement is null
+                        ? "(announcement)"
+                        : RadioDisplayNames.AnnouncementTitle(announcement.Kind.ToString());
                     transcript = announcement?.VoicedText is { } voiced
                         ? SpeechMarkerNormalizer.ToPlainText(voiced)
                         : null;
@@ -611,9 +615,12 @@ public static class RadioApiEndpoints
         api.MapPost("/votes", async (VoteRequestDto request, HttpContext http, RadioDbContext db,
             IHubContext<RadioHub> hub, CancellationToken ct) =>
         {
-            if (request.Direction is not (1 or -1))
+            // A single toggle moves at most one side by ±1; the client tracks its own
+            // current vote, so retracting sends -1 and a switch sends -1/+1.
+            if (request.UpDelta is < -1 or > 1 || request.DownDelta is < -1 or > 1
+                || (request.UpDelta == 0 && request.DownDelta == 0))
             {
-                return Results.BadRequest("Direction must be +1 or -1.");
+                return Results.BadRequest("Vote deltas must be -1, 0, or +1, with at least one non-zero.");
             }
 
             var track = await db.Tracks.FirstOrDefaultAsync(t => t.Id == request.TrackId, ct);
@@ -622,24 +629,14 @@ public static class RadioApiEndpoints
                 return Results.NotFound();
             }
 
-            if (request.Direction > 0)
-            {
-                track.UpVotes++;
-            }
-            else
-            {
-                track.DownVotes++;
-            }
-
+            // Clamp at zero so a stale retraction can never drive a tally negative.
+            track.UpVotes = Math.Max(0, track.UpVotes + request.UpDelta);
+            track.DownVotes = Math.Max(0, track.DownVotes + request.DownDelta);
             track.IsRetired = track.IsRetired || TrackWeighting.ShouldRetire(track);
 
-            db.Votes.Add(new Vote
-            {
-                TrackId = track.Id,
-                Direction = request.Direction,
-                CreatedAt = DateTime.UtcNow,
-                ClientHint = HashClient(http.Connection.RemoteIpAddress?.ToString() ?? "unknown"),
-            });
+            var client = HashClient(http.Connection.RemoteIpAddress?.ToString() ?? "unknown");
+            await ApplyVoteAuditAsync(db, track.Id, client, request.UpDelta, direction: 1, ct);
+            await ApplyVoteAuditAsync(db, track.Id, client, request.DownDelta, direction: -1, ct);
 
             await db.SaveChangesAsync(ct);
 
@@ -647,6 +644,36 @@ public static class RadioApiEndpoints
             await hub.Clients.All.SendAsync("VotesChanged", result, ct);
             return Results.Ok(result);
         });
+    }
+
+    // Mirror a ±1 count change in the audit log so the TotalVotes stat stays honest:
+    // a fresh vote adds a row, a retraction removes this client's most recent matching
+    // row. If no matching row exists (e.g. a different client/IP cast it), the tally
+    // still moves — the client remains the source of truth for its own vote.
+    private static async Task ApplyVoteAuditAsync(
+        RadioDbContext db, Guid trackId, string client, int delta, int direction, CancellationToken ct)
+    {
+        if (delta > 0)
+        {
+            db.Votes.Add(new Vote
+            {
+                TrackId = trackId,
+                Direction = direction,
+                CreatedAt = DateTime.UtcNow,
+                ClientHint = client,
+            });
+        }
+        else if (delta < 0)
+        {
+            var existing = await db.Votes
+                .Where(v => v.TrackId == trackId && v.Direction == direction && v.ClientHint == client)
+                .OrderByDescending(v => v.CreatedAt)
+                .FirstOrDefaultAsync(ct);
+            if (existing is not null)
+            {
+                db.Votes.Remove(existing);
+            }
+        }
     }
 
     private static void MapModerators(RouteGroupBuilder api)

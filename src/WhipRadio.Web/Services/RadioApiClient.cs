@@ -461,9 +461,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
             : (null, await response.Content.ReadAsStringAsync(ct));
     }
 
-    public async Task<VoteResultDto?> VoteAsync(Guid trackId, int direction, CancellationToken ct = default)
+    public async Task<VoteResultDto?> VoteAsync(Guid trackId, int upDelta, int downDelta, CancellationToken ct = default)
     {
-        using var response = await http.PostAsJsonAsync("/api/votes", new VoteRequestDto(trackId, direction), ct);
+        using var response = await http.PostAsJsonAsync("/api/votes", new VoteRequestDto(trackId, upDelta, downDelta), ct);
         return response.IsSuccessStatusCode
             ? await response.Content.ReadFromJsonAsync<VoteResultDto>(ct)
             : null;

@@ -136,6 +136,7 @@
     private bool _autoplayPolicySupported;
     private int _myVote;
     private Guid? _voteItemId;
+    private VoteResultDto? _voteResult;
     private Timer? _ticker;
     private DotNetObjectReference<FooterPlayer>? _interopRef;
     private bool _mediaSessionEnabled;
@@ -167,9 +168,7 @@
 
     private static string PanelHeaderFor(NowPlayingDto np) => np.ItemType switch
     {
-        "Announcement" => string.IsNullOrEmpty(np.AnnouncementKind)
-            ? $"On the mic — {np.ModeratorName ?? "host"}"
-            : $"{np.AnnouncementKind} — {np.ModeratorName ?? "host"}",
+        "Announcement" => $"{RadioDisplayNames.AnnouncementTitle(np.AnnouncementKind)} — {np.ModeratorName ?? "host"}",
         "Track" => $"Lyrics — {np.Title}",
         _ => "On the mic",
     };
@@ -194,9 +193,15 @@
         ? null
         : Player.CurrentTrack?.Id ?? Live.NowPlaying?.ItemId;
 
-    private int VoteUp => Player.CurrentTrack?.UpVotes ?? Live.NowPlaying?.UpVotes ?? 0;
+    // For a preview the count is a fixed snapshot, so overlay the latest server tally
+    // when it matches; the live track instead stays current via the SignalR broadcast.
+    private int VoteUp => Player.CurrentTrack is { } track
+        ? (_voteResult is { } v && v.TrackId == track.Id ? v.UpVotes : track.UpVotes)
+        : Live.NowPlaying?.UpVotes ?? 0;
 
-    private int VoteDown => Player.CurrentTrack?.DownVotes ?? Live.NowPlaying?.DownVotes ?? 0;
+    private int VoteDown => Player.CurrentTrack is { } track
+        ? (_voteResult is { } v && v.TrackId == track.Id ? v.DownVotes : track.DownVotes)
+        : Live.NowPlaying?.DownVotes ?? 0;
 
     private PreviewState? Preview => Player.CurrentTrack is { } track
         ? new PreviewState(track.Title, track.ArtistName, "song",
@@ -441,36 +446,50 @@
     {
         _ = InvokeAsync(async () =>
         {
-            if (Live.NowPlaying is { } np)
-            {
-                if (np.ItemType == "Announcement" && np.Transcript is { } transcript)
-                {
-                    _lastHeader = PanelHeaderFor(np);
-                    _lastByline = null;
-                    _lastBody = transcript;
-                }
-                else if (np.ItemType == "Track" && np.Lyrics is { } lyrics)
-                {
-                    _lastHeader = PanelHeaderFor(np);
-                    _lastByline = np.ArtistName is { } artist ? $"by {artist}" : null;
-                    _lastBody = lyrics;
-                }
-            }
-
+            RefreshTranscriptContent();
             await RefreshMyVoteAsync();
             await UpdateMediaSessionMetadataAsync();
             StateHasChanged();
         });
     }
 
+    // Keep the panel's last header/body in sync with whatever is current, for both
+    // live segments and previews. Called on every mode/live change so returning from
+    // a preview to live doesn't leave stale preview text behind the close animation.
+    private void RefreshTranscriptContent()
+    {
+        if (!Player.IsLive)
+        {
+            if (Preview is { PanelBody: { } body } preview)
+            {
+                _lastHeader = preview.PanelHeader ?? "";
+                _lastByline = preview.PanelByline;
+                _lastBody = body;
+            }
+
+            return;
+        }
+
+        if (Live.NowPlaying is { } np)
+        {
+            if (np.ItemType == "Announcement" && np.Transcript is { } transcript)
+            {
+                _lastHeader = PanelHeaderFor(np);
+                _lastByline = null;
+                _lastBody = transcript;
+            }
+            else if (np.ItemType == "Track" && np.Lyrics is { } lyrics)
+            {
+                _lastHeader = PanelHeaderFor(np);
+                _lastByline = np.ArtistName is { } artist ? $"by {artist}" : null;
+                _lastBody = lyrics;
+            }
+        }
+    }
+
     private void OnPlayerModeChanged() => _ = InvokeAsync(async () =>
     {
-        if (Preview is { PanelBody: { } body } preview)
-        {
-            _lastHeader = preview.PanelHeader ?? "";
-            _lastByline = preview.PanelByline;
-            _lastBody = body;
-        }
+        RefreshTranscriptContent();
 
         if (Player.CurrentTrack is { } track)
         {
@@ -635,7 +654,13 @@
 
         if (Live.NowPlaying is { } nowPlaying)
         {
-            return new MediaSessionState(nowPlaying.Title, nowPlaying.ArtistName, nowPlaying.FormatName ?? "WhipRadio", null);
+            return new MediaSessionState(
+                nowPlaying.Title,
+                nowPlaying.ArtistName,
+                nowPlaying.ItemType == "Announcement"
+                    ? RadioDisplayNames.AnnouncementTitle(nowPlaying.AnnouncementKind)
+                    : nowPlaying.FormatName ?? "WhipRadio",
+                null);
         }
 
         return new MediaSessionState("WhipRadio", null, "Live", null);
@@ -743,9 +768,10 @@
         }
     }
 
-    // Toggle feedback: clicking the active button takes the vote back (client-side
-    // only — the server tally is increment-only for now); clicking the other button
-    // switches like a radio group. A fresh direction is registered with the server.
+    // Toggle feedback: clicking the active button takes the vote back; clicking the
+    // other button switches like a radio group. The server is told the net change
+    // (e.g. -1 to retract), so taking a vote back actually decrements the tally and
+    // repeated check/uncheck never piles up extra votes.
     private async Task VoteAsync(int direction)
     {
         if (!CanVote || CurrentVoteItemId is not { } itemId)
@@ -753,19 +779,27 @@
             return;
         }
 
-        if (_myVote == direction)
+        var previous = _myVote;
+        var next = previous == direction ? 0 : direction;
+        if (next == previous)
         {
-            _myVote = 0;
-            await Js.InvokeVoidAsync("whipRadio.setVote", itemId, 0);
-            StateHasChanged();
             return;
         }
 
-        _myVote = direction;
-        await Js.InvokeVoidAsync("whipRadio.setVote", itemId, direction);
+        _myVote = next;
+        await Js.InvokeVoidAsync("whipRadio.setVote", itemId, next);
         StateHasChanged();
 
-        await Api.VoteAsync(itemId, direction);
+        var upDelta = (next == 1 ? 1 : 0) - (previous == 1 ? 1 : 0);
+        var downDelta = (next == -1 ? 1 : 0) - (previous == -1 ? 1 : 0);
+        var result = await Api.VoteAsync(itemId, upDelta, downDelta);
+        if (result is not null)
+        {
+            // Reflect the new tally immediately. Live now-playing also updates via the
+            // VotesChanged broadcast; this keeps a static preview snapshot in step too.
+            _voteResult = result;
+            StateHasChanged();
+        }
     }
 
     public async ValueTask DisposeAsync()

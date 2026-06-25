@@ -98,6 +98,7 @@ public class PlaybackReporter(
         string? transcript = null;
         string? lyrics = null;
         string? announcementKind = null;
+        var title = item.Title;
         var upVotes = 0;
         var downVotes = 0;
 
@@ -135,6 +136,7 @@ public class PlaybackReporter(
             // Transcripts show the bare spoken text — never the speech markup.
             transcript = voicedText is null ? null : Core.Speech.SpeechMarkerNormalizer.ToPlainText(voicedText);
             announcementKind = announcement?.Kind.ToString();
+            title = RadioDisplayNames.AnnouncementTitle(announcementKind);
         }
 
         await db.SaveChangesAsync(ct);
@@ -162,7 +164,7 @@ public class PlaybackReporter(
         stateStore.BecameVisible(item);
 
         var dto = new NowPlayingDto(
-            item.ItemType.ToString(), item.ItemId, item.Title, visibleStartedAtUtc, item.DurationSeconds,
+            item.ItemType.ToString(), item.ItemId, title, visibleStartedAtUtc, item.DurationSeconds,
             moderatorName, artistName, transcript, upVotes, downVotes, formatName, lyrics, announcementKind);
 
         await PublishAsync(dto, ct);

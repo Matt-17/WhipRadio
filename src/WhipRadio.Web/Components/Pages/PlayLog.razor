@@ -64,7 +64,7 @@
                             }
                             else
                             {
-                                <span class="tag amber">talk</span>
+                                    <span class="tag amber">talk</span>
                             }
                         </td>
                         <td>
@@ -104,7 +104,7 @@
                         <td class="num dim">@FormatClock(TimeSpan.FromSeconds(entry.DurationSeconds))</td>
                         <td style="white-space:nowrap">
                             <button class="btn small icon-btn" title="play in player"
-                                    aria-label="@(entry.ItemType == "Track" ? "play song" : "play talk")"
+                                        aria-label="@(entry.ItemType == "Track" ? "play song" : entry.IsNews ? "play news" : "play talk")"
                                     @onclick="() => PlayAsync(entry)">
                                 <Icon Name="play" Size="16" />
                             </button>

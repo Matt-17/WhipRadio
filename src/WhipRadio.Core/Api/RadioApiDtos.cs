@@ -1,5 +1,13 @@
 namespace WhipRadio.Core.Api;
 
+public static class RadioDisplayNames
+{
+    public static string AnnouncementTitle(string? announcementKind)
+        => string.Equals(announcementKind, "News", StringComparison.Ordinal)
+            ? "News"
+            : "Announcement";
+}
+
 /// <summary>Wire contracts between the Orchestrator API/hub and the Web app.</summary>
 public sealed record NowPlayingDto(
     string ItemType,
@@ -472,7 +480,12 @@ public sealed record DesignedVoiceDto(string Handle, string Description, double 
 
 public sealed record ApplyVoiceDto(string Handle, string? Description);
 
-public sealed record VoteRequestDto(Guid TrackId, int Direction);
+/// <summary>
+/// Net change to a track's tally from one listener toggling feedback. The client
+/// remembers its own current vote, so taking a vote back sends a -1 delta (and a
+/// switch sends -1 on one side, +1 on the other). Each delta is -1, 0, or +1.
+/// </summary>
+public sealed record VoteRequestDto(Guid TrackId, int UpDelta, int DownDelta);
 
 public sealed record VoteResultDto(Guid TrackId, int UpVotes, int DownVotes, bool IsRetired);
 
