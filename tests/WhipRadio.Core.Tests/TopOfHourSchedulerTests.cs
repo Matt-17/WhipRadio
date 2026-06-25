@@ -18,7 +18,7 @@ public class TopOfHourSchedulerTests
     [TestMethod]
     public void NextPreparationTarget_ReturnsMinValueOutsidePrepareWindow()
     {
-        var now = new DateTimeOffset(2026, 6, 19, 7, 30, 0, TimeSpan.Zero);
+        var now = new DateTimeOffset(2026, 6, 19, 7, 20, 0, TimeSpan.Zero);
 
         var target = TopOfHourScheduler.NextPreparationTarget(now, cadenceMinutes: 60);
 

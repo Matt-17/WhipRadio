@@ -6,10 +6,11 @@ namespace WhipRadio.Core.Tests;
 public class SpeechMarkerNormalizerTests
 {
     [TestMethod]
-    public void Normalize_KeepsValidMarkers()
+    public void Normalize_KeepsValidMarkers_ScalingPause()
     {
+        // Pauses are scaled down (0.65); breath/rate markers pass through untouched.
         var input = "Hello [pause:400ms] world [breath] again [rate:slow] done";
-        Assert.Equal(input, SpeechMarkerNormalizer.Normalize(input));
+        Assert.Equal("Hello [pause:260ms] world [breath] again [rate:slow] done", SpeechMarkerNormalizer.Normalize(input));
     }
 
     [TestMethod]
@@ -20,12 +21,12 @@ public class SpeechMarkerNormalizerTests
     }
 
     [TestMethod]
-    [DataRow("[pause:50ms]", "[pause:100ms]")]    // below minimum
-    [DataRow("[pause:9000ms]", "[pause:1500ms]")] // above maximum
-    [DataRow("[pause:100ms]", "[pause:100ms]")]   // boundary kept
-    [DataRow("[pause:1500ms]", "[pause:1500ms]")] // boundary kept
-    [DataRow("[pause:300]", "[pause:300ms]")]     // missing ms suffix tolerated
-    public void Normalize_ClampsPauseDurations(string input, string expected)
+    [DataRow("[pause:50ms]", "[pause:100ms]")]    // scaled below minimum → clamped up
+    [DataRow("[pause:9000ms]", "[pause:1500ms]")] // scaled still above maximum → clamped down
+    [DataRow("[pause:100ms]", "[pause:100ms]")]   // 65 → clamped to floor
+    [DataRow("[pause:1500ms]", "[pause:975ms]")]  // 1500 × 0.65
+    [DataRow("[pause:300]", "[pause:195ms]")]     // missing ms suffix tolerated, then scaled
+    public void Normalize_ScalesAndClampsPauseDurations(string input, string expected)
     {
         Assert.Equal(expected, SpeechMarkerNormalizer.Normalize(input));
     }
@@ -55,7 +56,29 @@ public class SpeechMarkerNormalizerTests
     public void Normalize_UppercaseMarkersAreNormalized()
     {
         var result = SpeechMarkerNormalizer.Normalize("Hi [PAUSE:200MS] there [BREATH] you");
-        Assert.Equal("Hi [pause:200ms] there [breath] you", result);
+        Assert.Equal("Hi [pause:130ms] there [breath] you", result);
+    }
+
+    [TestMethod]
+    public void Normalize_InsertsPauseBetweenParagraphs()
+    {
+        var result = SpeechMarkerNormalizer.Normalize("First item.\n\nSecond item.");
+        Assert.Equal("First item. [pause:650ms] Second item.", result);
+    }
+
+    [TestMethod]
+    public void Normalize_SingleNewlineIsAlsoAParagraphBreak()
+    {
+        var result = SpeechMarkerNormalizer.Normalize("Line one.\nLine two.");
+        Assert.Equal("Line one. [pause:650ms] Line two.", result);
+    }
+
+    [TestMethod]
+    public void Normalize_CollapsesAdjacentPausesToTheLongest()
+    {
+        // A model pause right at a paragraph break must not stack with the inserted one.
+        var result = SpeechMarkerNormalizer.Normalize("End. [pause:400ms]\n\nNext.");
+        Assert.Equal("End. [pause:650ms] Next.", result);
     }
 
     [TestMethod]
@@ -71,6 +94,13 @@ public class SpeechMarkerNormalizerTests
     public void Normalize_FillerWordsStayLiteral()
     {
         var input = "Um, that was, hm, really good [pause:300ms] right?";
-        Assert.Equal(input, SpeechMarkerNormalizer.Normalize(input));
+        Assert.Equal("Um, that was, hm, really good [pause:195ms] right?", SpeechMarkerNormalizer.Normalize(input));
+    }
+
+    [TestMethod]
+    public void StripMarkers_RemovesAllMarkers()
+    {
+        var result = SpeechMarkerNormalizer.StripMarkers("Up next, uh [pause:300ms] a banger [breath] now [rate:slow]!");
+        Assert.Equal("Up next, uh a banger now !", result);
     }
 }

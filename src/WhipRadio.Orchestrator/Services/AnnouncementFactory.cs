@@ -11,12 +11,12 @@ namespace WhipRadio.Orchestrator.Services;
 
 /// <summary>
 /// Runs the full announcement pipeline:
-/// ScriptWriter → VoiceDirector → SpeechMarkerNormalizer → TTS → WAV on disk → DB row.
-/// Also feeds the host's day-memory so later talks can reference earlier ones.
+/// AnnouncementWriter (one LLM run: script + delivery + voice) → SpeechMarkerNormalizer →
+/// TTS → WAV on disk → DB row. Also feeds the host's day-memory so later talks can
+/// reference earlier ones.
 /// </summary>
 public class AnnouncementFactory(
-    IScriptWriter scriptWriter,
-    IVoiceDirector voiceDirector,
+    IAnnouncementWriter announcementWriter,
     IPromptContextBuilder promptContextBuilder,
     ITtsEngine ttsEngine,
     MediaAnalysisRecorder analysisRecorder,
@@ -66,33 +66,19 @@ public class AnnouncementFactory(
             facts,
             lengthHint,
             scriptContext);
-        var script = await scriptWriter.WriteAsync(request, ct);
+        var spoken = await announcementWriter.WriteAsync(request, moderator, ct);
+        var script = spoken.Script;
+        var normalized = SpeechMarkerNormalizer.Normalize(spoken.Delivery, allowBreath);
 
-        var voiceContext = await promptContextBuilder.BuildAsync(
-            new PromptContextInput(
-                PromptScope.VoiceDirection,
-                Moderator: moderator,
-                AnnouncementKind: kind,
-                RelatedTrack: relatedTrack,
-                Facts: facts,
-                LengthHint: lengthHint,
-                Purpose: purpose ?? kind.ToString(),
-                AlreadySpokenContext: alreadySpokenContext,
-                LocalNowOverride: localNowOverride),
-            ct);
-
-        var voiced = await voiceDirector.DirectAsync(script, moderator, ct, voiceContext);
-        var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
-
-        // Qwen takes a natural-language delivery instruction (style from the
-        // host persona; breath cue follows the station flag). Other engines
-        // ignore it — markers remain the portable baseline for hard timing.
-        var instruction = BuildTtsInstruction(moderator, allowBreath);
+        // Qwen takes a natural-language delivery instruction (style from the host
+        // persona, shaded by the per-delivery hint; breath cue follows the station
+        // flag). Other engines ignore it — markers remain the portable baseline.
+        var instruction = BuildTtsInstruction(moderator, allowBreath, spoken.DeliveryPrompt);
 
         var tts = await ttsEngine.SynthesizeAsync(
             normalized,
             new TtsVoiceOptions(
-                moderator.VoiceId, moderator.Language, moderator.SpeechRate, moderator.TtsEngine, instruction),
+                moderator.VoiceId, moderator.Language, ResolveRate(spoken.Rate, moderator.SpeechRate), moderator.TtsEngine, instruction),
             ct);
         var producedWords = PromptWordBudget.CountWords(script);
         if (tts.DurationSeconds <= 0)
@@ -202,7 +188,7 @@ public class AnnouncementFactory(
             facts,
             lengthHint,
             scriptContext);
-        var script = await scriptWriter.WriteAsync(request, ct);
+        var spoken = await announcementWriter.WriteAsync(request, moderator, ct);
 
         return new AnnouncementScriptDraft(
             kind,
@@ -212,37 +198,28 @@ public class AnnouncementFactory(
             lengthHint,
             alreadySpokenContext,
             localNowOverride,
-            script,
+            spoken.Script,
+            spoken.Delivery,
+            spoken.DeliveryPrompt,
+            spoken.Rate,
             scriptContext);
     }
 
     public async Task<Announcement> ProduceFromDraftAsync(AnnouncementScriptDraft draft, CancellationToken ct)
     {
         var allowBreath = await GetAllowBreathAsync(draft.Moderator, ct);
-        var voiceContext = await promptContextBuilder.BuildAsync(
-            new PromptContextInput(
-                PromptScope.VoiceDirection,
-                Moderator: draft.Moderator,
-                AnnouncementKind: draft.Kind,
-                RelatedTrack: draft.RelatedTrack,
-                Facts: draft.Facts,
-                LengthHint: draft.LengthHint,
-                Purpose: draft.ScriptContext.Purpose,
-                Priority: draft.ScriptContext.Priority,
-                AlreadySpokenContext: draft.AlreadySpokenContext,
-                LocalNowOverride: draft.LocalNowOverride),
-            ct);
 
-        var voiced = await voiceDirector.DirectAsync(draft.Script, draft.Moderator, ct, voiceContext);
-        var normalized = SpeechMarkerNormalizer.Normalize(voiced, allowBreath);
-        var instruction = BuildTtsInstruction(draft.Moderator, allowBreath);
+        // The combined run already produced the delivery + voice direction; finalizing a
+        // draft is TTS only — no second LLM call.
+        var normalized = SpeechMarkerNormalizer.Normalize(draft.Delivery, allowBreath);
+        var instruction = BuildTtsInstruction(draft.Moderator, allowBreath, draft.DeliveryPrompt);
 
         var tts = await ttsEngine.SynthesizeAsync(
             normalized,
             new TtsVoiceOptions(
                 draft.Moderator.VoiceId,
                 draft.Moderator.Language,
-                draft.Moderator.SpeechRate,
+                ResolveRate(draft.Rate, draft.Moderator.SpeechRate),
                 draft.Moderator.TtsEngine,
                 instruction),
             ct);
@@ -346,7 +323,7 @@ public class AnnouncementFactory(
                 moderator.Language,
                 moderator.SpeechRate,
                 moderator.TtsEngine,
-                BuildTtsInstruction(moderator, allowBreath)),
+                BuildTtsInstruction(moderator, allowBreath, null)),
             ct);
 
         if (tts.DurationSeconds <= 0)
@@ -431,11 +408,17 @@ public class AnnouncementFactory(
         return moderator.TtsEngine == TtsEngines.Piper ? false : allowBreath;
     }
 
-    private static string? BuildTtsInstruction(Moderator moderator, bool allowBreath)
+    private static string? BuildTtsInstruction(Moderator moderator, bool allowBreath, string? deliveryPrompt)
         => moderator.TtsEngine == TtsEngines.Qwen
             ? $"Radio host, {moderator.Style} delivery."
+                + (string.IsNullOrWhiteSpace(deliveryPrompt) ? "" : $" {deliveryPrompt.Trim()}")
                 + (allowBreath ? " Natural audible breaths between sentences." : "")
             : null;
+
+    /// <summary>Per-delivery rate from the model wins when present (clamped to a sane band);
+    /// otherwise the moderator's configured rate.</summary>
+    private static double ResolveRate(double? llmRate, double moderatorRate)
+        => llmRate is { } rate && rate > 0 ? Math.Clamp(rate, 0.7, 1.3) : moderatorRate;
 
     private static TalkBreak CreateTalkBreak(
         Announcement announcement,
@@ -567,5 +550,8 @@ public class AnnouncementFactory(
         string? AlreadySpokenContext,
         DateTimeOffset? LocalNowOverride,
         string Script,
+        string Delivery,
+        string? DeliveryPrompt,
+        double? Rate,
         Core.Prompting.PromptContext ScriptContext);
 }

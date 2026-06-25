@@ -2,60 +2,131 @@ using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Json;
 using WhipRadio.Core.Playout;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 
 namespace WhipRadio.Infrastructure.Llm;
 
-/// <summary>Stage 1 of the announcement pipeline: writes the spoken content.</summary>
-public class ScriptWriter(ITextGenerationService llm) : IScriptWriter
+/// <summary>
+/// Single-run announcement pipeline: one LLM call writes the clean script, the
+/// speech-marked delivery, and the per-delivery voice direction together. Replaces the
+/// former two-stage ScriptWriter + VoiceDirector.
+/// </summary>
+public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncementWriter
 {
-    public async Task<string> WriteAsync(AnnouncementRequest request, CancellationToken ct)
+    public async Task<SpokenAnnouncement> WriteAsync(AnnouncementRequest request, Moderator moderator, CancellationToken ct)
     {
-        var systemPrompt = PromptTemplates.Render("ScriptWriter.System", new Dictionary<string, string>
+        var systemPrompt = PromptTemplates.Render("AnnouncementWriter.System", new Dictionary<string, string>
         {
             ["StationName"] = request.StationName,
             ["Language"] = request.Language,
             ["LengthHint"] = string.IsNullOrEmpty(request.LengthHint) ? "2-5 sentences." : request.LengthHint,
+            ["HostName"] = moderator.Name,
+            ["PersonaPrompt"] = moderator.PersonaPrompt,
+            ["Style"] = moderator.Style,
+            ["Gender"] = moderator.Gender == ModeratorGenders.Male ? "male" : "female",
         });
 
-        if (request.PromptContext is not null)
+        if (request.PromptContext is { } context)
         {
-            systemPrompt = $"{systemPrompt}\n\n{request.PromptContext.RenderSituation()}";
+            if (context.BaselineTraits is not null && context.CurrentTraits is not null)
+            {
+                systemPrompt =
+                    $"{systemPrompt}\n\nKeep the baseline persona stable ({context.BaselineTraits}), " +
+                    $"but shade this delivery with the current mood traits ({context.CurrentTraits}).";
+            }
+
+            systemPrompt = $"{systemPrompt}\n\n{context.RenderSituation()}";
         }
 
         var userPrompt = BuildUserPrompt(request);
         var jobLabel = ScriptJobLabel(request.Kind);
-        var script = await llm.CompleteAsync(
-            new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<ScriptDto>(), "script"),
+        var raw = await llm.CompleteAsync(
+            new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<SpokenDeliveryDto>(), "spokenDelivery"),
             ct);
-        return await SanitizeOrRetryAsync(script, systemPrompt, userPrompt, jobLabel, ct);
+        return await ParseOrRetryAsync(raw, systemPrompt, userPrompt, jobLabel, ct);
     }
 
-    private async Task<string> SanitizeOrRetryAsync(
+    private async Task<SpokenAnnouncement> ParseOrRetryAsync(
         string raw,
         string systemPrompt,
         string userPrompt,
         string jobLabel,
         CancellationToken ct)
     {
-        if (LlmOutputSanitizer.TrySanitizeSpokenText(raw, out var sanitized, out var error))
+        if (TryBuild(raw, out var result))
         {
-            return sanitized;
+            return result;
         }
 
         var retryPrompt =
-            $"{userPrompt}\n\nPrevious reply rejected: {error} " +
-            """Return ONLY the JSON object {"script":"…"} with natural spoken radio copy in the script field.""";
+            $"{userPrompt}\n\nPrevious reply was not valid. Return ONLY one JSON object with " +
+            """non-empty "script" and "delivery" string fields and an optional "voice" object.""";
         var retry = await llm.CompleteAsync(
-            new TextGenerationRequest(systemPrompt, retryPrompt, $"{jobLabel} retry", StructuredJson.SchemaFor<ScriptDto>(), "script"),
+            new TextGenerationRequest(systemPrompt, retryPrompt, $"{jobLabel} retry", StructuredJson.SchemaFor<SpokenDeliveryDto>(), "spokenDelivery"),
             ct);
-        if (LlmOutputSanitizer.TrySanitizeSpokenText(retry, out sanitized, out error))
+        if (TryBuild(retry, out result))
         {
-            return sanitized;
+            return result;
         }
 
-        throw new InvalidOperationException($"The script writer returned invalid spoken text twice: {error}");
+        throw new InvalidOperationException("The announcement writer returned invalid script/delivery JSON twice.");
     }
+
+    /// <summary>Parses the combined DTO and cleans both text fields: the transcript is
+    /// stripped of any stray markers, the delivery keeps its markers.</summary>
+    private static bool TryBuild(string raw, out SpokenAnnouncement result)
+    {
+        result = null!;
+        var parsed = StructuredJson.Parse<SpokenDeliveryDto>(raw);
+        if (!parsed.IsValid || parsed.Value is null)
+        {
+            return false;
+        }
+
+        var dto = parsed.Value;
+
+        // Delivery keeps its speech markers; only meta-chatter/markdown is removed.
+        if (!LlmOutputSanitizer.TrySanitizeSpokenText(dto.Delivery, out var delivery, out _)
+            || string.IsNullOrWhiteSpace(delivery))
+        {
+            return false;
+        }
+
+        // Script is the transcript: sanitize, then strip any markers the model leaked in.
+        var script = LlmOutputSanitizer.TrySanitizeSpokenText(dto.Script, out var cleanScript, out _)
+            && !string.IsNullOrWhiteSpace(cleanScript)
+                ? SpeechMarkerNormalizer.StripMarkers(cleanScript)
+                : SpeechMarkerNormalizer.StripMarkers(delivery);
+
+        if (string.IsNullOrWhiteSpace(script))
+        {
+            return false;
+        }
+
+        result = new SpokenAnnouncement(
+            EnsureTerminalPunctuation(script), delivery, NormalizePrompt(dto.Voice?.DeliveryPrompt), dto.Voice?.Rate);
+        return true;
+    }
+
+    private static string? NormalizePrompt(string? prompt)
+        => string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
+
+    /// <summary>Guarantees the transcript ends on a sentence terminator (allowing a trailing
+    /// closing quote/bracket), so even a one-line script reads cleanly.</summary>
+    private static string EnsureTerminalPunctuation(string text)
+    {
+        var trimmed = text.TrimEnd();
+        if (trimmed.Length == 0)
+        {
+            return trimmed;
+        }
+
+        return TerminalPunctuationRegex().IsMatch(trimmed) ? trimmed : trimmed + ".";
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[.!?…][""'”’)\]]?$")]
+    private static partial System.Text.RegularExpressions.Regex TerminalPunctuationRegex();
 
     private static string ScriptJobLabel(AnnouncementKind kind) => kind switch
     {

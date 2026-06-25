@@ -7,8 +7,10 @@ namespace WhipRadio.Infrastructure.Tests;
 [TestClass]
 public class Phase2RegressionTests
 {
-    private sealed class CapturingLlm(string reply = "ok") : ITextGenerationService
+    private sealed class CapturingLlm(string? reply = null) : ITextGenerationService
     {
+        private readonly string _reply = reply ?? """{"script":"ok","delivery":"ok"}""";
+
         public string? SystemPrompt { get; private set; }
 
         public string? UserPrompt { get; private set; }
@@ -17,9 +19,18 @@ public class Phase2RegressionTests
         {
             SystemPrompt = systemPrompt;
             UserPrompt = userPrompt;
-            return Task.FromResult(reply);
+            return Task.FromResult(_reply);
         }
     }
+
+    private static Moderator AnyHost() => new()
+    {
+        Name = "Host",
+        Language = "en",
+        Gender = ModeratorGenders.Female,
+        PersonaPrompt = "A host.",
+        Style = "steady",
+    };
 
     [TestMethod]
     public void TitleWordGuard_AlwaysBansTheClicheWords()
@@ -45,23 +56,23 @@ public class Phase2RegressionTests
     }
 
     [TestMethod]
-    public async Task ScriptWriter_SystemPrompt_EnforcesLanguage()
+    public async Task AnnouncementWriter_SystemPrompt_EnforcesLanguage()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
 
         await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), CancellationToken.None);
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), AnyHost(), CancellationToken.None);
 
-        Assert.Contains("STRICTLY in this language: en", llm.SystemPrompt);
-        Assert.Contains("Never switch", llm.SystemPrompt);
+        Assert.Contains("STRICTLY in en", llm.SystemPrompt);
+        Assert.Contains("Never switch languages", llm.SystemPrompt);
     }
 
     [TestMethod]
-    public async Task VoiceDirector_PromptCarriesLanguageAndGender()
+    public async Task AnnouncementWriter_PromptCarriesLanguageAndGender()
     {
         var llm = new CapturingLlm();
-        var director = new VoiceDirector(llm);
+        var writer = new AnnouncementWriter(llm);
         var host = new Moderator
         {
             Name = "Jordan",
@@ -71,21 +82,23 @@ public class Phase2RegressionTests
             Style = "slow-thoughtful",
         };
 
-        await director.DirectAsync("Script.", host, CancellationToken.None);
+        await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), host, CancellationToken.None);
 
-        Assert.Contains("language: en", llm.SystemPrompt);
+        Assert.Contains("STRICTLY in en", llm.SystemPrompt);
         Assert.Contains("male", llm.SystemPrompt);
     }
 
     [TestMethod]
-    public async Task ScriptWriter_ListenerGreeting_ReadsSenderAndMessage()
+    public async Task AnnouncementWriter_ListenerGreeting_ReadsSenderAndMessage()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.ListenerGreeting, "WhipRadio", "en",
                 Facts: "- Mia (music request): \"Hello to the night owls, play something chill!\""),
+            AnyHost(),
             CancellationToken.None);
 
         Assert.Contains("Mia", llm.UserPrompt);
@@ -95,14 +108,15 @@ public class Phase2RegressionTests
     }
 
     [TestMethod]
-    public async Task ScriptWriter_ListenerGreeting_CarriesMultipleMessages()
+    public async Task AnnouncementWriter_ListenerGreeting_CarriesMultipleMessages()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.ListenerGreeting, "WhipRadio", "en",
                 Facts: "- Matt: \"Greetings to John and Mom!\"\n- Anna: \"Is it cold in the studio?\""),
+            AnyHost(),
             CancellationToken.None);
 
         Assert.Contains("Matt", llm.UserPrompt);

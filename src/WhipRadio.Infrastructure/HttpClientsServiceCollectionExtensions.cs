@@ -110,8 +110,7 @@ public static class HttpClientsServiceCollectionExtensions
             })
             .RemoveAllResilienceHandlers();
 
-        services.AddScoped<IScriptWriter, ScriptWriter>();
-        services.AddScoped<IVoiceDirector, VoiceDirector>();
+        services.AddScoped<IAnnouncementWriter, AnnouncementWriter>();
         services.AddSingleton<ICharacterToolCallParser, CharacterToolCallParser>();
         services.AddSingleton<ICharacterToolCatalog, CharacterToolCatalog>();
         services.AddSingleton<ICharacterTool, AnnounceTool>();

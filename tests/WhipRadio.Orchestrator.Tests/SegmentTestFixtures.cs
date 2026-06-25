@@ -46,8 +46,7 @@ internal static class SegmentTestFixtures
             db,
             NullLogger<MediaAnalysisRecorder>.Instance);
         return new AnnouncementFactory(
-            new CannedScriptWriter(),
-            new PassThroughVoiceDirector(),
+            new CannedAnnouncementWriter(),
             new StaticPromptContextBuilder(),
             new FakeTtsEngine(),
             analysisRecorder,
@@ -214,16 +213,13 @@ internal static class SegmentTestFixtures
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private sealed class CannedScriptWriter : IScriptWriter
+    private sealed class CannedAnnouncementWriter : IAnnouncementWriter
     {
-        public Task<string> WriteAsync(AnnouncementRequest request, CancellationToken ct)
-            => Task.FromResult($"Canned script for {request.Kind}.");
-    }
-
-    private sealed class PassThroughVoiceDirector : IVoiceDirector
-    {
-        public Task<string> DirectAsync(string script, Moderator moderator, CancellationToken ct, PromptContext? context = null)
-            => Task.FromResult(script);
+        public Task<SpokenAnnouncement> WriteAsync(AnnouncementRequest request, Moderator moderator, CancellationToken ct)
+        {
+            var text = $"Canned script for {request.Kind}.";
+            return Task.FromResult(new SpokenAnnouncement(text, text, null, null));
+        }
     }
 
     private sealed class StaticPromptContextBuilder : IPromptContextBuilder

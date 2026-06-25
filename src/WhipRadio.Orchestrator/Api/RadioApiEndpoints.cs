@@ -94,8 +94,7 @@ public static class RadioApiEndpoints
             {
                 var announcement = await db.Announcements.AsNoTracking()
                     .FirstOrDefaultAsync(a => a.Id == current.ItemId, ct);
-                var voicedText = announcement?.VoicedText;
-                transcript = voicedText is null ? null : SpeechMarkerNormalizer.ToPlainText(voicedText);
+                transcript = TranscriptOf(announcement);
                 announcementKind = announcement?.Kind.ToString();
                 title = RadioDisplayNames.AnnouncementTitle(announcementKind);
             }
@@ -522,9 +521,7 @@ public static class RadioApiEndpoints
                     title = announcement is null
                         ? "(announcement)"
                         : RadioDisplayNames.AnnouncementTitle(announcement.Kind.ToString());
-                    transcript = announcement?.VoicedText is { } voiced
-                        ? SpeechMarkerNormalizer.ToPlainText(voiced)
-                        : null;
+                    transcript = TranscriptOf(announcement);
 
                     // News carries its multi-host roster; other talk has the single
                     // host who voiced it.
@@ -947,7 +944,7 @@ public static class RadioApiEndpoints
 
             return Results.Ok(talks.Select(a => new PlayLogEntryDto(
                 a.CreatedAt, "Announcement", a.Id, a.Kind.ToString(), null, a.DurationSeconds,
-                SpeechMarkerNormalizer.ToPlainText(a.VoicedText))).ToList());
+                TranscriptOf(a))).ToList());
         });
     }
 
@@ -2165,6 +2162,20 @@ public static class RadioApiEndpoints
             artist.PromotionText,
             members,
             artist.Language);
+
+    /// <summary>Transcript shown to listeners: the clean combined-run script when present,
+    /// else the marked-up voiced text rendered to plain text (legacy rows).</summary>
+    private static string? TranscriptOf(Announcement? announcement)
+    {
+        if (announcement is null)
+        {
+            return null;
+        }
+
+        return string.IsNullOrWhiteSpace(announcement.ScriptText)
+            ? announcement.VoicedText is { } voiced ? SpeechMarkerNormalizer.ToPlainText(voiced) : null
+            : announcement.ScriptText;
+    }
 
     private static TrackDto ToDto(Track t, bool deletionPending = false) => new(
         t.Id, t.Title, t.Genre, t.Subgenre, t.Artist?.Name ?? "—", t.ArtistId, t.HasVocals,

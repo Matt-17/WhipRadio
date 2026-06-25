@@ -7,11 +7,12 @@ using WhipRadio.Infrastructure.Llm;
 namespace WhipRadio.Infrastructure.Tests;
 
 [TestClass]
-public class ScriptWriterAndVoiceDirectorTests
+public class AnnouncementWriterTests
 {
     private sealed class CapturingLlm(params string[] replies) : ITextGenerationService
     {
-        private readonly Queue<string> _replies = new(replies.Length == 0 ? ["Generated copy."] : replies);
+        private readonly Queue<string> _replies = new(
+            replies.Length == 0 ? [Dto("Generated copy.")] : replies);
 
         public string? SystemPrompt { get; private set; }
 
@@ -24,21 +25,30 @@ public class ScriptWriterAndVoiceDirectorTests
             SystemPrompt = systemPrompt;
             UserPrompt = userPrompt;
             CallCount++;
-            return Task.FromResult(_replies.Count == 0 ? "Generated copy." : _replies.Dequeue());
+            return Task.FromResult(_replies.Count == 0 ? Dto("Generated copy.") : _replies.Dequeue());
         }
     }
 
+    /// <summary>Minimal valid combined-run reply (script == delivery, no voice block).</summary>
+    private static string Dto(string text)
+        => $$"""{"script":{{System.Text.Json.JsonSerializer.Serialize(text)}},"delivery":{{System.Text.Json.JsonSerializer.Serialize(text)}}}""";
+
+    private static Moderator Host() => new()
+    {
+        Name = "Lena",
+        PersonaPrompt = "Quirlige Moderatorin mit viel Energie.",
+        Style = "fast-energetic",
+        Language = "en",
+        Gender = ModeratorGenders.Female,
+    };
+
     [TestMethod]
-    public async Task ScriptWriter_SongIntro_FillsTrackPlaceholders()
+    public async Task SongIntro_FillsTrackPlaceholders()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
         var artistId = Guid.NewGuid();
-        var artist = new Artist
-        {
-            Id = artistId,
-            Name = "Static Velvet",
-        };
+        var artist = new Artist { Id = artistId, Name = "Static Velvet" };
         var track = new Track
         {
             Title = "Neon Llama",
@@ -51,10 +61,10 @@ public class ScriptWriterAndVoiceDirectorTests
         };
 
         await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.SongIntro, "WhipRadio", "en", track), CancellationToken.None);
+            new AnnouncementRequest(AnnouncementKind.SongIntro, "WhipRadio", "en", track), Host(), CancellationToken.None);
 
         Assert.Contains("WhipRadio", llm.SystemPrompt);
-        Assert.Contains("language: en", llm.SystemPrompt);
+        Assert.Contains("STRICTLY in en", llm.SystemPrompt);
         Assert.Contains("Neon Llama", llm.UserPrompt);
         Assert.Contains("Static Velvet", llm.UserPrompt);
         Assert.Contains("indie rock", llm.UserPrompt);
@@ -66,10 +76,10 @@ public class ScriptWriterAndVoiceDirectorTests
     }
 
     [TestMethod]
-    public async Task ScriptWriter_SongOutro_FillsArtistAndTrackContext()
+    public async Task SongOutro_FillsArtistAndTrackContext()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
         var track = new Track
         {
             Title = "Afterimage Arcade",
@@ -82,7 +92,7 @@ public class ScriptWriterAndVoiceDirectorTests
         };
 
         await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.SongOutro, "WhipRadio", "en", track), CancellationToken.None);
+            new AnnouncementRequest(AnnouncementKind.SongOutro, "WhipRadio", "en", track), Host(), CancellationToken.None);
 
         Assert.Contains("Afterimage Arcade", llm.UserPrompt);
         Assert.Contains("Glass Harbor", llm.UserPrompt);
@@ -94,13 +104,14 @@ public class ScriptWriterAndVoiceDirectorTests
     }
 
     [TestMethod]
-    public async Task ScriptWriter_Weather_UsesFacts()
+    public async Task Weather_UsesFacts()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.Weather, "WhipRadio", "de", Facts: "Currently 14°C, light rain."),
+            Host(),
             CancellationToken.None);
 
         Assert.Contains("Currently 14°C, light rain.", llm.UserPrompt);
@@ -108,53 +119,101 @@ public class ScriptWriterAndVoiceDirectorTests
     }
 
     [TestMethod]
-    public async Task ScriptWriter_SanitizesLlmOutput()
+    public async Task InjectsPersonaAndStyleIntoSystemPrompt()
     {
-        var llm = new CapturingLlm("\"Sure, here is your intro: Up next, a banger!\"");
-        var writer = new ScriptWriter(llm);
+        var llm = new CapturingLlm();
+        var writer = new AnnouncementWriter(llm);
 
-        var result = await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), CancellationToken.None);
+        await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), Host(), CancellationToken.None);
 
-        Assert.Equal("Up next, a banger!", result);
+        Assert.Contains("Quirlige Moderatorin", llm.SystemPrompt);
+        Assert.Contains("fast-energetic", llm.SystemPrompt);
+        Assert.Contains("[pause:NNNms]", llm.SystemPrompt);
     }
 
     [TestMethod]
-    public async Task ScriptWriter_ExtractsAnnounceToolJson()
+    public async Task ReturnsCleanScriptAndMarkedDelivery()
     {
-        var llm = new CapturingLlm("""{"tool":"Announce","arguments":{"text":"Markets open lower."}}""");
-        var writer = new ScriptWriter(llm);
+        var llm = new CapturingLlm(
+            """{"script":"Up next, a banger.","delivery":"Up next, uh [pause:300ms] a banger!","voice":{"deliveryPrompt":"slightly slow, warm","rate":0.95}}""");
+        var writer = new AnnouncementWriter(llm);
 
         var result = await writer.WriteAsync(
-            new AnnouncementRequest(AnnouncementKind.News, "WhipRadio", "en", Facts: "market facts"),
-            CancellationToken.None);
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), Host(), CancellationToken.None);
 
-        Assert.Equal("Markets open lower.", result);
+        Assert.Equal("Up next, a banger.", result.Script);
+        Assert.Equal("Up next, uh [pause:300ms] a banger!", result.Delivery);
+        Assert.Equal("slightly slow, warm", result.DeliveryPrompt);
+        Assert.Equal(0.95, result.Rate);
         Assert.Equal(1, llm.CallCount);
     }
 
     [TestMethod]
-    public async Task ScriptWriter_RetriesInvalidToolJsonOnce()
+    public async Task StripsStrayMarkersFromTranscript()
     {
         var llm = new CapturingLlm(
-            """{"tool":"Announce","arguments":{}}""",
-            "Clean spoken copy.");
-        var writer = new ScriptWriter(llm);
+            """{"script":"Markets [pause:200ms] open lower.","delivery":"Markets open lower."}""");
+        var writer = new AnnouncementWriter(llm);
 
         var result = await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.News, "WhipRadio", "en", Facts: "market facts"),
+            Host(),
             CancellationToken.None);
 
-        Assert.Equal("Clean spoken copy.", result);
-        Assert.Equal(2, llm.CallCount);
-        Assert.Contains("Previous reply rejected", llm.UserPrompt);
+        Assert.Equal("Markets open lower.", result.Script);
+        Assert.DoesNotContain("[pause", result.Script);
     }
 
     [TestMethod]
-    public async Task ScriptWriter_WithPromptContext_AppendsSituationToSystemPrompt()
+    public async Task AddsTerminalPunctuationToScript()
+    {
+        var llm = new CapturingLlm(
+            """{"script":"Up next, a banger","delivery":"Up next, a banger"}""");
+        var writer = new AnnouncementWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), Host(), CancellationToken.None);
+
+        Assert.Equal("Up next, a banger.", result.Script);
+    }
+
+    [TestMethod]
+    public async Task KeepsExistingTerminalPunctuation()
+    {
+        var llm = new CapturingLlm(
+            """{"script":"Is it cold in the studio?","delivery":"Is it cold in the studio?"}""");
+        var writer = new AnnouncementWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), Host(), CancellationToken.None);
+
+        Assert.Equal("Is it cold in the studio?", result.Script);
+    }
+
+    [TestMethod]
+    public async Task RetriesInvalidJsonOnce()
+    {
+        var llm = new CapturingLlm(
+            "not json at all",
+            """{"script":"Clean copy.","delivery":"Clean copy."}""");
+        var writer = new AnnouncementWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.News, "WhipRadio", "en", Facts: "market facts"),
+            Host(),
+            CancellationToken.None);
+
+        Assert.Equal("Clean copy.", result.Script);
+        Assert.Equal(2, llm.CallCount);
+        Assert.Contains("Previous reply was not valid", llm.UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task WithPromptContext_AppendsSituationToSystemPrompt()
     {
         var llm = new CapturingLlm();
-        var writer = new ScriptWriter(llm);
+        var writer = new AnnouncementWriter(llm);
         var context = new PromptContext
         {
             Scope = PromptScope.AnnouncementScript,
@@ -166,17 +225,9 @@ public class ScriptWriterAndVoiceDirectorTests
             HostName = "Lena",
             PersonaSummary = "High-energy evening host.",
             BaselineTraits = new HostPersonalityTraits(
-                Energy.High,
-                Formality.Casual,
-                HumorLevel.High,
-                Talkativeness.High,
-                Warmth.High),
+                Energy.High, Formality.Casual, HumorLevel.High, Talkativeness.High, Warmth.High),
             CurrentTraits = new HostPersonalityTraits(
-                Energy.VeryHigh,
-                Formality.Casual,
-                HumorLevel.High,
-                Talkativeness.High,
-                Warmth.High),
+                Energy.VeryHigh, Formality.Casual, HumorLevel.High, Talkativeness.High, Warmth.High),
             SpeechRate = 1.0,
             WordsPerSecond = 2.8,
             AvailableSeconds = 30,
@@ -185,122 +236,45 @@ public class ScriptWriterAndVoiceDirectorTests
             RecurringBits = ["drummer/metronome premise"],
             QueuedListenerMessages = ["Maya (greeting): hello from the late shift"],
             AlreadySpokenContext = "Top of the hour. Maya has the news.",
-            Tools =
-            [
-                new CharacterToolDefinition(
-                    "Announce",
-                    "Create spoken text.",
-                    [new CharacterToolArgument("text", "Spoken text.")]),
-            ],
         };
 
         await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en", PromptContext: context),
+            Host(),
             CancellationToken.None);
 
         Assert.Contains("Current situation:", llm.SystemPrompt);
         Assert.Contains("metronome joke", llm.SystemPrompt);
         Assert.Contains("drummer/metronome premise", llm.SystemPrompt);
-        Assert.Contains("Maya (greeting)", llm.SystemPrompt);
-        Assert.Contains("Announce: Create spoken text.", llm.SystemPrompt);
-        Assert.Contains("text (string, required)", llm.SystemPrompt);
         Assert.Contains("roughly 84 words", llm.SystemPrompt);
-        Assert.Contains("Host baseline traits", llm.SystemPrompt);
-        Assert.Contains("Current mood traits", llm.SystemPrompt);
+        Assert.Contains("baseline persona stable", llm.SystemPrompt);
         Assert.Contains("Already aired immediately before this segment", llm.SystemPrompt);
-        Assert.Contains("Maya has the news", llm.SystemPrompt);
     }
 
     [TestMethod]
-    public async Task ScriptWriter_SongIntro_ChangesInstructionByFormatTalkDepth()
+    public async Task SongIntro_ChangesInstructionByFormatTalkDepth()
     {
         var track = new Track { Title = "Neon Llama", Genre = "indie rock", Style = "driving drums" };
 
         var nameOnlyLlm = new CapturingLlm();
-        var nameOnlyWriter = new ScriptWriter(nameOnlyLlm);
-        await nameOnlyWriter.WriteAsync(
+        await new AnnouncementWriter(nameOnlyLlm).WriteAsync(
             new AnnouncementRequest(
-                AnnouncementKind.SongIntro,
-                "WhipRadio",
-                "en",
-                track,
+                AnnouncementKind.SongIntro, "WhipRadio", "en", track,
                 PromptContext: ContextWithTalkDepth(TalkDepth.NameOnly)),
+            Host(),
             CancellationToken.None);
 
         var deepDiveLlm = new CapturingLlm();
-        var deepDiveWriter = new ScriptWriter(deepDiveLlm);
-        await deepDiveWriter.WriteAsync(
+        await new AnnouncementWriter(deepDiveLlm).WriteAsync(
             new AnnouncementRequest(
-                AnnouncementKind.SongIntro,
-                "WhipRadio",
-                "en",
-                track,
+                AnnouncementKind.SongIntro, "WhipRadio", "en", track,
                 PromptContext: ContextWithTalkDepth(TalkDepth.DeepDive)),
+            Host(),
             CancellationToken.None);
 
         Assert.Contains("Talk depth is NameOnly", nameOnlyLlm.UserPrompt);
         Assert.Contains("Talk depth is DeepDive", deepDiveLlm.UserPrompt);
         Assert.NotEqual(nameOnlyLlm.UserPrompt, deepDiveLlm.UserPrompt);
-    }
-
-    [TestMethod]
-    public async Task VoiceDirector_InjectsPersonaAndPassesScript()
-    {
-        var llm = new CapturingLlm("Adapted [pause:300ms] text.");
-        var director = new VoiceDirector(llm);
-        var moderator = new Moderator
-        {
-            Name = "Lena",
-            PersonaPrompt = "Quirlige Moderatorin mit viel Energie.",
-            Style = "fast-energetic",
-        };
-
-        var result = await director.DirectAsync("Original script.", moderator, CancellationToken.None);
-
-        Assert.Contains("Quirlige Moderatorin", llm.SystemPrompt);
-        Assert.Contains("fast-energetic", llm.SystemPrompt);
-        Assert.Contains("[pause:NNNms]", llm.SystemPrompt);
-        Assert.Equal("Original script.", llm.UserPrompt);
-        Assert.Equal("Adapted [pause:300ms] text.", result);
-    }
-
-    [TestMethod]
-    public async Task VoiceDirector_RetriesInvalidToolJsonOnce()
-    {
-        var llm = new CapturingLlm(
-            """{"tool":"Announce","arguments":{}}""",
-            "Adapted copy.");
-        var director = new VoiceDirector(llm);
-        var moderator = new Moderator
-        {
-            Name = "Lena",
-            PersonaPrompt = "Clear host.",
-            Style = "steady",
-        };
-
-        var result = await director.DirectAsync("Original script.", moderator, CancellationToken.None);
-
-        Assert.Equal("Adapted copy.", result);
-        Assert.Equal(2, llm.CallCount);
-        Assert.Contains("Previous reply rejected", llm.UserPrompt);
-    }
-
-    [TestMethod]
-    public async Task VoiceDirector_AcceptsLeadingSpeechMarkerWithoutRetry()
-    {
-        var llm = new CapturingLlm("[rate:slow] Adapted [pause:300ms] copy.");
-        var director = new VoiceDirector(llm);
-        var moderator = new Moderator
-        {
-            Name = "Lena",
-            PersonaPrompt = "Clear host.",
-            Style = "steady",
-        };
-
-        var result = await director.DirectAsync("Original script.", moderator, CancellationToken.None);
-
-        Assert.Equal("[rate:slow] Adapted [pause:300ms] copy.", result);
-        Assert.Equal(1, llm.CallCount);
     }
 
     private static PromptContext ContextWithTalkDepth(TalkDepth talkDepth)

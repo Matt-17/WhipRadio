@@ -19,6 +19,6 @@ public class SpeechMarkerPlainTextTests
     {
         var result = SpeechMarkerNormalizer.Normalize("Take [breath] a moment [pause:300ms] now.", allowBreath: false);
 
-        Assert.Equal("Take a moment [pause:300ms] now.", result);
+        Assert.Equal("Take a moment [pause:195ms] now.", result);
     }
 }

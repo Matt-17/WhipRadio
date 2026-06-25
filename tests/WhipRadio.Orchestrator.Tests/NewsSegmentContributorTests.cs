@@ -226,8 +226,7 @@ public class NewsSegmentContributorTests
             NullLogger<MediaAnalysisRecorder>.Instance);
 
         return new AnnouncementFactory(
-            new ThrowingScriptWriter(),
-            new PassThroughVoiceDirectorForTests(),
+            new ThrowingAnnouncementWriter(),
             new StaticPromptContextBuilderForTests(),
             new FakeTtsEngineForTests(),
             analysisRecorder,
@@ -237,17 +236,10 @@ public class NewsSegmentContributorTests
             NullLogger<AnnouncementFactory>.Instance);
     }
 
-    private sealed class ThrowingScriptWriter : IScriptWriter
+    private sealed class ThrowingAnnouncementWriter : IAnnouncementWriter
     {
-        public Task<string> WriteAsync(AnnouncementRequest request, CancellationToken ct)
+        public Task<SpokenAnnouncement> WriteAsync(AnnouncementRequest request, Moderator moderator, CancellationToken ct)
             => throw new InvalidOperationException("Simulated LLM failure.");
-    }
-
-    private sealed class PassThroughVoiceDirectorForTests : IVoiceDirector
-    {
-        public Task<string> DirectAsync(string script, Moderator moderator, CancellationToken ct,
-            WhipRadio.Core.Prompting.PromptContext? context = null)
-            => Task.FromResult(script);
     }
 
     private sealed class StaticPromptContextBuilderForTests : IPromptContextBuilder
