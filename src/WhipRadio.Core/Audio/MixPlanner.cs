@@ -238,11 +238,14 @@ public sealed class MixPlanner(IRandomSource random) : IMixPlanner
         switch (strategy)
         {
             case MixStrategy.HardCut:
-                var (gapMin, gapMax) = outgoing.ItemType == PlayoutItemType.Announcement
-                    ? (settings.HardCutGapAfterTalkMsMin, settings.HardCutGapAfterTalkMsMax)
-                    : (settings.HardCutGapSongMsMin, settings.HardCutGapSongMsMax);
-                return new TransitionPlan(strategy, 0, TransitionMath.SampleGapMs(random, gapMin, gapMax),
-                    null, settings.DuckLevelDb, trace);
+                // A song hard cut is immediate by design: the outgoing song ends, the
+                // incoming starts on its first audible sample, no gap and no overlap.
+                // Only after an announcer talks do we leave a short "breath" gap.
+                var gapMs = outgoing.ItemType == PlayoutItemType.Announcement
+                    ? TransitionMath.SampleGapMs(
+                        random, settings.HardCutGapAfterTalkMsMin, settings.HardCutGapAfterTalkMsMax)
+                    : 0;
+                return new TransitionPlan(strategy, 0, gapMs, null, settings.DuckLevelDb, trace);
 
             case MixStrategy.EnergyFade:
             case MixStrategy.BeatAlignedFade:

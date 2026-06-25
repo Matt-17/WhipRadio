@@ -297,7 +297,8 @@ public sealed record NewsPackageDto(
     string? ProductionState,
     string? SourceSummary,
     int StepIndex,
-    int StepTotal);
+    int StepTotal,
+    string? Transcript = null);
 
 public sealed record NewsProductionDto(
     bool NewsEnabled,

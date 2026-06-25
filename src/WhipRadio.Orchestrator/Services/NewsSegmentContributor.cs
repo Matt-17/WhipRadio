@@ -22,6 +22,12 @@ public sealed class NewsSegmentContributor(
     ILogger<NewsSegmentContributor> logger) : ITopOfHourSegmentContributor
 {
     private const int BlockMaxAttempts = 3;
+
+    /// <summary>How many candidate stories to hand the bulletin writer. We pass more than
+    /// will air: the writer curates — leading with the strongest, merging duplicates, and
+    /// dropping weak items — so it needs a real pool to pick from, not a pre-trimmed five.</summary>
+    private const int MaxCandidateItems = 8;
+
     private static readonly TimeSpan BlockRetryDelay = TimeSpan.FromSeconds(3);
 
     public string Key => "news";
@@ -59,9 +65,13 @@ public sealed class NewsSegmentContributor(
                     && item.Feed != null
                     && item.Feed.IsEnabled)
                 .ToListAsync(ct);
+            // Surface the freshest candidates, then arrange that pool in the station's
+            // news running order so the bulletin reads top-priority category first.
+            var freshest = candidates
+                .OrderByDescending(item => item.PublishedAtUtc)
+                .Take(MaxCandidateItems);
             items = NewsCategoryOrdering
-                .SortItems(candidates, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
-                .Take(5)
+                .SortItems(freshest, NewsCategoryOrdering.Parse(settings.NewsCategoryOrder))
                 .ToList();
             foreach (var item in items)
             {
@@ -213,7 +223,7 @@ public sealed class NewsSegmentContributor(
                     facts: BuildNewsFacts(items, context.TargetLocal),
                     context.Settings.StationName,
                     ct,
-                    lengthHint: $"A top-of-hour bulletin of up to {Math.Max(1, context.Settings.NewsPackageMaxDurationSeconds / 60)} minutes. Cover each item briefly and clearly.",
+                    lengthHint: $"A full top-of-hour news bulletin of up to {Math.Max(1, context.Settings.NewsPackageMaxDurationSeconds / 60)} minutes. Write one short paragraph per story, lead with the strongest, and drop weak or duplicate stories rather than padding.",
                     alreadySpokenContext: handoff,
                     localNowOverride: context.TargetLocal,
                     priority: PromptPriority.High,

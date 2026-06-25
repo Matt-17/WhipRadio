@@ -221,20 +221,24 @@ public class AudioMixerEngineTests
     }
 
     [TestMethod]
-    public async Task PendingPackage_HoldsTrackStartInsideTopOfHourWindow()
+    public async Task PendingPackage_KeepsPlayingMusicInsideTopOfHourWindow()
     {
+        // A package still in production (Pending) has no audio to air yet. The mixer
+        // must keep playing music — never stop the song and stream silence — until the
+        // package becomes Ready. Only Ready/Queued packages hold the track start.
         await using var db = await DbFixture.CreateAsync();
         await db.SetPackageAsync(NewsPackageStatus.Pending, DateTime.UtcNow.AddSeconds(-1));
         var fix = Fixture.Create(dbFactory: db);
-        fix.Queue.Enqueue(Track("must-wait", seconds: 2));
+        var track = Track("keeps-playing", seconds: 2);
+        fix.Queue.Enqueue(track);
         using var cts = new CancellationTokenSource();
         var sink = new FakeEncoderSink(hasExited: false);
         var pace = new PacingStream(cts, cancelAfterWrites: 120, delayMs: 0);
 
         await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
 
-        Assert.Empty(fix.Reporter.Starts);
-        Assert.Equal(0, pace.NonZeroBytes);
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == track.ItemId);
+        Assert.True(pace.NonZeroBytes > 0, "music should keep playing while the package is pending");
     }
 
     [TestMethod]
@@ -255,14 +259,17 @@ public class AudioMixerEngineTests
     }
 
     [TestMethod]
-    public async Task PendingPackage_PreventsTransitionIntoTrackAfterBoundary()
+    public async Task PendingPackage_AllowsTransitionIntoTrackAfterBoundary()
     {
+        // While the package is still in production (Pending), normal programming
+        // continues — the next track is allowed to start even past the boundary.
+        // The hold only engages once the package is Ready/Queued.
         await using var db = await DbFixture.CreateAsync();
         await db.SetIntroGraceAsync(0);
         await db.SetPackageAsync(NewsPackageStatus.Pending, DateTime.UtcNow.AddMilliseconds(50));
         var fix = Fixture.Create(dbFactory: db);
         var first = Track("current", seconds: 2);
-        var second = Track("blocked-next", seconds: 2);
+        var second = Track("next-allowed", seconds: 2);
         fix.Queue.Enqueue(first);
         fix.Queue.Enqueue(second);
         using var cts = new CancellationTokenSource();
@@ -272,12 +279,16 @@ public class AudioMixerEngineTests
         await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
 
         Assert.Contains(fix.Reporter.Starts, item => item.ItemId == first.ItemId);
-        Assert.DoesNotContain(fix.Reporter.Starts, item => item.ItemId == second.ItemId);
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == second.ItemId);
     }
 
     [TestMethod]
-    public async Task PendingPackage_FadesLongCurrentTrackAtBoundaryInsteadOfWaitingLateWindow()
+    public async Task PendingPackage_DoesNotFadeCurrentTrackAtBoundary()
     {
+        // The reported bug: a package still being produced (Pending) caused the mixer
+        // to fade the playing song out at the top of the hour — airing silence while
+        // it waited for news that wasn't ready. A Pending package must leave the music
+        // alone; the fade only happens for a Ready/Queued package that can actually air.
         await using var db = await DbFixture.CreateAsync();
         var fix = Fixture.Create(dbFactory: db, collectLogs: true);
         var longTrack = Track("long-current", seconds: 120);
@@ -301,9 +312,11 @@ public class AudioMixerEngineTests
         await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
 
         Assert.Contains(fix.Reporter.Starts, item => item.ItemId == longTrack.ItemId);
-        Assert.False(fix.TrackDeletions.IsTrackActive(longTrack.ItemId));
-        Assert.Contains(fix.Logger.Entries,
+        // The bug was the mixer fading the song out at the boundary for a pending
+        // package; its absence is the direct signal the music was left alone.
+        Assert.DoesNotContain(fix.Logger.Entries,
             e => e.Level == LogLevel.Information && e.Message.Contains("fading current audio"));
+        Assert.True(pace.NonZeroBytes > 0, "music should keep playing, not silence");
     }
 
     [TestMethod]

@@ -1,32 +1,29 @@
-Write an original radio news bulletin from these sourced facts: {NewsFacts}
+Write an original radio news bulletin from these sourced stories. The stories are
+already in broadcast running order and each is numbered and tagged with its category:
 
-Rules:
+{NewsFacts}
 
+How to build the bulletin (do this first, before writing):
+* Pick the most interesting, newsworthy stories. Lead with the strongest. Drop stories that are trivial, thin, or only of narrow interest rather than padding the bulletin with them.
+* Merge stories that cover the same company, product, event, incident, or policy into ONE item, combining their facts into a single coherent report. Never read the same story twice.
+* Keep the surviving items in the running order given above — it follows the station's news priority. Do not reshuffle categories or reorder for variety.
+* Improve each item: add the small amount of context a listener needs to understand it, attribute claims to the source when useful, and make it feel current.
+
+Structure:
+* Write the bulletin as several paragraphs — ONE paragraph per news item. Separate each item with a blank line. Do not merge unrelated stories into a single block, and do not collapse the whole bulletin into one paragraph.
+* Each paragraph is a self-contained item of two to four spoken sentences: lead, key detail, and where useful one line of context or consequence.
+
+Style:
 * Rewrite in your own words. Do not copy article phrasing.
-* Attribute claims to source names when useful.
-* Keep it calm, factual, concise, and editorial.
-* Write like a professional broadcast news anchor, not like an article, essay, newsletter, explainer, or briefing memo.
-* Start most items with the concrete subject and action. Prefer direct leads such as "AMD is reversing...", "The Verge reports...", "Polymarket is facing...", or "Valve’s Steam Machine points to...".
-* Avoid abstract topic framing and essay-style transitions.
-* Do not use phrases such as "In the realm of", "Shifting focus to", "In a separate development", "Turning now to", "Looking at", "This move underscores", "This development adds to", "In terms of", "Concerning", or "With regard to".
-* Move topic by topic with clean broadcast cuts. Do not announce the act of changing topics. Each new item should begin directly with the person, company, platform, source, or issue involved.
+* Keep it calm, factual, concise, and editorial. Write like a professional broadcast news anchor, not like an article, essay, newsletter, explainer, or briefing memo.
+* Start each item with the concrete subject and action. Prefer direct leads such as "AMD is reversing...", "Valve says...", "Germany's defense minister is considering...", "Police are investigating...", or "Two people were seriously injured...".
+* Avoid abstract topic framing and essay-style transitions. Do not use phrases such as "In the realm of", "Shifting focus to", "In a separate development", "Turning now to", "Looking at", "This move underscores", "This development adds to", "In terms of", "Concerning", or "With regard to".
+* Do not announce the act of changing topics, and do not use category labels as transitions ("In technology", "In other technology news", "On the cultural front", "In regional news").
 * Keep sentence rhythm spoken. Most sentences should be short or medium length. Avoid stacked clauses.
-* Avoid academic verbs such as "underscores", "highlights", "indicates", "demonstrates", and "reflects" unless truly necessary.
+* Avoid academic or corporate verbs such as "underscores", "highlights", "indicates", "demonstrates", "reflects", "advancing", "featuring", or "marking" unless truly necessary.
+* For product and hardware stories, include only the details needed for the news value; do not stack specifications. For local and regional incidents, use plain public-service wording ("police say", "authorities report", "was injured", "was closed", "is being investigated").
 * Use the station vision, mission, audience, and active format to calibrate tone and vocabulary.
-* Anchor the lead to the bulletin time in the situation or facts when that helps the copy feel live and current.
-* Vary the opening slightly from bulletin to bulletin; do not reuse a fixed intro.
-* The first spoken line must begin with news, not a greeting, not a show frame, and not a reminder that the report is continuing.
-* Do not invent quotes, numbers, causes, or outcomes.
-* Do not say the station slogan.
-* Do not frame this like a DJ break, music show, or casual chat.
-* Do not introduce yourself or repeat any handoff/context already aired.
-* Avoid geography-tour transitions such as "starting our report in Asia" or "over in Europe."
-* Before final output, silently check the copy for written-news or essay-style phrasing. If any sentence sounds like a report introduction rather than spoken radio news, rewrite it with a direct subject-action lead.
-
-* Before writing, group closely related facts into one item. If two or more facts concern the same company, product, platform, incident, or policy issue, combine them into one coherent news item instead of treating them as separate stories.
-* Do not use category labels as transitions. Avoid openings such as "In technology", "In other technology news", "Regarding international security", "In regional news", "Culturally", "On the cultural front", or similar section-style phrasing.
-* Start each item with a concrete subject and a clear verb. Prefer "Valve says", "Ars Technica reports", "Germany’s defense minister is considering", "Police are investigating", or "Two people were seriously injured".
-* Avoid corporate or abstract verbs such as "advancing", "featuring", "concerning", "indicating", "underscoring", "highlighting", or "marking" unless there is no simpler alternative.
-* For product and hardware stories, include only the details needed for the news value. Do not stack specifications unless they are central to the story.
-* For local and regional incidents, use plain public-service wording. Prefer "police say", "authorities report", "was injured", "was closed", "is being investigated", and "damage was reported".
-* Do not create a separate paragraph only to change topic. A new item may begin directly with the next subject.
+* Anchor the lead to the bulletin time when that helps the copy feel live, and vary the opening from bulletin to bulletin.
+* The first spoken line must begin with news — not a greeting, not a show frame, not a reminder that the report is continuing. Do not introduce yourself or repeat any handoff already aired.
+* Do not invent quotes, numbers, causes, or outcomes. Do not say the station slogan. Do not frame this like a DJ break, music show, or casual chat.
+* Before final output, silently check the copy: every item is its own paragraph, no story is read twice, and no sentence sounds like a written-report introduction. Fix anything that does.

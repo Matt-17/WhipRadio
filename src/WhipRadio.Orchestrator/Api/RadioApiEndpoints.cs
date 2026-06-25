@@ -1041,6 +1041,15 @@ public static class RadioApiEndpoints
                 .OrderByDescending(package => package.TargetUtc)
                 .Take(12)
                 .ToListAsync(ct);
+            var packageAnnouncementIds = packages
+                .Where(package => package.AnnouncementId is not null)
+                .Select(package => package.AnnouncementId!.Value)
+                .ToList();
+            var packageTranscripts = packageAnnouncementIds.Count == 0
+                ? new Dictionary<Guid, string?>()
+                : await db.Announcements.AsNoTracking()
+                    .Where(a => packageAnnouncementIds.Contains(a.Id))
+                    .ToDictionaryAsync(a => a.Id, a => TranscriptOf(a), ct);
             var nextPlan = NewsPackageProductionService.ResolveNextPackagePlan(settings, timeProvider.GetLocalNow(), contributors);
             var nextTargetUtc = nextPlan.TargetLocal.UtcDateTime;
             var nextPackageStatus = await db.NewsPackages.AsNoTracking()
@@ -1066,7 +1075,11 @@ public static class RadioApiEndpoints
                 NewsCategoryOrdering.SortFeeds(feeds, categoryOrder)
                     .Select(feed => ToDto(feed, itemCounts.GetValueOrDefault(feed.Id)))
                     .ToList(),
-                packages.Select(ToDto).ToList()));
+                packages.Select(package => ToDto(
+                    package,
+                    package.AnnouncementId is { } announcementId
+                        ? packageTranscripts.GetValueOrDefault(announcementId)
+                        : null)).ToList()));
         });
 
         api.MapPut("/production/news/settings", async (
@@ -2336,7 +2349,7 @@ public static class RadioApiEndpoints
         feed.LastError,
         itemCount);
 
-    private static NewsPackageDto ToDto(NewsPackage package) => new(
+    private static NewsPackageDto ToDto(NewsPackage package, string? transcript = null) => new(
         package.Id,
         package.Kind.ToString(),
         package.Status.ToString(),
@@ -2351,7 +2364,8 @@ public static class RadioApiEndpoints
         package.ProductionState,
         package.SourceSummary,
         package.StepIndex,
-        package.StepTotal);
+        package.StepTotal,
+        transcript);
 
     private static WeatherProductionDto ToWeatherProductionDto(
         StationSettings settings,

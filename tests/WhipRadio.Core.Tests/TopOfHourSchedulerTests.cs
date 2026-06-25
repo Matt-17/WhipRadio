@@ -37,7 +37,7 @@ public class TopOfHourSchedulerTests
         Assert.Equal(900, TopOfHourScheduler.NormalizeLateWindowSeconds(9999));
         Assert.Equal(0, TopOfHourScheduler.NormalizeCurrentItemFinishGraceSeconds(-1));
         Assert.Equal(300, TopOfHourScheduler.NormalizeCurrentItemFinishGraceSeconds(9999));
-        Assert.Equal(15, TopOfHourScheduler.DefaultIntroGraceSeconds);
+        Assert.Equal(60, TopOfHourScheduler.DefaultIntroGraceSeconds);
         Assert.Equal(300, TopOfHourScheduler.DefaultLateWindowSeconds);
     }
 

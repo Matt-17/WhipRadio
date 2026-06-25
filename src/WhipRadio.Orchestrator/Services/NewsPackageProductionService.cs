@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -21,6 +22,14 @@ public sealed class NewsPackageProductionService(
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ProductionBudget = TimeSpan.FromMinutes(20);
+
+    // Package ids currently being produced by this (singleton) service. A manual
+    // RecreatePackageAsync sets its package to Pending and produces it inline; without
+    // this guard the background loop (TryResumePendingPackageAsync / RunCycleAsync) would
+    // see that same Pending package and produce it a SECOND time concurrently, rendering a
+    // rival composite that can reach the mixer's timed interrupt alongside the real one —
+    // an old/second news airing in parallel at the top of the hour.
+    private readonly ConcurrentDictionary<Guid, byte> _producing = new();
 
     internal sealed record PackagePlan(
         DateTimeOffset TargetLocal,
@@ -82,6 +91,13 @@ public sealed class NewsPackageProductionService(
                 .FirstOrDefaultAsync(ct);
             if (existing is not null)
             {
+                // A recreate (or another resume) is already producing this package inline —
+                // never start a rival production for it.
+                if (_producing.ContainsKey(existing.Id))
+                {
+                    return;
+                }
+
                 // A Ready/Queued/Played package already owns this slot — leave it.
                 if (existing.Status is not (NewsPackageStatus.Failed
                     or NewsPackageStatus.Pending
@@ -98,16 +114,32 @@ public sealed class NewsPackageProductionService(
             }
         }
 
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(ProductionBudget);
-        await ProducePackageAsync(
-            settings,
-            plan.TargetLocal.UtcDateTime,
-            plan,
-            ct,
-            budget.Token,
-            reusePackageId: resumePackageId,
-            reuseSegments: resumePackageId is not null);
+        // Claim the package id so a concurrent recreate/resume can't double-produce it.
+        if (resumePackageId is { } claimId && !_producing.TryAdd(claimId, 0))
+        {
+            return;
+        }
+
+        try
+        {
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(ProductionBudget);
+            await ProducePackageAsync(
+                settings,
+                plan.TargetLocal.UtcDateTime,
+                plan,
+                ct,
+                budget.Token,
+                reusePackageId: resumePackageId,
+                reuseSegments: resumePackageId is not null);
+        }
+        finally
+        {
+            if (resumePackageId is { } releaseId)
+            {
+                _producing.TryRemove(releaseId, out _);
+            }
+        }
     }
 
     private async Task<bool> TryResumePendingPackageAsync(StationSettings settings, CancellationToken ct)
@@ -142,11 +174,14 @@ public sealed class NewsPackageProductionService(
                 await productionUpdates.PublishNewsChangedAsync(ct);
             }
 
+            // Skip any package a recreate/resume is already producing inline.
+            var producingIds = _producing.Keys.ToList();
             var pending = await db.NewsPackages.AsNoTracking()
                 .Where(package => package.Kind == NewsPackageKind.TopOfHour
                     && (package.Status == NewsPackageStatus.Pending
                         || package.Status == NewsPackageStatus.Retrying)
-                    && package.TargetUtc >= oldestValidTarget)
+                    && package.TargetUtc >= oldestValidTarget
+                    && !producingIds.Contains(package.Id))
                 .OrderBy(package => package.TargetUtc)
                 .FirstOrDefaultAsync(ct);
             if (pending is null)
@@ -154,11 +189,24 @@ public sealed class NewsPackageProductionService(
                 return false;
             }
 
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(ProductionBudget);
-            var plan = BuildPackagePlan(settings, ToLocalTime(pending.TargetUtc, timeProvider.GetLocalNow().Offset));
-            await ProducePackageAsync(settings, pending.TargetUtc, plan, ct, budget.Token, pending.Id, reuseSegments: true);
-            return true;
+            // Claim it so the cycle's own resume path (and any other thread) can't re-enter.
+            if (!_producing.TryAdd(pending.Id, 0))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                budget.CancelAfter(ProductionBudget);
+                var plan = BuildPackagePlan(settings, ToLocalTime(pending.TargetUtc, timeProvider.GetLocalNow().Offset));
+                await ProducePackageAsync(settings, pending.TargetUtc, plan, ct, budget.Token, pending.Id, reuseSegments: true);
+                return true;
+            }
+            finally
+            {
+                _producing.TryRemove(pending.Id, out _);
+            }
         }
     }
 
@@ -191,9 +239,27 @@ public sealed class NewsPackageProductionService(
 
     public async Task<NewsPackage?> RecreatePackageAsync(Guid packageId, CancellationToken ct)
     {
+        // Claim the package before touching it so the background loop can't grab it as a
+        // "Pending" resume and produce a rival composite in parallel (double news on air).
+        if (!_producing.TryAdd(packageId, 0))
+        {
+            return await LoadPackageAsync(packageId, ct);
+        }
+
+        try
+        {
+            return await RecreatePackageCoreAsync(packageId, ct);
+        }
+        finally
+        {
+            _producing.TryRemove(packageId, out _);
+        }
+    }
+
+    private async Task<NewsPackage?> RecreatePackageCoreAsync(Guid packageId, CancellationToken ct)
+    {
         StationSettings settings;
         DateTime targetUtc;
-        PackagePlan plan;
         Guid? oldAnnouncementId;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {

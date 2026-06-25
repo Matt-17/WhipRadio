@@ -108,6 +108,15 @@ public sealed class AudioMixerEngine(
                     PublishLive(masterPos, actives);
                 }
 
+                // KNOWN EDGE CASE (accepted, not handled): the news must not start in the
+                // gap right after a *song intro* announcement — the introduced song should
+                // follow it. The common case is safe: an IntroTalkOver keeps the song's bed
+                // active alongside the talk, so actives is never empty between them and this
+                // consume can't slot the package in. But a plain song intro that hard-cuts to
+                // its song leaves a momentary empty-actives gap; if that gap falls inside the
+                // claim window, TryConsume here can fire the package between the intro and its
+                // song. Closing it would require threading "this announcement introduces the
+                // next track" into the consume decision; deemed too rare to be worth it.
                 if (!stopScheduling && timedInterrupts.TryConsume(DateTime.UtcNow) is { } interrupt)
                 {
                     settings = await LoadSettingsAsync(ct);
@@ -772,13 +781,17 @@ public sealed class AudioMixerEngine(
             var maxTarget = utcNow
                 .Add(horizon < TimeSpan.Zero ? TimeSpan.Zero : horizon)
                 .AddSeconds(introGrace);
+            // The hold ONLY engages for a package that is actually ready to air
+            // (Ready/Queued). A Pending/Retrying package is still being produced and
+            // has no audio yet — holding for it would stop the song and stream silence
+            // until production finishes. The rule is: keep playing music while the news
+            // is pending; the dispatcher + timed interrupt cut it in the instant it
+            // becomes Ready (immediately, even past the top of the hour).
             var package = await db.NewsPackages.AsNoTracking()
                 .Where(package => package.Kind == NewsPackageKind.TopOfHour
                     && package.TargetUtc >= minTarget
                     && package.TargetUtc <= maxTarget
-                    && (package.Status == NewsPackageStatus.Pending
-                        || package.Status == NewsPackageStatus.Retrying
-                        || package.Status == NewsPackageStatus.Ready
+                    && (package.Status == NewsPackageStatus.Ready
                         || package.Status == NewsPackageStatus.Queued))
                 .OrderBy(package => package.TargetUtc)
                 .FirstOrDefaultAsync(ct);

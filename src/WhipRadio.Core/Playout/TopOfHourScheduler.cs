@@ -4,7 +4,12 @@ public static class TopOfHourScheduler
 {
     public const int DefaultPrepareAheadMinutes = 30;
     public const int DefaultLateWindowSeconds = 5 * 60;
-    public const int DefaultIntroGraceSeconds = 15;
+
+    // A natural boundary (a song or non-intro announcement ending) within this window
+    // BEFORE the top of the hour is taken to start the news early, rather than starting
+    // another song. Symmetric with DefaultCurrentItemFinishGraceSeconds (the after-the-hour
+    // overrun we allow a song to finish in).
+    public const int DefaultIntroGraceSeconds = 60;
     public const int DefaultCurrentItemFinishGraceSeconds = 60;
 
     public static int NormalizeCadence(int cadenceMinutes)

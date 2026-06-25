@@ -64,7 +64,7 @@ public class MixPlannerTests
         {
             var plan = planner.Plan(Song(8, analysis: null), Song(8, analysis: null), Settings);
             Assert.Equal(MixStrategy.HardCut, plan.Strategy);
-            Assert.InRange(plan.GapMs, Settings.HardCutGapSongMsMin, Settings.HardCutGapSongMsMax);
+            Assert.Equal(0, plan.GapMs); // song hard cut is immediate: outgoing ends, incoming starts, no gap
         }
     }
 
