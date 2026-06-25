@@ -86,6 +86,8 @@ public class MusicCopywriter(ITextGenerationService llm)
         bool supportsVocals,
         CancellationToken ct)
     {
+        var artistSupportsVocals = ArtistMemberRoster.HasVocalMember(artist.Members);
+        var canUseVocals = supportsVocals && artistSupportsVocals;
         var prompt = PromptTemplates.Render("SongPlanner", new Dictionary<string, string>
         {
             ["ArtistName"] = artist.Name,
@@ -106,7 +108,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["DefaultLanguage"] = string.IsNullOrWhiteSpace(defaultLanguage) ? "en" : defaultLanguage,
             ["MinDurationSeconds"] = minDurationSeconds.ToString(),
             ["MaxDurationSeconds"] = maxDurationSeconds.ToString(),
-            ["VocalCapability"] = supportsVocals ? "Vocals are available." : "Vocals are not available; set \"vocals\" to false.",
+            ["VocalCapability"] = FormatVocalCapability(supportsVocals, artistSupportsVocals),
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(30)),
             ["ForbiddenWords"] = string.Join(", ", TitleWordGuard.MostFrequentWords(existingTitles, take: 8)),
             ["SongHistory"] = FormatHistory(history),
@@ -117,7 +119,7 @@ public class MusicCopywriter(ITextGenerationService llm)
             ct);
         var parsed = StructuredJson.Parse<SongPlanDto>(reply);
         var dto = parsed.IsValid ? parsed.Value! : new SongPlanDto(string.Empty);
-        var plan = ParseSongPlan(dto, artist, history, defaultLanguage, minDurationSeconds, maxDurationSeconds, supportsVocals);
+        var plan = ParseSongPlan(dto, artist, history, defaultLanguage, minDurationSeconds, maxDurationSeconds, canUseVocals);
         if (existingTitles.Any(t => string.Equals(t, plan.Title, StringComparison.OrdinalIgnoreCase)))
         {
             plan = plan with { Title = $"{plan.Title} No. {Random.Shared.Next(2, 99)}" };
@@ -483,13 +485,28 @@ public class MusicCopywriter(ITextGenerationService llm)
         var lead = ArtistMemberRoster.SelectLeadVocalist(members);
         if (lead is null)
         {
-            return "(no lead singer recorded)";
+            return "(no member is assigned to lead vocals; this artist must be planned as instrumental only.)";
         }
 
         var voice = string.IsNullOrWhiteSpace(lead.VoiceCreationPrompt)
             ? "no voice description recorded"
             : Trim(lead.VoiceCreationPrompt, 280);
         return $"{lead.Name} ({lead.Role}): {voice}";
+    }
+
+    private static string FormatVocalCapability(bool studioSupportsVocals, bool artistSupportsVocals)
+    {
+        if (!artistSupportsVocals)
+        {
+            return "Vocals are not available because this artist has no member assigned to a vocal role; set \"vocals\" to false, omit \"lyrics\", and make the Style value instrumental-only with no singer, vocal, lyric, choir, chant, spoken word, harmony, or human-voice language.";
+        }
+
+        if (!studioSupportsVocals)
+        {
+            return "Vocals are not available from the current recording studio; set \"vocals\" to false, omit \"lyrics\", and make the Style value instrumental-only with no singer, vocal, lyric, choir, chant, spoken word, harmony, or human-voice language.";
+        }
+
+        return "Vocals are available.";
     }
 
     private static string FormatArtistMembers(IEnumerable<ArtistMember> members)

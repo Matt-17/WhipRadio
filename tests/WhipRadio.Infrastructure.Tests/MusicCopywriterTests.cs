@@ -365,6 +365,66 @@ Member(Bjorn Iron-Fist, Vocals/Percussion", A malformed member row.",Deep backgr
     }
 
     [TestMethod]
+    public async Task PlanSongAsync_ForcesInstrumentalWhenArtistHasNoVocalMember()
+    {
+        var llm = new CapturingLlm(""""
+{
+  "title": "Cable Weather",
+  "style": "Taut bass pulses, rusted percussion, and a shouted lead vocal hook.",
+  "language": "en",
+  "vocals": true,
+  "durationSeconds": 180,
+  "story": "The band built it from utility room hum and late dock work.",
+  "lyrics": "These words should not be used."
+}
+"""");
+        var writer = new MusicCopywriter(llm);
+        var artist = new Artist
+        {
+            Name = "Breaker Map",
+            Genre = "electronic",
+            Subgenre = "industrial ambient",
+            StyleDescriptor = "Instrumental industrial ambient with no vocalist.",
+            Biography = "A band built around machines and tape loops.",
+            Members =
+            {
+                new ArtistMember
+                {
+                    SortOrder = 0,
+                    Name = "Ira Coil",
+                    Role = "modular synths",
+                    Biography = "Ira patches the machines.",
+                    VoiceCreationPrompt = "Low dry speaking voice.",
+                },
+                new ArtistMember
+                {
+                    SortOrder = 1,
+                    Name = "Tem Kline",
+                    Role = "drums",
+                    Biography = "Tem builds the percussion rig.",
+                    VoiceCreationPrompt = "Quick clipped speaking voice.",
+                },
+            },
+        };
+
+        var plan = await writer.PlanSongAsync(
+            artist,
+            [],
+            [],
+            "en",
+            minDurationSeconds: 120,
+            maxDurationSeconds: 220,
+            supportsVocals: true,
+            CancellationToken.None);
+
+        Assert.False(plan.WantVocals);
+        Assert.Null(plan.Lyrics);
+        Assert.Contains("no member assigned to a vocal role", llm.UserPrompt);
+        Assert.Contains("no member is assigned to lead vocals", llm.UserPrompt);
+        Assert.DoesNotContain("Ira Coil (modular synths):", llm.UserPrompt);
+    }
+
+    [TestMethod]
     public async Task PlanArtistPostAsync_ParsesPostAndIncludesContext()
     {
         var llm = new CapturingLlm("""{"shouldPost":true,"text":"We tuned the harbor until it answered back."}""");

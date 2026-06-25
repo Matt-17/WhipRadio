@@ -66,6 +66,12 @@ that story is stored on the track for future host intros/outros. Instrumental-on
 studios such as MusicGen constrain the plan to instrumental output, but host playlist
 preferences no longer decide whether an artist writes a vocal song.
 
+**Implemented:** artist roster capability also constrains vocal planning. A song may
+only be planned as vocal when the artist has an explicit vocal member and an ACE-Step
+recording studio is available. Instrumental-only acts, including bands with members
+but no vocal role, are forced to instrumental plans and generation prompts explicitly
+ban lead vocals, backing vocals, choir, chants, spoken word, and sung words.
+
 **Implemented:** ACE-Step vocal tracks now use artist voice continuity. WhipRadio
 prepares a hidden Qwen-designed spoken reference for the lead vocalist and always
 uploads that pre-generated TTS voice reference as `ref_audio` for vocal ACE-Step

@@ -20,6 +20,8 @@ public class AceStepPromptBuilderTests
         });
 
         Assert.DoesNotContain("Lead vocals", prompt);
+        Assert.Contains("Instrumental-only constraint", prompt);
+        Assert.Contains("do not include lead vocals", prompt);
         Assert.Contains("Language: English.", prompt);
         Assert.Contains("complete song structure", prompt);
         Assert.Contains("avoid an abrupt ending", prompt, StringComparison.OrdinalIgnoreCase);

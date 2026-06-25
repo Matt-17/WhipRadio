@@ -83,7 +83,13 @@ public sealed class AceStepPromptBuilder
             builder.AppendLine(".");
         }
 
-        if (request.LyricsMode != LyricsMode.Instrumental)
+        if (request.LyricsMode == LyricsMode.Instrumental)
+        {
+            builder.AppendLine();
+            builder.Append("Instrumental-only constraint: do not include lead vocals, backing vocals, choir, chants, spoken-word narration, or sung words. Ignore any singer, vocalist, lyric, or vocal references in the artist/style context.");
+            builder.AppendLine();
+        }
+        else
         {
             var vocalParts = new List<string>();
             if (request.VocalGender is VocalGender.Male or VocalGender.Female or VocalGender.Mixed)

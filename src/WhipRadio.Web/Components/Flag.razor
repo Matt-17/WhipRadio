@@ -14,6 +14,9 @@
         case "es": @* red / yellow / red *@
             <rect width="24" height="16" fill="#c60b1e"/>
             <rect y="4" width="24" height="8" fill="#ffc400"/>
+            <path d="M6.8 5.4h2.5v2.9c0 1.2-1.25 1.85-1.25 1.85S6.8 9.5 6.8 8.3Z"
+                  fill="#c60b1e" stroke="#fff" stroke-width="0.35"/>
+            <rect x="7.35" y="4.55" width="1.4" height="0.55" rx="0.15" fill="#f1bf00"/>
             break;
         case "fr": @* blue | white | red (vertical) *@
             <rect width="8" height="16" fill="#0055a4"/>
@@ -28,7 +31,13 @@
         case "pt": @* green | red with disc *@
             <rect width="24" height="16" fill="#d52b1e"/>
             <rect width="9.6" height="16" fill="#060"/>
-            <circle cx="9.6" cy="8" r="2.6" fill="none" stroke="#ffce00" stroke-width="1.1"/>
+            <circle cx="9.6" cy="8" r="2.8" fill="none" stroke="#ffce00" stroke-width="0.9"/>
+            <circle cx="9.6" cy="8" r="1.75" fill="none" stroke="#ffce00" stroke-width="0.35"/>
+            <path d="M8.35 6.35h2.5v2.8c0 1.05-1.25 1.65-1.25 1.65s-1.25-.6-1.25-1.65Z"
+                  fill="#fff" stroke="#003399" stroke-width="0.25"/>
+            <circle cx="9.15" cy="7.35" r="0.28" fill="#003399"/>
+            <circle cx="10.05" cy="7.35" r="0.28" fill="#003399"/>
+            <circle cx="9.6" cy="8.15" r="0.28" fill="#003399"/>
             break;
         case "ru": @* white / blue / red (horizontal) *@
             <rect width="24" height="16" fill="#fff"/>
@@ -39,23 +48,76 @@
             <rect width="24" height="16" fill="#de2910"/>
             <polygon points="6,2.6 6.9,5.3 9.7,5.3 7.4,7 8.3,9.7 6,8 3.7,9.7 4.6,7 2.3,5.3 5.1,5.3"
                      fill="#ffde00"/>
+            <polygon points="11,1.8 11.21,2.42 11.86,2.42 11.34,2.8 11.53,3.42 11,3.04 10.47,3.42 10.66,2.8 10.14,2.42 10.79,2.42"
+                     fill="#ffde00"/>
+            <polygon points="13.1,4 13.31,4.62 13.96,4.62 13.44,5 13.63,5.62 13.1,5.24 12.57,5.62 12.76,5 12.24,4.62 12.89,4.62"
+                     fill="#ffde00"/>
+            <polygon points="13.05,7 13.26,7.62 13.91,7.62 13.39,8 13.58,8.62 13.05,8.24 12.52,8.62 12.71,8 12.19,7.62 12.84,7.62"
+                     fill="#ffde00"/>
+            <polygon points="10.95,9.25 11.16,9.87 11.81,9.87 11.29,10.25 11.48,10.87 10.95,10.49 10.42,10.87 10.61,10.25 10.09,9.87 10.74,9.87"
+                     fill="#ffde00"/>
             break;
         case "ja": @* white + red disc *@
             <rect width="24" height="16" fill="#fff"/>
-            <circle cx="12" cy="8" r="4.2" fill="#bc002d"/>
+            <circle cx="12" cy="8" r="4.8" fill="#bc002d"/>
             break;
         case "ko": @* white + split disc (simplified taegeuk) *@
             <rect width="24" height="16" fill="#fff"/>
-            <path d="M12 3.8a4.2 4.2 0 0 1 0 8.4Z" fill="#cd2e3a"/>
-            <path d="M12 3.8a4.2 4.2 0 0 0 0 8.4Z" fill="#0047a0"/>
+            <g fill="#111">
+                <g transform="translate(5.2 4.2) rotate(-35)">
+                    <rect x="-1.8" y="-1.05" width="3.6" height="0.42"/>
+                    <rect x="-1.8" y="-0.2" width="3.6" height="0.42"/>
+                    <rect x="-1.8" y="0.65" width="3.6" height="0.42"/>
+                </g>
+                <g transform="translate(18.8 4.2) rotate(35)">
+                    <rect x="-1.8" y="-1.05" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="-1.05" width="1.25" height="0.42"/>
+                    <rect x="-1.8" y="-0.2" width="3.6" height="0.42"/>
+                    <rect x="-1.8" y="0.65" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="0.65" width="1.25" height="0.42"/>
+                </g>
+                <g transform="translate(5.2 11.8) rotate(35)">
+                    <rect x="-1.8" y="-1.05" width="3.6" height="0.42"/>
+                    <rect x="-1.8" y="-0.2" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="-0.2" width="1.25" height="0.42"/>
+                    <rect x="-1.8" y="0.65" width="3.6" height="0.42"/>
+                </g>
+                <g transform="translate(18.8 11.8) rotate(-35)">
+                    <rect x="-1.8" y="-1.05" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="-1.05" width="1.25" height="0.42"/>
+                    <rect x="-1.8" y="-0.2" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="-0.2" width="1.25" height="0.42"/>
+                    <rect x="-1.8" y="0.65" width="1.25" height="0.42"/>
+                    <rect x="0.55" y="0.65" width="1.25" height="0.42"/>
+                </g>
+            </g>
+            <g transform="rotate(33 12 8)">
+                <path d="M7.9 8a4.1 4.1 0 0 1 8.2 0c0 1.13-.92 2.05-2.05 2.05S12 9.13 12 8s-.92-2.05-2.05-2.05S7.9 6.87 7.9 8Z"
+                      fill="#cd2e3a"/>
+                <path d="M16.1 8a4.1 4.1 0 0 1-8.2 0c0-1.13.92-2.05 2.05-2.05S12 6.87 12 8s.92 2.05 2.05 2.05S16.1 9.13 16.1 8Z"
+                      fill="#0047a0"/>
+            </g>
             break;
         default: @* en — stars-and-stripes (simplified) *@
             <rect width="24" height="16" fill="#fff"/>
-            <rect y="0" width="24" height="2.28" fill="#b22234"/>
-            <rect y="4.57" width="24" height="2.29" fill="#b22234"/>
-            <rect y="9.14" width="24" height="2.29" fill="#b22234"/>
-            <rect y="13.71" width="24" height="2.29" fill="#b22234"/>
-            <rect width="10" height="8.57" fill="#3c3b6e"/>
+            <g fill="#b22234" shape-rendering="crispEdges">
+                <rect y="0" width="24" height="1.23"/>
+                <rect y="2.46" width="24" height="1.23"/>
+                <rect y="4.92" width="24" height="1.23"/>
+                <rect y="7.38" width="24" height="1.23"/>
+                <rect y="9.85" width="24" height="1.23"/>
+                <rect y="12.31" width="24" height="1.23"/>
+                <rect y="14.77" width="24" height="1.23"/>
+            </g>
+            <rect width="9.8" height="8.62" fill="#3c3b6e"/>
+            <g fill="#fff">
+                <circle cx="1.15" cy="1" r="0.18"/><circle cx="2.65" cy="1" r="0.18"/><circle cx="4.15" cy="1" r="0.18"/><circle cx="5.65" cy="1" r="0.18"/><circle cx="7.15" cy="1" r="0.18"/><circle cx="8.65" cy="1" r="0.18"/>
+                <circle cx="1.9" cy="2.25" r="0.18"/><circle cx="3.4" cy="2.25" r="0.18"/><circle cx="4.9" cy="2.25" r="0.18"/><circle cx="6.4" cy="2.25" r="0.18"/><circle cx="7.9" cy="2.25" r="0.18"/>
+                <circle cx="1.15" cy="3.5" r="0.18"/><circle cx="2.65" cy="3.5" r="0.18"/><circle cx="4.15" cy="3.5" r="0.18"/><circle cx="5.65" cy="3.5" r="0.18"/><circle cx="7.15" cy="3.5" r="0.18"/><circle cx="8.65" cy="3.5" r="0.18"/>
+                <circle cx="1.9" cy="4.75" r="0.18"/><circle cx="3.4" cy="4.75" r="0.18"/><circle cx="4.9" cy="4.75" r="0.18"/><circle cx="6.4" cy="4.75" r="0.18"/><circle cx="7.9" cy="4.75" r="0.18"/>
+                <circle cx="1.15" cy="6" r="0.18"/><circle cx="2.65" cy="6" r="0.18"/><circle cx="4.15" cy="6" r="0.18"/><circle cx="5.65" cy="6" r="0.18"/><circle cx="7.15" cy="6" r="0.18"/><circle cx="8.65" cy="6" r="0.18"/>
+                <circle cx="1.9" cy="7.25" r="0.18"/><circle cx="3.4" cy="7.25" r="0.18"/><circle cx="4.9" cy="7.25" r="0.18"/><circle cx="6.4" cy="7.25" r="0.18"/><circle cx="7.9" cy="7.25" r="0.18"/>
+            </g>
             break;
     }
 </svg>

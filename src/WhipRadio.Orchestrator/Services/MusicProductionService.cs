@@ -220,7 +220,8 @@ public class MusicProductionService(
         var history = await GetArtistSongHistoryAsync(artist.Id, ct);
         var minSeconds = Math.Max(30, settings.MinTrackDurationSeconds);
         var maxSeconds = Math.Max(minSeconds, settings.MaxTrackDurationSeconds);
-        var supportsVocals = await studios.AnyActiveAsync(StudioKind.Recording, MusicBackends.AceStep, ct);
+        var vocalStudioAvailable = await studios.AnyActiveAsync(StudioKind.Recording, MusicBackends.AceStep, ct);
+        var supportsVocals = vocalStudioAvailable && ArtistMemberRoster.HasVocalMember(artist.Members);
         var plan = await copywriter.PlanSongAsync(
             artist,
             history,
@@ -243,7 +244,7 @@ public class MusicProductionService(
             ? LyricsMode.Provided
             : LyricsMode.Instrumental;
         var prompt = lyricsMode == LyricsMode.Instrumental
-            ? $"{plan.Style}, instrumental"
+            ? $"{plan.Style}, instrumental, no vocals"
             : plan.Style;
         var preferredProvider = wantVocals
             ? MusicBackends.AceStep
@@ -276,8 +277,8 @@ public class MusicProductionService(
                     ArtistSongHistory = artistSongHistory,
                     ReferenceAudioPath = voiceContinuity?.ReferenceAudioPath,
                     ReferenceAudioLabel = voiceContinuity?.ReferenceAudioLabel,
-                    VocalGender = InferVocalGender(artist),
-                    VocalStyle = BuildVocalStyle(artist),
+                    VocalGender = wantVocals ? InferVocalGender(artist) : VocalGender.Unspecified,
+                    VocalStyle = wantVocals ? BuildVocalStyle(artist) : null,
                     AllowProviderFallback = !wantVocals,
                 }, ct);
         }
@@ -287,7 +288,7 @@ public class MusicProductionService(
             wantVocals = false;
             lyrics = null;
             voiceContinuity = null;
-            prompt = $"{plan.Style}, instrumental";
+            prompt = $"{plan.Style}, instrumental, no vocals";
             result = await musicGenerator.GenerateAsync(
                 new MusicRequest(prompt, context.Genre, wantVocals, lyrics, plan.TargetDurationSeconds)
                 {
@@ -302,8 +303,8 @@ public class MusicProductionService(
                     SongTitle = plan.Title,
                     SongStory = plan.Story,
                     ArtistSongHistory = artistSongHistory,
-                    VocalGender = InferVocalGender(artist),
-                    VocalStyle = BuildVocalStyle(artist),
+                    VocalGender = VocalGender.Unspecified,
+                    VocalStyle = null,
                     AllowProviderFallback = false,
                 }, ct);
         }

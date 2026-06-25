@@ -1088,8 +1088,10 @@ public sealed class NewsPackageProductionService(
         return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, body, gapLine, plan.Items, degradations, outro);
     }
 
-    /// <summary>Write one slot's script (its own DI scope), then voice it. Each write and each
-    /// recording advances the production step counter.</summary>
+    /// <summary>Write one slot's script (its own DI scope), then voice it. The production state is
+    /// announced before each write and each recording starts, so it reflects the work currently in
+    /// flight rather than the step that just finished. Each write and each recording advances the
+    /// production step counter.</summary>
     private async Task<SlotRunResult> RunSlotAsync(
         SegmentDraftPlan plan,
         SegmentDraftJob job,
@@ -1101,6 +1103,8 @@ public sealed class NewsPackageProductionService(
     {
         using var slotScope = scopeFactory.CreateScope();
         var services = slotScope.ServiceProvider;
+
+        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Writing {job.ProgressLabel}.", ct);
 
         SlotDraft draft;
         try
@@ -1118,13 +1122,13 @@ public sealed class NewsPackageProductionService(
                 ex,
                 "Top-of-hour {Segment} {Slot} writing failed: {Message}",
                 plan.SegmentKey, job.ProgressLabel, ex.GetBaseException().Message);
-            await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Writing {job.ProgressLabel}.", ct);
+            // Writing failed — still account for the recording step that will not run.
             await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Recording {job.ProgressLabel}.", ct);
             return new SlotRunResult(
                 job.Slot, null, job.Slot == SegmentSlot.Body, $"{job.ProgressLabel} writing failed: {FailureDetail(ex)}");
         }
 
-        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Writing {job.ProgressLabel}.", ct);
+        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Recording {job.ProgressLabel}.", ct);
 
         Announcement? announcement = null;
         var degradation = draft.DegradationReason;
@@ -1146,7 +1150,6 @@ public sealed class NewsPackageProductionService(
             degradation ??= $"{job.ProgressLabel} recording failed: {FailureDetail(ex)}";
         }
 
-        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Recording {job.ProgressLabel}.", ct);
         return new SlotRunResult(job.Slot, announcement, draft.IsGap, degradation);
     }
 

@@ -82,7 +82,7 @@
 
             @if (_loading && _entries.Count == 0)
             {
-                <div class="empty-state"><span class="blink">|</span> reading studio history...</div>
+                <div class="empty-state"><span class="blink">▮</span> reading studio history...</div>
             }
             else if (_entries.Count == 0)
             {
@@ -172,7 +172,7 @@
                         }
                         else if (_selected.Status == "Running")
                         {
-                            <div class="history-block-empty"><span class="blink">|</span> still running</div>
+                            <div class="history-block-empty"><span class="blink">▮</span> still running</div>
                         }
                         else
                         {

@@ -17,7 +17,7 @@
 }
 else if (_news is null || _weather is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">|</span> loading production...</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> loading production...</div></div>
 }
 else
 {
@@ -370,7 +370,7 @@ else
 
     private void PlayPackage(NewsPackageDto package, Guid announcementId)
     {
-        var title = $"News package {package.TargetUtc.ToLocalTime():ddd HH:mm}";
+        var title = $"News {package.TargetUtc.ToLocalTime():HH:mm}";
         Player.PlayAnnouncement(
             announcementId,
             title,
