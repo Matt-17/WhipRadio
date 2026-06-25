@@ -34,7 +34,11 @@ public class PlayoutStateStoreTests
             Assert.NotNull(plan.CurrentItem);
             Assert.Equal(current.ItemId, plan.CurrentItem!.ItemId);
             Assert.Equal(42, plan.CurrentItem.StartOffsetSeconds, precision: 6);
+            // The rehydrated current item is flagged so the play log won't double-record it.
+            Assert.True(plan.CurrentItem.IsResumed);
             Assert.Equal(new[] { next.ItemId, weather.ItemId }, plan.QueueItems.Select(item => item.ItemId).ToArray());
+            // Queued items were never on air, so they must log normally on first play.
+            Assert.True(plan.QueueItems.All(item => !item.IsResumed));
             Assert.Empty(plan.SkippedItems);
         }
         finally

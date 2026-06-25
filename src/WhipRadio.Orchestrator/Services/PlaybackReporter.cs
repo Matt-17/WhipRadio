@@ -85,14 +85,23 @@ public class PlaybackReporter(
             Math.Clamp(item.StartOffsetSeconds, 0, Math.Max(0, item.DurationSeconds)));
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-        db.PlayLog.Add(new PlayLogEntry
+        // A resumed item already aired before a restart. Don't log/count the same
+        // airing twice (the cause of phantom "song played twice" rows in the play
+        // log). The DB check keeps it correct if the restart happened before the
+        // original airing was logged — then this resume is the first record.
+        var alreadyLogged = item.IsResumed && await WasRecentlyLoggedAsync(db, item, nowUtc, ct);
+
+        if (!alreadyLogged)
         {
-            PlayedAt = nowUtc,
-            ItemType = item.ItemType,
-            ItemId = item.ItemId,
-            ModeratorId = item.ModeratorId,
-            DurationSeconds = item.DurationSeconds,
-        });
+            db.PlayLog.Add(new PlayLogEntry
+            {
+                PlayedAt = nowUtc,
+                ItemType = item.ItemType,
+                ItemId = item.ItemId,
+                ModeratorId = item.ModeratorId,
+                DurationSeconds = item.DurationSeconds,
+            });
+        }
 
         string? artistName = null;
         string? transcript = null;
@@ -104,9 +113,12 @@ public class PlaybackReporter(
 
         if (item.ItemType == PlayoutItemType.Track)
         {
-            await db.Tracks
-                .Where(t => t.Id == item.ItemId)
-                .ExecuteUpdateAsync(s => s.SetProperty(t => t.PlayCount, t => t.PlayCount + 1), ct);
+            if (!alreadyLogged)
+            {
+                await db.Tracks
+                    .Where(t => t.Id == item.ItemId)
+                    .ExecuteUpdateAsync(s => s.SetProperty(t => t.PlayCount, t => t.PlayCount + 1), ct);
+            }
 
             var track = await db.Tracks.AsNoTracking()
                 .Include(t => t.Artist)
@@ -171,6 +183,22 @@ public class PlaybackReporter(
         await PushIcecastMetadataAsync(item, artistName, moderatorName, ct);
 
         logger.LogInformation("On air: {Type} \"{Title}\"", item.ItemType, item.Title);
+    }
+
+    /// <summary>
+    /// True when this exact item already has a play-log row from the airing that was
+    /// interrupted by the restart. The window spans the item's own duration (plus a
+    /// small grace) measured from now — a resume only happens while the item is still
+    /// mid-air, so its original row is always within that span.
+    /// </summary>
+    private static async Task<bool> WasRecentlyLoggedAsync(
+        RadioDbContext db, PlayoutItem item, DateTime nowUtc, CancellationToken ct)
+    {
+        var windowStart = nowUtc - TimeSpan.FromSeconds(Math.Max(0, item.DurationSeconds) + 30);
+        return await db.PlayLog.AsNoTracking()
+            .AnyAsync(e => e.ItemId == item.ItemId
+                && e.ItemType == item.ItemType
+                && e.PlayedAt >= windowStart, ct);
     }
 
     public void ReportIdle()

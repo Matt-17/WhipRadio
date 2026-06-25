@@ -214,7 +214,7 @@ public static class RadioApiEndpoints
             var members = await db.ArtistMembers.AsNoTracking()
                 .Where(m => m.ArtistId == artist.Id)
                 .OrderBy(m => m.SortOrder)
-                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
+                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
                 .ToListAsync(ct);
 
             return Results.Ok(new ArtistDto(
@@ -260,7 +260,7 @@ public static class RadioApiEndpoints
                 stats?.Down ?? 0,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
                     .ToList()));
         });
 
@@ -300,7 +300,7 @@ public static class RadioApiEndpoints
                 artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath)))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
                     .ToList(),
                 artist.Language));
         });
@@ -394,6 +394,30 @@ public static class RadioApiEndpoints
             }
 
             return Results.File(absolutePath, "audio/wav", enableRangeProcessing: true);
+        });
+
+        // (Re)designs a band member's hidden voice reference on demand. Clears the
+        // stored clip — so the play button hides until the booth produces a fresh
+        // one — and jumps the member to the front of the voice-design queue.
+        api.MapPost("/artist-members/{id:guid}/voice/recreate", async (
+            Guid id, RadioDbContext db, ArtistMemberVoiceQueue voiceQueue, CancellationToken ct) =>
+        {
+            var exists = await db.ArtistMembers.AsNoTracking().AnyAsync(m => m.Id == id, ct);
+            if (!exists)
+            {
+                return Results.NotFound();
+            }
+
+            await db.ArtistMembers
+                .Where(m => m.Id == id)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(m => m.VoiceId, (string?)null)
+                    .SetProperty(m => m.VoiceReferencePath, (string?)null)
+                    .SetProperty(m => m.VoiceDesignedAtUtc, (DateTime?)null)
+                    .SetProperty(m => m.VoiceDesignLastError, (string?)null), ct);
+
+            voiceQueue.EnqueuePriority(id);
+            return Results.Accepted();
         });
 
         api.MapDelete("/library/{id:guid}", async (

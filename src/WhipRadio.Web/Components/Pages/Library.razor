@@ -116,12 +116,7 @@
                                                 <div class="artist-member-head">
                                                     <span class="artist-member-name">
                                                         @members[0].Name
-                                                        @if (members[0].HasVoiceReference)
-                                                        {
-                                                            <button type="button" class="member-voice-btn" title="play voice reference"
-                                                                    aria-label="play voice reference"
-                                                                    @onclick="() => PlayMemberVoice(members[0])"><Icon Name="mouth" /></button>
-                                                        }
+                                                        @MemberVoiceControls(members[0])
                                                     </span>
                                                     <span class="tag">@members[0].Role</span>
                                                 </div>
@@ -154,12 +149,7 @@
                                                 <div class="artist-member-head">
                                                     <span class="artist-member-name">
                                                         @activeMember.Name
-                                                        @if (activeMember.HasVoiceReference)
-                                                        {
-                                                            <button type="button" class="member-voice-btn" title="play voice reference"
-                                                                    aria-label="play voice reference"
-                                                                    @onclick="() => PlayMemberVoice(activeMember)"><Icon Name="mouth" /></button>
-                                                        }
+                                                        @MemberVoiceControls(activeMember)
                                                     </span>
                                                     <span class="tag">@activeMember.Role</span>
                                                 </div>
@@ -419,6 +409,7 @@
     private int _page = 1;
     private Guid? _selectedArtistId;
     private Guid? _selectedMemberId;
+    private readonly HashSet<Guid> _voicePending = [];
     private TrackDto? _deleteTarget;
     private ArtistDto? _deleteArtistTarget;
     private string? _deleteError;
@@ -487,6 +478,11 @@
                 _allTracks = await Api.GetLibraryAsync(sort: null, genre: null, artistId: null);
             }
 
+        }
+
+        if (_voicePending.Count > 0 && _selectedArtistId is { } voiceArtistId)
+        {
+            await ReconcileMemberVoicesAsync(voiceArtistId);
         }
 
         await InvokeAsync(StateHasChanged);
@@ -601,6 +597,67 @@
 
     private void PlayMemberVoice(ArtistMemberDto member)
         => Player.PlayVoice($"{member.Name} — voice reference", Api.ArtistMemberVoiceUrl(member.Id), 0);
+
+    // Mouth (play) icon plus a create/recreate button for the member's spoken
+    // voice. While a design is queued we show a status note instead of the button.
+    private RenderFragment MemberVoiceControls(ArtistMemberDto member) => __builder =>
+    {
+        var pending = _voicePending.Contains(member.Id);
+        <span class="member-voice-controls">
+            @if (member.HasVoiceReference)
+            {
+                <button type="button" class="member-voice-btn" title="play voice reference"
+                        aria-label="play voice reference"
+                        @onclick="() => PlayMemberVoice(member)"><Icon Name="soundwave" /></button>
+            }
+            @if (pending)
+            {
+                <StatusBadge Text="designing voice" Tone="StatusBadgeTone.Amber" />
+            }
+            else
+            {
+                <button type="button" class="member-voice-btn"
+                        title="@(member.HasVoiceReference ? "recreate the spoken voice" : "create a spoken voice")"
+                        aria-label="@(member.HasVoiceReference ? "recreate voice" : "create voice")"
+                        @onclick="() => RecreateMemberVoiceAsync(member)"><Icon Name="refresh" /></button>
+                @if (!string.IsNullOrWhiteSpace(member.VoiceError))
+                {
+                    <span class="member-voice-error vote-down-text" title="@member.VoiceError">voice failed</span>
+                }
+            }
+        </span>
+    };
+
+    private async Task RecreateMemberVoiceAsync(ArtistMemberDto member)
+    {
+        if (_voicePending.Contains(member.Id))
+        {
+            return;
+        }
+
+        if (await Api.RecreateMemberVoiceAsync(member.Id))
+        {
+            _voicePending.Add(member.Id);
+        }
+    }
+
+    // Polled while a voice design is in flight: refreshes the roster and drops a
+    // member from the pending set once a clip exists or an error was recorded.
+    private async Task ReconcileMemberVoicesAsync(Guid artistId)
+    {
+        var detail = await Api.GetArtistAsync(artistId);
+        if (detail is null || _selectedArtistId != artistId)
+        {
+            return;
+        }
+
+        _artistDetail = detail;
+        var members = detail.Members ?? [];
+        _voicePending.RemoveWhere(id =>
+            members.FirstOrDefault(m => m.Id == id) is not { } m
+            || m.HasVoiceReference
+            || !string.IsNullOrWhiteSpace(m.VoiceError));
+    }
 
     private async Task CreateSongAsync()
     {

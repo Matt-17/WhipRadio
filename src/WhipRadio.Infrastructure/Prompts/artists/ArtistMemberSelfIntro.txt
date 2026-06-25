@@ -1,0 +1,24 @@
+Write a short, natural spoken self-introduction for this band member, in their own
+voice (first person). It will be read aloud as a voice sample, so write ONLY the words
+they would actually say.
+
+Member: {MemberName}
+Role: {Role}
+Band: {ArtistName}
+Biography: {Biography}
+
+Rules:
+- 1 to 2 short sentences, about 12 to 28 words in total.
+- Open by naming themselves, e.g. "I'm {MemberName}" or "Hi, I'm {MemberName}".
+- Sound warm, relaxed and human, like a person describing themselves to someone new.
+- Include exactly ONE person-level highlight: a simple thing they love, a habit, a
+  small quirk, or where they are from. Draw it from the biography when it sounds
+  natural; otherwise invent one small, fitting human detail.
+- Do NOT summarize their sound, production style, creative process, gear, role, or
+  biography. Avoid technical phrases like "my sound is built on", "my process
+  involves", "I am known for", or "my tracks".
+- Do NOT mention radio, stations, WhipRadio, broadcasts, shows, sessions, microphones,
+  or being an AI or a voice model. This is a personal introduction, never a promo.
+- Write in the language with ISO code "{Language}" (for example en = English, de = German).
+
+Answer with ONLY the spoken sentence(s), no quotes, no narration, nothing else.

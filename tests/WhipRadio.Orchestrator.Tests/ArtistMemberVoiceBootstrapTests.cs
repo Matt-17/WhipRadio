@@ -1,9 +1,11 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Orchestrator.Configuration;
@@ -24,6 +26,7 @@ public class ArtistMemberVoiceBootstrapTests
             fixture,
             new ArtistMemberVoiceQueue(),
             new FakeVoiceDesignClient("qwen-voice-1", WavBytes()),
+            BuildScopeFactory(),
             Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
             NullLogger<ArtistMemberVoicePreparationService>.Instance);
 
@@ -53,6 +56,7 @@ public class ArtistMemberVoiceBootstrapTests
             {
                 Exception = new InvalidOperationException("voice booth unavailable"),
             },
+            BuildScopeFactory(),
             Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
             NullLogger<ArtistMemberVoicePreparationService>.Instance);
 
@@ -80,6 +84,7 @@ public class ArtistMemberVoiceBootstrapTests
             {
                 Exception = new VoiceDesignUnavailableException("No active local voice booth is ready."),
             },
+            BuildScopeFactory(),
             Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
             NullLogger<ArtistMemberVoicePreparationService>.Instance);
 
@@ -168,6 +173,16 @@ public class ArtistMemberVoiceBootstrapTests
         Assert.Contains("spoken reference", resolution.Reference.ReferenceAudioLabel);
     }
 
+    // The voice prep service resolves a scoped MusicCopywriter to write the spoken
+    // self-introduction; a stub writer room keeps the sample-text path deterministic.
+    private static IServiceScopeFactory BuildScopeFactory(string reply = "Hi, I'm a test voice, and I love analog synths.")
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<ITextGenerationService>(new StubLlm(reply));
+        services.AddScoped<MusicCopywriter>();
+        return services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+    }
+
     private static async Task<Guid> AddArtistAsync(
         DbFixture fixture,
         string? voiceId,
@@ -251,6 +266,12 @@ public class ArtistMemberVoiceBootstrapTests
 
     private static byte[] WavBytes()
         => [0x52, 0x49, 0x46, 0x46, 0x04, 0, 0, 0, 0x57, 0x41, 0x56, 0x45];
+
+    private sealed class StubLlm(string reply) : ITextGenerationService
+    {
+        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+            => Task.FromResult(reply);
+    }
 
     private sealed class FakeVoiceDesignClient(string handle, byte[] preview) : IVoiceDesignClient
     {

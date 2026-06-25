@@ -113,6 +113,14 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>Queues a fresh voice reference for a band member; the play clip
+    /// disappears until the booth renders the new design.</summary>
+    public async Task<bool> RecreateMemberVoiceAsync(Guid memberId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/artist-members/{memberId}/voice/recreate", null, ct);
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<DeleteArtistResult> DeleteArtistAsync(Guid id, CancellationToken ct = default)
     {
         using var response = await http.DeleteAsync($"/api/artists/{id}", ct);

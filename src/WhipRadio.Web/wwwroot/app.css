@@ -1657,6 +1657,21 @@ table.console-table {
 
 .member-voice-btn:hover { color: var(--amber-hot); }
 
+/* mouth (play) + create/recreate buttons cluster next to a member's name */
+.member-voice-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.member-voice-status,
+.member-voice-error {
+    font-size: 0.72rem;
+    letter-spacing: 0.02em;
+}
+
+.member-voice-error { cursor: help; }
+
 .artist-member-tabs {
     display: grid;
     grid-template-columns: minmax(190px, 240px) 1fr;

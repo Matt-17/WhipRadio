@@ -144,7 +144,9 @@ public sealed class PlayoutStateStore(
             var remaining = duration - elapsedSeconds;
             if (remaining > MinimumResumeRemainderSeconds)
             {
-                var current = item with { StartOffsetSeconds = ClampOffset(elapsedSeconds, duration) };
+                // This item is being rehydrated mid-air after a restart: flag it so
+                // the play log does not record the same airing twice.
+                var current = item with { StartOffsetSeconds = ClampOffset(elapsedSeconds, duration), IsResumed = true };
                 var queue = timeline
                     .Skip(i + 1)
                     .Select(NormalizeQueueItem)
@@ -199,11 +201,14 @@ public sealed class PlayoutStateStore(
         }
     }
 
+    // IsResumed is a transient resume marker; it must never round-trip through the
+    // persisted state, so both normalizers clear it. BuildTimelinePlan re-applies it
+    // to the one item it actually rehydrates mid-air.
     private static PlayoutItem NormalizeActiveItem(PlayoutItem item)
-        => item with { StartOffsetSeconds = 0 };
+        => item with { StartOffsetSeconds = 0, IsResumed = false };
 
     private static PlayoutItem NormalizeQueueItem(PlayoutItem item)
-        => item with { StartOffsetSeconds = ClampOffset(item.StartOffsetSeconds, item.DurationSeconds) };
+        => item with { StartOffsetSeconds = ClampOffset(item.StartOffsetSeconds, item.DurationSeconds), IsResumed = false };
 
     private static double ClampOffset(double offset, double duration)
         => Math.Clamp(double.IsFinite(offset) ? offset : 0, 0, Math.Max(0, duration));

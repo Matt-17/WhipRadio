@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Orchestrator.Configuration;
@@ -12,6 +14,7 @@ public sealed class ArtistMemberVoicePreparationService(
     IDbContextFactory<RadioDbContext> dbFactory,
     ArtistMemberVoiceQueue queue,
     IVoiceDesignClient voiceDesign,
+    IServiceScopeFactory scopeFactory,
     IOptions<RadioOptions> radioOptions,
     ILogger<ArtistMemberVoicePreparationService> logger) : BackgroundService
 {
@@ -64,11 +67,12 @@ public sealed class ArtistMemberVoicePreparationService(
             var language = string.IsNullOrWhiteSpace(member.Artist?.Language)
                 ? "en"
                 : member.Artist.Language;
+            var sampleText = await BuildSampleTextAsync(member, language, ct);
             var designed = await voiceDesign.DesignVoiceAsync(
                 BuildVoiceDescription(member),
                 gender,
                 language,
-                BuildSampleText(member, language),
+                sampleText,
                 ct);
             var preview = await voiceDesign.GetPreviewAsync(designed.Handle, ct);
             var relativePath = Path.Combine(
@@ -144,10 +148,42 @@ public sealed class ArtistMemberVoicePreparationService(
             """;
     }
 
-    private static string BuildSampleText(ArtistMember member, string language)
+    /// <summary>
+    /// The audible voice sample. We ask the writer room for a short, natural
+    /// first-person self-introduction drawn from the member's biography; if that is
+    /// unavailable we fall back to a plain greeting (never a station promo).
+    /// </summary>
+    private async Task<string> BuildSampleTextAsync(ArtistMember member, string language, CancellationToken ct)
+    {
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var copywriter = scope.ServiceProvider.GetRequiredService<MusicCopywriter>();
+            var intro = await copywriter.WriteMemberSelfIntroAsync(member, language, ct);
+            if (!string.IsNullOrWhiteSpace(intro))
+            {
+                return intro!;
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(
+                ex,
+                "Self-introduction generation failed for artist member {Member}; using fallback sample text.",
+                member.Name);
+        }
+
+        return FallbackSampleText(member, language);
+    }
+
+    private static string FallbackSampleText(ArtistMember member, string language)
         => language.StartsWith("de", StringComparison.OrdinalIgnoreCase)
-            ? $"Ich bin {member.Name}, und diese Stimme gehoert zu unserer naechsten WhipRadio-Session."
-            : $"I am {member.Name}, and this is the voice that belongs to our next WhipRadio session.";
+            ? $"Hi, ich bin {member.Name}, und ich liebe das, was ich tue."
+            : $"Hi, I'm {member.Name}, and I love what I do.";
 
     private static string InferMemberGender(ArtistMember member)
     {

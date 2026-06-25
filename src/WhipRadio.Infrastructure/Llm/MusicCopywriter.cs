@@ -213,6 +213,29 @@ public class MusicCopywriter(ITextGenerationService llm)
         return string.IsNullOrWhiteSpace(firstLine) ? $"Untitled {artist.Subgenre} tune" : firstLine;
     }
 
+    /// <summary>
+    /// A short, natural first-person self-introduction spoken as the member's hidden
+    /// voice reference sample — a personal description with one highlight, never a
+    /// station promo. Returns null when the model gives nothing usable.
+    /// </summary>
+    public async Task<string?> WriteMemberSelfIntroAsync(ArtistMember member, string language, CancellationToken ct)
+    {
+        var prompt = PromptTemplates.Render("ArtistMemberSelfIntro", new Dictionary<string, string>
+        {
+            ["MemberName"] = member.Name,
+            ["Role"] = FirstNonEmpty(member.Role, "performer")!,
+            ["ArtistName"] = FirstNonEmpty(member.Artist?.Name, "their band")!,
+            ["Biography"] = FirstNonEmpty(member.Biography, "(no biography on record)")!,
+            ["Language"] = string.IsNullOrWhiteSpace(language) ? "en" : language.Trim(),
+        });
+
+        var reply = LlmOutputSanitizer.Sanitize(
+            await llm.CompleteAsync(SystemPrompt, prompt, "Writing member self-introduction", ct));
+        var intro = string.Join(" ", reply
+            .Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return string.IsNullOrWhiteSpace(intro) ? null : intro.Trim();
+    }
+
     public async Task<string> WriteLyricsAsync(string genre, string language, CancellationToken ct)
     {
         var prompt = PromptTemplates.Render("LyricsWriter", new Dictionary<string, string>

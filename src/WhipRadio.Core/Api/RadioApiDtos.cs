@@ -83,7 +83,8 @@ public sealed record ArtistMemberDto(
     string Name,
     string Role,
     string Biography,
-    bool HasVoiceReference = false);
+    bool HasVoiceReference = false,
+    string? VoiceError = null);
 
 public sealed record ArtistPostDto(
     Guid Id,

@@ -64,4 +64,24 @@ public class PromptTemplatesTests
         Assert.Contains("next-hours-after-airing-time", prompt);
         Assert.DoesNotContain("{WeatherFacts}", prompt);
     }
+
+    [TestMethod]
+    public void Render_ArtistMemberSelfIntroPrompt_AsksForHumanDetailInsteadOfProductionSummary()
+    {
+        var prompt = PromptTemplates.Render("ArtistMemberSelfIntro", new Dictionary<string, string>
+        {
+            ["MemberName"] = "Amber Meridian",
+            ["Role"] = "Vocals, Synths, Production",
+            ["ArtistName"] = "Amber Meridian",
+            ["Biography"] = "Amber loves vintage analog gear and field recordings.",
+            ["Language"] = "en",
+        });
+
+        Assert.Contains("person-level highlight", prompt);
+        Assert.Contains("small, fitting human detail", prompt);
+        Assert.Contains("Do NOT summarize their sound", prompt);
+        Assert.Contains("my sound is built on", prompt);
+        Assert.Contains("Hi, I'm Amber Meridian", prompt);
+        Assert.DoesNotContain("{MemberName}", prompt);
+    }
 }
