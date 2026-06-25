@@ -15,6 +15,62 @@ public enum SegmentPosition
     Last,
 }
 
+/// <summary>Which part of a segment a draft job produces: the spoken handover into the
+/// segment, or the segment body (bulletin/forecast, which may degrade to a gap line).</summary>
+public enum SegmentSlot
+{
+    Handover,
+    Body,
+}
+
+/// <summary>A ready-to-voice direct announcement (no LLM): used for handover fallbacks and
+/// gap lines. Mirrors the parameters of <see cref="AnnouncementFactory.ProduceDirectAsync"/>.</summary>
+public sealed record DirectAnnouncementSpec(
+    AnnouncementKind Kind,
+    TalkPartKind PartKind,
+    TalkBreakPriority Priority,
+    Moderator Moderator,
+    string Text,
+    string Purpose,
+    string Title,
+    DateTime? ExpiresAtUtc,
+    int? DesiredDurationSeconds,
+    int? WordBudget);
+
+/// <summary>
+/// The text result of one draft job, ready for voicing. Exactly one of <see cref="Draft"/>
+/// (LLM-written, voice via <c>ProduceFromDraftAsync</c>) or <see cref="Direct"/> (fixed text,
+/// voice via <c>ProduceDirectAsync</c>) is set. <see cref="IsGap"/> marks a body slot that
+/// fell back to a short gap line.
+/// </summary>
+public sealed record SlotDraft(
+    AnnouncementFactory.AnnouncementScriptDraft? Draft,
+    DirectAnnouncementSpec? Direct,
+    bool IsGap,
+    string? DegradationReason);
+
+/// <summary>
+/// One independent script-writing unit within a segment. <see cref="WriteAsync"/> performs
+/// only the (GPU) text work and resolves its services from the supplied scope, so the
+/// orchestrator can run every job's write concurrently and voice each result as it lands.
+/// </summary>
+public sealed record SegmentDraftJob(
+    SegmentSlot Slot,
+    int Order,
+    string ProgressLabel,
+    Func<IServiceProvider, CancellationToken, Task<SlotDraft>> WriteAsync);
+
+/// <summary>
+/// The outcome of a contributor's (sequential, cheap) preparation: the resolved host, the
+/// news items + source summary for the package, and the independent draft jobs to run.
+/// </summary>
+public sealed record SegmentDraftPlan(
+    string SegmentKey,
+    Moderator Host,
+    IReadOnlyList<NewsItem> Items,
+    string SourceSummary,
+    IReadOnlyList<SegmentDraftJob> Jobs);
+
 /// <summary>
 /// Labeling for a single-segment package (when only one contributor is
 /// included at a target). Multi-segment packages are always labeled as the
@@ -88,6 +144,11 @@ public interface ITopOfHourSegmentContributor
     /// <summary>Labeling used when this contributor is the only one in the package.</summary>
     SegmentLabel Label { get; }
 
-    /// <summary>Produce the intro + body (+ gap line) for one package.</summary>
-    Task<SegmentResult> ProduceAsync(SegmentProductionContext context, CancellationToken ct);
+    /// <summary>
+    /// Prepare this segment (resolve specialist/host, gather data) and return the independent
+    /// script-writing jobs. No TTS happens here — the orchestrator voices each draft as it
+    /// completes, ordered against everyone else on the shared GPU. To produce a whole segment
+    /// inline (write then voice in order), use <see cref="SegmentProductionRunner.RunInlineAsync"/>.
+    /// </summary>
+    Task<SegmentDraftPlan> PlanDraftsAsync(SegmentProductionContext context, CancellationToken ct);
 }

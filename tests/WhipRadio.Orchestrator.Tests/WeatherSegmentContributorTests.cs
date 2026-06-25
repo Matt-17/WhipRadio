@@ -37,7 +37,7 @@ public class WeatherSegmentContributorTests
 
         var context = SegmentTestFixtures.CreateContext(
             settings, ShowHost(), scopeServices, previousHost: NewsHost());
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         Assert.NotNull(result.Intro);
         Assert.NotNull(result.Body);
@@ -65,7 +65,7 @@ public class WeatherSegmentContributorTests
             db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // Intro (handoff) should still be produced — it falls back to direct text.
         Assert.NotNull(result.Intro);
@@ -94,7 +94,7 @@ public class WeatherSegmentContributorTests
             db, NullStationMetrics.Instance, NullLogger<WeatherSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // LLM path throws → falls back to ProduceDirectAsync with "Alex has the weather."
         Assert.NotNull(result.Intro);
@@ -120,7 +120,7 @@ public class WeatherSegmentContributorTests
         // First position, no previous host — weather is the first segment (weather-only :30 package).
         var context = SegmentTestFixtures.CreateContext(
             settings, ShowHost(), scopeServices, position: SegmentPosition.First, previousHost: null);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         Assert.NotNull(result.Intro);
         Assert.NotNull(result.Body);

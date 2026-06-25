@@ -8,6 +8,12 @@ namespace WhipRadio.Core.Abstractions;
 /// after a process restart. Such an item already aired (and was logged) before the
 /// restart, so the play log must not record it a second time — see PlaybackReporter.
 /// </remarks>
+public enum PlayoutItemOrigin
+{
+    Normal,
+    Fallback,
+}
+
 public sealed record PlayoutItem(
     PlayoutItemType ItemType,
     Guid ItemId,
@@ -16,7 +22,8 @@ public sealed record PlayoutItem(
     double DurationSeconds,
     int? ModeratorId = null,
     double StartOffsetSeconds = 0,
-    bool IsResumed = false);
+    bool IsResumed = false,
+    PlayoutItemOrigin Origin = PlayoutItemOrigin.Normal);
 
 /// <summary>Thread-safe FIFO consumed by the PlayoutService.</summary>
 public interface IPlayoutQueue

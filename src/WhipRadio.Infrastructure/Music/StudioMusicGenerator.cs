@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
-using WhipRadio.Infrastructure.Llm;
+using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Studios;
 
 namespace WhipRadio.Infrastructure.Music;
@@ -16,12 +16,8 @@ public sealed class StudioMusicGenerator(
     StudioProviderFactory factory,
     StudioDockerControl dockerControl,
     StudioHistoryRecorder history,
-    OllamaModelMemoryManager modelMemory,
     ILogger<StudioMusicGenerator> logger) : IMusicGenerator
 {
-    private static readonly TimeSpan AcquireRetryDelay = TimeSpan.FromSeconds(10);
-    private static readonly TimeSpan AcquireTimeout = TimeSpan.FromMinutes(30);
-
     public async Task<MusicResult> GenerateAsync(MusicRequest request, CancellationToken ct)
     {
         // Pin the provider only when the caller insists; with fallback allowed,
@@ -31,37 +27,18 @@ public sealed class StudioMusicGenerator(
             : null;
 
         var label = $"Recording for {request.ArtistName ?? request.Genre}";
-        var deadline = DateTime.UtcNow + AcquireTimeout;
 
-        Studio? studio = null;
-        while (studio is null)
+        // Music is the least latency-sensitive GPU job: it waits behind text/voice work and
+        // only starts when the scheduler picks it. The coordinator handles model unloading
+        // when switching engines.
+        using var priority = GpuPriorityContext.Push(GpuJobPriority.Low);
+        var lease = await coordinator.AcquireForGpuJobAsync(StudioKind.Recording, requiredProvider, label, ct);
+        if (lease is null)
         {
-            studio = await coordinator.TryAcquireAsync(StudioKind.Recording, requiredProvider, label, ct);
-            if (studio is not null)
-            {
-                break;
-            }
-
-            if (!await coordinator.AnyActiveAsync(StudioKind.Recording, requiredProvider, ct))
-            {
-                throw new MusicBackendUnavailableException(requiredProvider ?? "recording studio");
-            }
-
-            if (!await coordinator.AnyBusyAsync(StudioKind.Recording, requiredProvider, ct)
-                && !await coordinator.AnyAvailableAsync(StudioKind.Recording, requiredProvider, ct))
-            {
-                throw new MusicBackendUnavailableException(requiredProvider ?? "recording studio");
-            }
-
-            if (DateTime.UtcNow > deadline)
-            {
-                throw new MusicBackendUnavailableException("all recording studios busy");
-            }
-
-            // All studios occupied — the artist waits in line.
-            await Task.Delay(AcquireRetryDelay, ct);
+            throw new MusicBackendUnavailableException(requiredProvider ?? "recording studio");
         }
 
+        var studio = lease.Studio;
         var success = false;
         Guid? historyId = null;
         try
@@ -77,8 +54,6 @@ public sealed class StudioMusicGenerator(
                 MusicPrompt(effective),
                 MusicDetail(effective),
                 ct);
-            await modelMemory.TryPrepareForLocalGpuJobAsync(
-                studio.Url, unloadOllama: true, unloadLocalTts: true, ct);
             var provider = factory.CreateMusicProvider(studio);
             var result = await provider.GenerateAsync(effective, ct);
             await history.CompleteAsync(historyId, MusicResultDetail(result), null, CancellationToken.None);
@@ -105,7 +80,7 @@ public sealed class StudioMusicGenerator(
         }
         finally
         {
-            await coordinator.ReleaseAsync(studio.Id, success, CancellationToken.None);
+            await lease.CompleteAsync(success, CancellationToken.None);
         }
     }
 

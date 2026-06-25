@@ -42,17 +42,15 @@ public sealed class NewsSegmentContributor(
     public bool IsIncludedAt(StationSettings settings, DateTimeOffset targetLocal)
         => settings.NewsEnabled && IsCadenceBoundary(targetLocal, CadenceMinutes(settings));
 
-    public async Task<SegmentResult> ProduceAsync(SegmentProductionContext context, CancellationToken ct)
+    public async Task<SegmentDraftPlan> PlanDraftsAsync(SegmentProductionContext context, CancellationToken ct)
     {
         var settings = context.Settings;
-        var factory = context.ScopeServices.GetRequiredService<AnnouncementFactory>();
-        var extractor = context.ScopeServices.GetRequiredService<INewsArticleExtractor>();
         var specialistHosts = context.ScopeServices.GetRequiredService<SpecialistHostCreationService>();
 
         await context.ReportProgress("Resolving news specialist.", ct);
         var newsModerator = await ResolveNewsModeratorAsync(settings, specialistHosts, ct);
 
-        // Fetch + select news items.
+        // Fetch + select news items (cheap prep — no GPU work).
         List<NewsItem> items = [];
         await context.ReportProgress("Fetching news.", ct);
         await feedPolling.PollEnabledFeedsAsync(ct);
@@ -81,72 +79,30 @@ public sealed class NewsSegmentContributor(
             await itemDb.SaveChangesAsync(ct);
         }
 
-        // Always produce the intro handover (LLM with direct-text fallback).
-        var intro = await ProduceIntroAsync(context, factory, newsModerator, items, ct);
-
-        // Produce the news bulletin body (null when no items or after retries exhausted).
-        Announcement? body = null;
-        string? degradationReason = null;
-        if (items.Count > 0)
-        {
-            body = await TryProduceBodyAsync(context, factory, extractor, newsModerator, items, ct);
-            if (body is null)
-            {
-                degradationReason = "News bulletin failed after retries; airing handover only.";
-            }
-        }
-        else
-        {
-            degradationReason = "No news items available for this bulletin.";
-        }
-
-        // Gap line when there is no body.
-        Announcement? gapLine = null;
-        if (body is null)
-        {
-            await context.ReportProgress("Recording news gap line.", ct);
-            gapLine = await factory.ProduceDirectAsync(
-                AnnouncementKind.StationId,
-                TalkPartKind.StationId,
-                TalkBreakPriority.Scheduled,
-                context.ShowModerator,
-                "We'll have news for you later this hour.",
-                "NewsGap",
-                ct,
-                title: "News gap",
-                expiresAtUtc: context.ExpiresAtUtc,
-                desiredDurationSeconds: 5,
-                wordBudget: 12);
-        }
-
         var sourceSummary = items.Count > 0
             ? string.Join("; ", items.Select(item => $"{item.Feed?.Label}: {item.Title}"))
             : "News update (no items available)";
+        var handoverFacts = BuildHandoverFacts(context, newsModerator, items);
 
-        return new SegmentResult(
-            newsModerator,
-            intro,
-            body,
-            gapLine,
-            items,
-            degradationReason,
-            sourceSummary);
+        var jobs = new List<SegmentDraftJob>
+        {
+            new(SegmentSlot.Handover, 0, "news handover",
+                (sp, token) => WriteHandoverAsync(sp, context, newsModerator, handoverFacts, token)),
+            new(SegmentSlot.Body, 1, "news bulletin",
+                (sp, token) => WriteBodyAsync(sp, context, newsModerator, items, token)),
+        };
+
+        return new SegmentDraftPlan(Key, newsModerator, items, sourceSummary, jobs);
     }
 
-    private async Task<Announcement> ProduceIntroAsync(
+    private async Task<SlotDraft> WriteHandoverAsync(
+        IServiceProvider sp,
         SegmentProductionContext context,
-        AnnouncementFactory factory,
         Moderator newsModerator,
-        IReadOnlyList<NewsItem> items,
+        string facts,
         CancellationToken ct)
     {
-        var timeText = context.TargetLocal.ToString("HH:mm");
-        var positionNote = context.Position == SegmentPosition.First
-            ? "This is the first segment of the top-of-hour block."
-            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
-        var tease = BuildTease(items.Count > 0, items);
-        var facts = $"Current time: {timeText}. Current host: {context.ShowModerator.Name}. News specialist: {newsModerator.Name}. {positionNote} {tease}";
-
+        var factory = sp.GetRequiredService<AnnouncementFactory>();
         await context.ReportProgress("Writing news handover.", ct);
         try
         {
@@ -162,26 +118,54 @@ public sealed class NewsSegmentContributor(
                 localNowOverride: context.TargetLocal,
                 priority: PromptPriority.High,
                 purpose: "NewsHandover");
-            return await factory.ProduceFromDraftAsync(draft, ct);
+            return new SlotDraft(draft, null, IsGap: false, DegradationReason: null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "News handover LLM/TTS failed; falling back to direct text");
+            logger.LogWarning(ex, "News handover LLM failed; falling back to direct text");
             var fallback = BuildIntroText(context.ShowModerator, newsModerator, context.TargetLocal);
-            return await factory.ProduceDirectAsync(
+            var direct = new DirectAnnouncementSpec(
                 AnnouncementKind.StationId,
                 TalkPartKind.StationId,
                 TalkBreakPriority.Scheduled,
                 context.ShowModerator,
                 fallback,
                 "NewsHandover",
-                ct,
-                title: "Top of hour",
-                expiresAtUtc: context.ExpiresAtUtc,
-                desiredDurationSeconds: 8,
-                wordBudget: 22);
+                "Top of hour",
+                context.ExpiresAtUtc,
+                DesiredDurationSeconds: 8,
+                WordBudget: 22);
+            return new SlotDraft(null, direct, IsGap: false, DegradationReason: null);
         }
     }
+
+    private static string BuildHandoverFacts(
+        SegmentProductionContext context, Moderator newsModerator, IReadOnlyList<NewsItem> items)
+    {
+        var timeText = context.TargetLocal.ToString("HH:mm");
+        var positionNote = context.Position == SegmentPosition.First
+            ? "This is the first segment of the top-of-hour block."
+            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
+        var tease = BuildTease(items.Count > 0, items);
+        return $"Current time: {timeText}. Current host: {context.ShowModerator.Name}. News specialist: {newsModerator.Name}. {positionNote} {tease}";
+    }
+
+    private static SlotDraft NewsGapSlot(SegmentProductionContext context, string reason)
+        => new(
+            null,
+            new DirectAnnouncementSpec(
+                AnnouncementKind.StationId,
+                TalkPartKind.StationId,
+                TalkBreakPriority.Scheduled,
+                context.ShowModerator,
+                "We'll have news for you later this hour.",
+                "NewsGap",
+                "News gap",
+                context.ExpiresAtUtc,
+                DesiredDurationSeconds: 5,
+                WordBudget: 12),
+            IsGap: true,
+            DegradationReason: reason);
 
     private static string BuildTease(bool hasItems, IReadOnlyList<NewsItem> newsItems)
     {
@@ -194,14 +178,20 @@ public sealed class NewsSegmentContributor(
         return $"Tease the news briefly. Upcoming stories include: {string.Join("; ", titles)}.";
     }
 
-    private async Task<Announcement?> TryProduceBodyAsync(
+    private async Task<SlotDraft> WriteBodyAsync(
+        IServiceProvider sp,
         SegmentProductionContext context,
-        AnnouncementFactory factory,
-        INewsArticleExtractor extractor,
         Moderator newsModerator,
         IReadOnlyList<NewsItem> items,
         CancellationToken ct)
     {
+        if (items.Count == 0)
+        {
+            return NewsGapSlot(context, "No news items available for this bulletin.");
+        }
+
+        var factory = sp.GetRequiredService<AnnouncementFactory>();
+        var extractor = sp.GetRequiredService<INewsArticleExtractor>();
         Exception? last = null;
         for (var attempt = 1; attempt <= BlockMaxAttempts; attempt++)
         {
@@ -228,8 +218,7 @@ public sealed class NewsSegmentContributor(
                     localNowOverride: context.TargetLocal,
                     priority: PromptPriority.High,
                     purpose: "NewsReport");
-                await context.ReportProgress("Recording news bulletin.", ct);
-                return await factory.ProduceFromDraftAsync(draft, ct);
+                return new SlotDraft(draft, null, IsGap: false, DegradationReason: null);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -256,7 +245,7 @@ public sealed class NewsSegmentContributor(
             "News bulletin skipped after {MaxAttempts} failed attempts: {Message}",
             BlockMaxAttempts,
             last?.GetBaseException().Message);
-        return null;
+        return NewsGapSlot(context, "News bulletin failed after retries; airing handover only.");
     }
 
     private async Task EnrichItemsAsync(

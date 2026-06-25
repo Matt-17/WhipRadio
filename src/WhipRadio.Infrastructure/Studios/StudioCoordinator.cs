@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
+using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
 
 namespace WhipRadio.Infrastructure.Studios;
@@ -41,9 +43,14 @@ public class StudioCoordinator(
     IDbContextFactory<RadioDbContext> dbFactory,
     IHttpClientFactory httpClientFactory,
     IStudioUpdatePublisher updatePublisher,
+    LocalGpuScheduler gpuScheduler,
+    OllamaModelMemoryManager modelMemory,
     ILogger<StudioCoordinator> logger)
 {
     public const string ProbeClientName = "studio-probe";
+
+    private static readonly TimeSpan BookUnderTurnTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan BookRetryDelay = TimeSpan.FromMilliseconds(250);
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
     private static readonly TimeSpan RuntimeProbeTimeout = TimeSpan.FromSeconds(2);
@@ -105,6 +112,128 @@ public class StudioCoordinator(
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to update studio statistics for {StudioId}", studioId);
+        }
+    }
+
+    /// <summary>
+    /// Acquire a studio of the given kind for a GPU job, ordered by the ambient
+    /// <see cref="GpuPriorityContext"/> against everyone else waiting on the same GPU.
+    /// Local-GPU studios go through <see cref="LocalGpuScheduler"/> (priority → affinity →
+    /// FIFO) and only unload a foreign model when actually switching engines; API studios
+    /// (no GPU) book immediately as before. Returns null when no studio of the kind exists or
+    /// none becomes reachable in time. Dispose the lease via
+    /// <see cref="GpuStudioLease.CompleteAsync"/>.
+    /// </summary>
+    public async Task<GpuStudioLease?> AcquireForGpuJobAsync(
+        StudioKind kind, string? requiredProvider, string jobLabel, CancellationToken ct)
+    {
+        var candidates = await GetActiveAsync(kind, requiredProvider, ct);
+        if (candidates.Count == 0)
+        {
+            return null;
+        }
+
+        var group = candidates.Select(GetGpuResourceGroup).FirstOrDefault(g => g is not null);
+        if (group is null)
+        {
+            // API-only studios do not contend for the GPU — book one directly.
+            var apiStudio = await BookUnderTurnAsync(kind, requiredProvider, jobLabel, ct);
+            return apiStudio is null ? null : new GpuStudioLease(this, apiStudio, gpuLease: null);
+        }
+
+        var lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+        try
+        {
+            await ApplySwitchUnloadAsync(kind, lease, ct);
+            var studio = await BookUnderTurnAsync(kind, requiredProvider, jobLabel, ct);
+            if (studio is null)
+            {
+                await lease.DisposeAsync();
+                return null;
+            }
+
+            return new GpuStudioLease(this, studio, lease);
+        }
+        catch
+        {
+            await lease.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Acquire a bare GPU turn for an endpoint that has no <see cref="Studio"/> row (e.g. the
+    /// default Ollama client). Orders against the shared GPU like
+    /// <see cref="AcquireForGpuJobAsync"/> and applies switch-based unload, but records no
+    /// studio booking/stats. Dispose the returned handle (e.g. <c>await using</c>) when done.
+    /// </summary>
+    public async Task<IAsyncDisposable> AcquireGpuTurnAsync(
+        StudioKind kind, string? endpointUrl, CancellationToken ct)
+    {
+        var group = GpuGroupForEndpoint(endpointUrl);
+        if (group is null)
+        {
+            return NoopAsyncDisposable.Instance;
+        }
+
+        var lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+        try
+        {
+            await ApplySwitchUnloadAsync(kind, lease, ct);
+            return lease;
+        }
+        catch
+        {
+            await lease.DisposeAsync();
+            throw;
+        }
+    }
+
+    /// <summary>Unload the other engines' models only when switching to a different one;
+    /// consecutive same-kind jobs keep the resident model loaded.</summary>
+    private async Task ApplySwitchUnloadAsync(
+        StudioKind kind, LocalGpuScheduler.GpuLease lease, CancellationToken ct)
+    {
+        if (!lease.ModelSwitch)
+        {
+            return;
+        }
+
+        switch (kind)
+        {
+            case StudioKind.WriterRoom:
+                await modelMemory.TryUnloadLocalTtsAsync(ct);
+                break;
+            case StudioKind.VoiceBooth:
+                await modelMemory.TryUnloadDefaultModelAsync(ct);
+                break;
+            case StudioKind.Recording:
+                await modelMemory.TryUnloadDefaultModelAsync(ct);
+                await modelMemory.TryUnloadLocalTtsAsync(ct);
+                break;
+        }
+    }
+
+    /// <summary>Book a concrete ready studio once a GPU turn is held; the turn guarantees the
+    /// GPU is free, so this only absorbs a transient runtime-probe miss.</summary>
+    private async Task<Studio?> BookUnderTurnAsync(
+        StudioKind kind, string? requiredProvider, string jobLabel, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow + BookUnderTurnTimeout;
+        while (true)
+        {
+            var studio = await TryAcquireAsync(kind, requiredProvider, jobLabel, ct);
+            if (studio is not null)
+            {
+                return studio;
+            }
+
+            if (!await AnyActiveAsync(kind, requiredProvider, ct) || DateTime.UtcNow > deadline)
+            {
+                return null;
+            }
+
+            await Task.Delay(BookRetryDelay, ct);
         }
     }
 
@@ -293,10 +422,13 @@ public class StudioCoordinator(
     }
 
     private static string? GetGpuResourceGroup(Studio studio)
+        => IsLocalGpuProvider(studio.Provider) ? GpuGroupForEndpoint(studio.Url) : null;
+
+    /// <summary>The shared-GPU lease key for a local endpoint URL (loopback/docker host all
+    /// collapse to <c>gpu:local</c>), or null when the URL is missing/invalid.</summary>
+    public static string? GpuGroupForEndpoint(string? url)
     {
-        if (!IsLocalGpuProvider(studio.Provider)
-            || string.IsNullOrWhiteSpace(studio.Url)
-            || !Uri.TryCreate(studio.Url, UriKind.Absolute, out var uri))
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             return null;
         }
@@ -556,4 +688,53 @@ public class StudioCoordinator(
     private sealed record OllamaTagsResponse(IReadOnlyList<OllamaModelTag> Models);
 
     private sealed record OllamaModelTag(string Name);
+
+    /// <summary>
+    /// A booked studio plus its (optional) GPU turn. Call <see cref="CompleteAsync"/> exactly
+    /// once when the job finishes: it records studio stats and releases the GPU turn so the
+    /// next waiter is admitted.
+    /// </summary>
+    public sealed class GpuStudioLease
+    {
+        private readonly StudioCoordinator _coordinator;
+        private readonly LocalGpuScheduler.GpuLease? _gpuLease;
+        private int _completed;
+
+        internal GpuStudioLease(
+            StudioCoordinator coordinator, Studio studio, LocalGpuScheduler.GpuLease? gpuLease)
+        {
+            _coordinator = coordinator;
+            Studio = studio;
+            _gpuLease = gpuLease;
+        }
+
+        public Studio Studio { get; }
+
+        public async Task CompleteAsync(bool success, CancellationToken ct)
+        {
+            if (Interlocked.Exchange(ref _completed, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await _coordinator.ReleaseAsync(Studio.Id, success, ct);
+            }
+            finally
+            {
+                if (_gpuLease is not null)
+                {
+                    await _gpuLease.DisposeAsync();
+                }
+            }
+        }
+    }
+
+    private sealed class NoopAsyncDisposable : IAsyncDisposable
+    {
+        public static readonly NoopAsyncDisposable Instance = new();
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
 }

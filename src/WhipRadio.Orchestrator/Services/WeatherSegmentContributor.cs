@@ -34,11 +34,9 @@ public sealed class WeatherSegmentContributor(
     public bool IsIncludedAt(StationSettings settings, DateTimeOffset targetLocal)
         => settings.WeatherEnabled && IsCadenceBoundary(targetLocal, CadenceMinutes(settings));
 
-    public async Task<SegmentResult> ProduceAsync(SegmentProductionContext context, CancellationToken ct)
+    public async Task<SegmentDraftPlan> PlanDraftsAsync(SegmentProductionContext context, CancellationToken ct)
     {
         var settings = context.Settings;
-        var factory = context.ScopeServices.GetRequiredService<AnnouncementFactory>();
-        var weatherSource = context.ScopeServices.GetRequiredService<IWeatherReportSource>();
         var specialistHosts = context.ScopeServices.GetRequiredService<SpecialistHostCreationService>();
 
         await context.ReportProgress("Resolving weather specialist.", ct);
@@ -48,53 +46,26 @@ public sealed class WeatherSegmentContributor(
             specialistHosts,
             ct);
 
-        // Always produce the weather handoff (LLM with direct-text fallback).
-        var intro = await ProduceIntroAsync(context, factory, weatherModerator, ct);
-
-        // Produce the weather forecast body (null after retries exhausted).
-        var body = await TryProduceBodyAsync(context, factory, weatherSource, weatherModerator, ct);
-
-        Announcement? gapLine = null;
-        string? degradationReason = null;
-        if (body is null)
+        var handoverFacts = BuildHandoverFacts(context, weatherModerator);
+        var jobs = new List<SegmentDraftJob>
         {
-            degradationReason = "Weather forecast failed after retries; airing handoff only.";
-            await context.ReportProgress("Recording weather gap line.", ct);
-            gapLine = await factory.ProduceDirectAsync(
-                AnnouncementKind.StationId,
-                TalkPartKind.StationId,
-                TalkBreakPriority.Scheduled,
-                context.ShowModerator,
-                "We'll have the weather for you in a moment.",
-                "WeatherGap",
-                ct,
-                title: "Weather gap",
-                expiresAtUtc: context.ExpiresAtUtc,
-                desiredDurationSeconds: 5,
-                wordBudget: 12);
-        }
+            new(SegmentSlot.Handover, 0, "weather handoff",
+                (sp, token) => WriteHandoverAsync(sp, context, weatherModerator, handoverFacts, token)),
+            new(SegmentSlot.Body, 1, "weather forecast",
+                (sp, token) => WriteBodyAsync(sp, context, weatherModerator, token)),
+        };
 
-        return new SegmentResult(
-            weatherModerator,
-            intro,
-            body,
-            gapLine,
-            [],
-            degradationReason,
-            "Weather forecast");
+        return new SegmentDraftPlan(Key, weatherModerator, [], "Weather forecast", jobs);
     }
 
-    private async Task<Announcement> ProduceIntroAsync(
+    private async Task<SlotDraft> WriteHandoverAsync(
+        IServiceProvider sp,
         SegmentProductionContext context,
-        AnnouncementFactory factory,
         Moderator weatherModerator,
+        string facts,
         CancellationToken ct)
     {
-        var positionNote = context.Position == SegmentPosition.First
-            ? "This is the first segment of the block."
-            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
-        var facts = $"Current host: {context.ShowModerator.Name}. Weather specialist: {weatherModerator.Name}. {positionNote}";
-
+        var factory = sp.GetRequiredService<AnnouncementFactory>();
         await context.ReportProgress("Writing weather handoff.", ct);
         try
         {
@@ -110,34 +81,59 @@ public sealed class WeatherSegmentContributor(
                 localNowOverride: context.TargetLocal,
                 priority: PromptPriority.High,
                 purpose: "WeatherHandoff");
-            return await factory.ProduceFromDraftAsync(draft, ct);
+            return new SlotDraft(draft, null, IsGap: false, DegradationReason: null);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            logger.LogWarning(ex, "Weather handoff LLM/TTS failed; falling back to direct text");
-            var fallback = $"{weatherModerator.Name} has the weather.";
-            return await factory.ProduceDirectAsync(
+            logger.LogWarning(ex, "Weather handoff LLM failed; falling back to direct text");
+            var direct = new DirectAnnouncementSpec(
                 AnnouncementKind.StationId,
                 TalkPartKind.WeatherHandoff,
                 TalkBreakPriority.Scheduled,
                 context.ShowModerator,
-                fallback,
+                $"{weatherModerator.Name} has the weather.",
                 "WeatherHandoff",
-                ct,
-                title: "Weather handoff",
-                expiresAtUtc: context.ExpiresAtUtc,
-                desiredDurationSeconds: 5,
-                wordBudget: 14);
+                "Weather handoff",
+                context.ExpiresAtUtc,
+                DesiredDurationSeconds: 5,
+                WordBudget: 14);
+            return new SlotDraft(null, direct, IsGap: false, DegradationReason: null);
         }
     }
 
-    private async Task<Announcement?> TryProduceBodyAsync(
+    private static string BuildHandoverFacts(SegmentProductionContext context, Moderator weatherModerator)
+    {
+        var positionNote = context.Position == SegmentPosition.First
+            ? "This is the first segment of the block."
+            : $"This segment follows {context.PreviousSegmentHost?.Name ?? "the previous segment"}.";
+        return $"Current host: {context.ShowModerator.Name}. Weather specialist: {weatherModerator.Name}. {positionNote}";
+    }
+
+    private static SlotDraft WeatherGapSlot(SegmentProductionContext context, string reason)
+        => new(
+            null,
+            new DirectAnnouncementSpec(
+                AnnouncementKind.StationId,
+                TalkPartKind.StationId,
+                TalkBreakPriority.Scheduled,
+                context.ShowModerator,
+                "We'll have the weather for you in a moment.",
+                "WeatherGap",
+                "Weather gap",
+                context.ExpiresAtUtc,
+                DesiredDurationSeconds: 5,
+                WordBudget: 12),
+            IsGap: true,
+            DegradationReason: reason);
+
+    private async Task<SlotDraft> WriteBodyAsync(
+        IServiceProvider sp,
         SegmentProductionContext context,
-        AnnouncementFactory factory,
-        IWeatherReportSource weatherSource,
         Moderator weatherModerator,
         CancellationToken ct)
     {
+        var factory = sp.GetRequiredService<AnnouncementFactory>();
+        var weatherSource = sp.GetRequiredService<IWeatherReportSource>();
         Exception? last = null;
         for (var attempt = 1; attempt <= BlockMaxAttempts; attempt++)
         {
@@ -164,8 +160,7 @@ public sealed class WeatherSegmentContributor(
                     localNowOverride: context.TargetLocal,
                     priority: PromptPriority.High,
                     purpose: "WeatherReport");
-                await context.ReportProgress("Recording weather forecast.", ct);
-                return await factory.ProduceFromDraftAsync(draft, ct);
+                return new SlotDraft(draft, null, IsGap: false, DegradationReason: null);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -192,7 +187,7 @@ public sealed class WeatherSegmentContributor(
             "Weather forecast skipped after {MaxAttempts} failed attempts: {Message}",
             BlockMaxAttempts,
             last?.GetBaseException().Message);
-        return null;
+        return WeatherGapSlot(context, "Weather forecast failed after retries; airing handoff only.");
     }
 
     private async Task<Moderator> ResolveWeatherModeratorAsync(

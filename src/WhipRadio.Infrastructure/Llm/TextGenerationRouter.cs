@@ -17,7 +17,6 @@ public class TextGenerationRouter(
     StationSettingsCache settingsCache,
     StudioCoordinator studios,
     StudioHistoryRecorder history,
-    OllamaModelMemoryManager modelMemory,
     ILogger<TextGenerationRouter> logger,
     ILoggerFactory loggerFactory) : ITextGenerationService
 {
@@ -33,67 +32,92 @@ public class TextGenerationRouter(
     public async Task<string> CompleteAsync(TextGenerationRequest generation, CancellationToken ct)
     {
         var label = NormalizeJobLabel(generation.JobLabel);
-        var systemPrompt = generation.SystemPrompt;
-        var userPrompt = generation.UserPrompt;
         var settings = await settingsCache.GetAsync(ct);
-        var writerRoom = await AcquireWriterRoomAsync(settings, label, ct);
-        if (writerRoom is not null)
+        var preferOpenAi = settings.TextProvider == TextProviders.OpenAi;
+        var preferredProvider = preferOpenAi ? StudioProviders.OpenAi : StudioProviders.Ollama;
+
+        // Prefer a configured writer room of the selected provider. Ollama rooms are
+        // GPU-scheduled (priority -> affinity -> FIFO) and only reload the model when
+        // switching engines; OpenAI rooms book immediately. The wait for a free room is the
+        // scheduler's job now — no busy-wait here.
+        var lease = await studios.AcquireForGpuJobAsync(StudioKind.WriterRoom, preferredProvider, label, ct);
+
+        if (lease is null && preferOpenAi)
+        {
+            // OpenAI selected but no OpenAI room: use the settings key if present, else fall
+            // back to a local Ollama room/endpoint.
+            if (!string.IsNullOrWhiteSpace(settings.OpenAiApiKey))
+            {
+                return await CompleteWithSettingsOpenAiAsync(settings, generation, label, ct);
+            }
+
+            logger.LogWarning(
+                "Writer Room OpenAI selected but no API key is configured; falling back to Ollama model {Model}",
+                llmOptions.Value.Model);
+            lease = await studios.AcquireForGpuJobAsync(StudioKind.WriterRoom, StudioProviders.Ollama, label, ct);
+        }
+
+        if (lease is not null)
         {
             var success = false;
             try
             {
-                var result = await CompleteWithWriterRoomAsync(writerRoom, settings, generation, label, ct);
+                var result = await CompleteWithWriterRoomAsync(lease.Studio, settings, generation, label, ct);
                 success = true;
                 return result;
             }
             finally
             {
-                await studios.ReleaseAsync(writerRoom.Id, success, CancellationToken.None);
+                await lease.CompleteAsync(success, CancellationToken.None);
             }
         }
 
-        if (settings.TextProvider == TextProviders.OpenAi && !string.IsNullOrWhiteSpace(settings.OpenAiApiKey))
-        {
-            logger.LogInformation("Writer Room provider selected: OpenAI model {Model}", settings.OpenAiModel);
-            return await CompleteWithHistoryAsync(
-                studioId: null,
-                studioName: "Writer Room (OpenAI settings)",
-                provider: StudioProviders.OpenAi,
-                model: settings.OpenAiModel,
-                endpoint: "https://api.openai.com",
-                label,
-                systemPrompt,
-                userPrompt,
-                async token =>
-                {
-                    var openAi = new OpenAiTextGenerationService(
-                        httpClientFactory.CreateClient(OpenAiClientName), settings.OpenAiApiKey, settings.OpenAiModel);
-                    return await openAi.CompleteAsync(generation, token);
-                },
-                ct);
-        }
+        // No configured writer room at all — the default Ollama endpoint (also GPU-scheduled).
+        return await CompleteWithDefaultOllamaAsync(generation, label, ct);
+    }
 
-        if (settings.TextProvider == TextProviders.OpenAi)
-        {
-            logger.LogWarning(
-                "Writer Room OpenAI selected but no API key is configured; falling back to Ollama model {Model}",
-                llmOptions.Value.Model);
-        }
+    private async Task<string> CompleteWithSettingsOpenAiAsync(
+        StationSettings settings, TextGenerationRequest generation, string label, CancellationToken ct)
+    {
+        logger.LogInformation("Writer Room provider selected: OpenAI model {Model}", settings.OpenAiModel);
+        return await CompleteWithHistoryAsync(
+            studioId: null,
+            studioName: "Writer Room (OpenAI settings)",
+            provider: StudioProviders.OpenAi,
+            model: settings.OpenAiModel,
+            endpoint: "https://api.openai.com",
+            label,
+            generation.SystemPrompt,
+            generation.UserPrompt,
+            async token =>
+            {
+                var openAi = new OpenAiTextGenerationService(
+                    httpClientFactory.CreateClient(OpenAiClientName), settings.OpenAiApiKey, settings.OpenAiModel);
+                return await openAi.CompleteAsync(generation, token);
+            },
+            ct);
+    }
 
+    private async Task<string> CompleteWithDefaultOllamaAsync(
+        TextGenerationRequest generation, string label, CancellationToken ct)
+    {
+        var client = httpClientFactory.CreateClient(OllamaClientName);
+        var endpoint = client.BaseAddress?.ToString();
+
+        // Hold the GPU turn (priority -> affinity -> FIFO; unload only on engine switch) around
+        // the whole completion.
+        await using var turn = await studios.AcquireGpuTurnAsync(StudioKind.WriterRoom, endpoint, ct);
         return await CompleteWithHistoryAsync(
             studioId: null,
             studioName: "Writer Room (Ollama default)",
             provider: StudioProviders.Ollama,
             model: llmOptions.Value.Model,
-            endpoint: httpClientFactory.CreateClient(OllamaClientName).BaseAddress?.ToString(),
+            endpoint: endpoint,
             label,
-            systemPrompt,
-            userPrompt,
+            generation.SystemPrompt,
+            generation.UserPrompt,
             async token =>
             {
-                var client = httpClientFactory.CreateClient(OllamaClientName);
-                await modelMemory.TryPrepareForLocalGpuJobAsync(
-                    client.BaseAddress?.ToString(), unloadOllama: false, unloadLocalTts: true, token);
                 var ollama = new OllamaTextGenerationService(
                     client,
                     llmOptions,
@@ -101,57 +125,6 @@ public class TextGenerationRouter(
                 return await ollama.CompleteAsync(generation, token);
             },
             ct);
-    }
-
-    private async Task<Studio?> AcquireWriterRoomAsync(StationSettings settings, string label, CancellationToken ct)
-    {
-        var preferredProvider = settings.TextProvider == TextProviders.OpenAi
-            ? StudioProviders.OpenAi
-            : StudioProviders.Ollama;
-
-        while (await studios.AnyActiveAsync(StudioKind.WriterRoom, requiredProvider: null, ct))
-        {
-            var hasPreferredRooms = await studios.AnyActiveAsync(StudioKind.WriterRoom, preferredProvider, ct);
-            if (hasPreferredRooms)
-            {
-                var preferredRoom = await studios.TryAcquireAsync(
-                    StudioKind.WriterRoom, preferredProvider, label, ct);
-                if (preferredRoom is not null)
-                {
-                    return preferredRoom;
-                }
-
-                if (await studios.AnyBusyAsync(StudioKind.WriterRoom, preferredProvider, ct)
-                    || await studios.AnyAvailableAsync(StudioKind.WriterRoom, preferredProvider, ct))
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
-                    continue;
-                }
-            }
-
-            if (settings.TextProvider == TextProviders.OpenAi
-                && !string.IsNullOrWhiteSpace(settings.OpenAiApiKey))
-            {
-                return null;
-            }
-
-            var writerRoom = await studios.TryAcquireAsync(
-                StudioKind.WriterRoom, requiredProvider: null, label, ct);
-            if (writerRoom is not null)
-            {
-                return writerRoom;
-            }
-
-            if (!await studios.AnyBusyAsync(StudioKind.WriterRoom, requiredProvider: null, ct)
-                && !await studios.AnyAvailableAsync(StudioKind.WriterRoom, requiredProvider: null, ct))
-            {
-                return null;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(250), ct);
-        }
-
-        return null;
     }
 
     private async Task<string> CompleteWithWriterRoomAsync(
@@ -207,8 +180,6 @@ public class TextGenerationRouter(
 
         logger.LogInformation("Writer Room selected: {WriterRoom} (Ollama model {Model})",
             writerRoom.Name, llmOptions.Value.Model);
-        await modelMemory.TryPrepareForLocalGpuJobAsync(
-            client.BaseAddress?.ToString(), unloadOllama: false, unloadLocalTts: true, ct);
         return await CompleteWithHistoryAsync(
             writerRoom.Id,
             writerRoom.Name,

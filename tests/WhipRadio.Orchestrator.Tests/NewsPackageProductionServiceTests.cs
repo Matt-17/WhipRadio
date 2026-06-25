@@ -325,7 +325,7 @@ public class NewsPackageProductionServiceTests
             return minuteOfDay % cadence == 0;
         }
 
-        public Task<SegmentResult> ProduceAsync(SegmentProductionContext context, CancellationToken ct)
+        public Task<SegmentDraftPlan> PlanDraftsAsync(SegmentProductionContext context, CancellationToken ct)
             => throw new NotImplementedException("Planning tests do not exercise production.");
     }
 }

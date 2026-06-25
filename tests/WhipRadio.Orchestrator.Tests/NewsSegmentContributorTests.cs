@@ -37,7 +37,7 @@ public class NewsSegmentContributorTests
             db, feedPolling, NullStationMetrics.Instance, NullLogger<NewsSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         Assert.NotNull(result.Intro);
         Assert.NotNull(result.Body);
@@ -65,7 +65,7 @@ public class NewsSegmentContributorTests
             db, feedPolling, NullStationMetrics.Instance, NullLogger<NewsSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         Assert.NotNull(result.Intro);
         Assert.Null(result.Body);
@@ -97,7 +97,7 @@ public class NewsSegmentContributorTests
             db, feedPolling, NullStationMetrics.Instance, NullLogger<NewsSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // Intro should still be produced (it uses ProduceDirectAsync as fallback, or CannedScriptWriter for the LLM path).
         // Actually the intro uses WriteScriptDraftAsync which calls the throwing script writer → fallback to ProduceDirectAsync.
@@ -128,7 +128,7 @@ public class NewsSegmentContributorTests
             db, feedPolling, NullStationMetrics.Instance, NullLogger<NewsSegmentContributor>.Instance);
 
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // The intro LLM path throws → falls back to ProduceDirectAsync with BuildIntroText.
         // BuildIntroText for Ava (id=1) and Maya (id=2) → "It's 03:00. Maya has the news."
@@ -154,7 +154,7 @@ public class NewsSegmentContributorTests
 
         var target = new DateTimeOffset(2026, 6, 21, 7, 30, 0, TimeSpan.Zero);
         var context = SegmentTestFixtures.CreateContext(settings, ShowHost(), scopeServices, targetLocal: target);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // First-position intro should mention the time (via the facts passed to the LLM).
         Assert.NotNull(result.Intro);
@@ -180,7 +180,7 @@ public class NewsSegmentContributorTests
         var previousHost = new Moderator { Id = 3, Name = "Alex" };
         var context = SegmentTestFixtures.CreateContext(
             settings, ShowHost(), scopeServices, position: SegmentPosition.Middle, previousHost: previousHost);
-        var result = await contributor.ProduceAsync(context, CancellationToken.None);
+        var result = await SegmentProductionRunner.RunInlineAsync(contributor, context, CancellationToken.None);
 
         // Middle position should reference the previous host (Alex) in the intro facts.
         // The intro is LLM-produced; verify it was produced (the facts include "follows Alex").

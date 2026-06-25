@@ -77,6 +77,7 @@ public static class HttpClientsServiceCollectionExtensions
 
         services.AddSingleton<AceStepPromptBuilder>();
         services.AddSingleton<OllamaModelMemoryManager>();
+        services.AddSingleton<LocalGpuScheduler>();
         services.AddSingleton<IStudioUpdatePublisher, NoOpStudioUpdatePublisher>();
         services.AddSingleton<StudioCoordinator>();
         services.AddSingleton<StudioHistoryRecorder>();

@@ -19,9 +19,6 @@ public class TtsEngineRouter(
 {
     public const string ElevenLabsClientName = "tts-elevenlabs";
 
-    private static readonly TimeSpan AcquireRetryDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan AcquireTimeout = TimeSpan.FromMinutes(10);
-
     public async Task<TtsResult> SynthesizeAsync(string markedUpText, TtsVoiceOptions options, CancellationToken ct)
     {
         if (options.Engine == TtsEngines.ElevenLabs)
@@ -72,46 +69,23 @@ public class TtsEngineRouter(
     private async Task<TtsResult> SynthesizeInBoothAsync(
         string requiredProvider, string markedUpText, TtsVoiceOptions options, CancellationToken ct)
     {
-        var deadline = DateTime.UtcNow + AcquireTimeout;
-        Studio? booth = null;
-        while (booth is null)
+        var label = $"Voicing ({options.Engine}/{options.VoiceId})";
+
+        // Order against everyone else waiting on the shared GPU (priority -> affinity -> FIFO);
+        // local-TTS booths only reload the model when switching away from text/music work.
+        var lease = await coordinator.AcquireForGpuJobAsync(StudioKind.VoiceBooth, requiredProvider, label, ct);
+        if (lease is null)
         {
-            booth = await coordinator.TryAcquireAsync(
-                StudioKind.VoiceBooth, requiredProvider, $"Voicing ({options.Engine}/{options.VoiceId})", ct);
-            if (booth is not null)
-            {
-                break;
-            }
-
-            if (!await coordinator.AnyActiveAsync(StudioKind.VoiceBooth, requiredProvider, ct))
-            {
-                throw new InvalidOperationException($"No active voice booth for provider '{requiredProvider}'.");
-            }
-
-            if (!await coordinator.AnyBusyAsync(StudioKind.VoiceBooth, requiredProvider, ct)
-                && !await coordinator.AnyAvailableAsync(StudioKind.VoiceBooth, requiredProvider, ct))
-            {
-                throw new InvalidOperationException($"No reachable voice booth for provider '{requiredProvider}'.");
-            }
-
-            if (DateTime.UtcNow > deadline)
-            {
-                throw new InvalidOperationException("All voice booths busy for too long.");
-            }
-
-            await Task.Delay(AcquireRetryDelay, ct);
+            throw new InvalidOperationException($"No reachable voice booth for provider '{requiredProvider}'.");
         }
 
+        var booth = lease.Studio;
         var success = false;
         Guid? historyId = null;
         try
         {
             historyId = await history.BeginAsync(
-                booth,
-                $"Voicing ({options.Engine}/{options.VoiceId})",
-                VoicePrompt(markedUpText),
-                VoiceDetail(options),
-                ct);
+                booth, label, VoicePrompt(markedUpText), VoiceDetail(options), ct);
             var result = await factory.CreateTtsEngine(booth).SynthesizeAsync(markedUpText, options, ct);
             await history.CompleteAsync(historyId, VoiceResultDetail(result), null, CancellationToken.None);
             success = true;
@@ -124,7 +98,7 @@ public class TtsEngineRouter(
         }
         finally
         {
-            await coordinator.ReleaseAsync(booth.Id, success, CancellationToken.None);
+            await lease.CompleteAsync(success, CancellationToken.None);
         }
     }
 

@@ -9,10 +9,12 @@ public class LlmOptions
     public int ContextSize { get; set; } = 16384;
 
     /// <summary>
-    /// Ollama model residency after a request. "0" unloads immediately so the
-    /// shared GPU is available for ACE-Step/music generation.
+    /// Ollama model residency after a request. The GPU scheduler now unloads the model
+    /// explicitly when a different engine (voice/music) is admitted, so the model is kept
+    /// resident between consecutive writer jobs to avoid reloads. ("0" would unload after
+    /// every request and reintroduce the thrash.)
     /// </summary>
-    public string? KeepAlive { get; set; } = "0";
+    public string? KeepAlive { get; set; } = "30m";
 
     public double Temperature { get; set; } = 0.8;
 }

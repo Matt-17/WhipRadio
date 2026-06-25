@@ -419,6 +419,12 @@ public sealed class NewsPackageProductionService(
 
         try
         {
+            // Every writer + voice job in this package inherits one ramping priority: news
+            // climbs from Low to Highest as its target air time approaches, re-evaluated each
+            // time the GPU scheduler picks the next job.
+            using var newsPriority = GpuPriorityContext.Push(
+                () => NewsAirtimeRamp.Priority(targetUtc, timeProvider.GetUtcNow().UtcDateTime));
+
             step = "loading current show context";
             await UpdateStepAsync(package.Id, 1, totalSteps, "Loading show context.", ct);
             var context = await schedule.GetCurrentAsync(ct);
@@ -434,42 +440,26 @@ public sealed class NewsPackageProductionService(
             using var scope = scopeFactory.CreateScope();
             var renderer = scope.ServiceProvider.GetRequiredService<SegmentRenderer>();
 
+            // --- Phase 1: sequential, cheap prep. Reuse finished segments; otherwise resolve
+            // the host/items and capture the (text-only) draft jobs to run. No GPU work yet.
+            var prepared = new List<PreparedSegment>();
             Moderator? previousSegmentHost = null;
             for (var i = 0; i < includedContributors.Count; i++)
             {
                 var contributor = includedContributors[i];
-                var stepNo = 2 + i;
                 var position = i == 0
                     ? SegmentPosition.First
                     : i == includedContributors.Count - 1
                         ? SegmentPosition.Last
                         : SegmentPosition.Middle;
 
-                // Resume: if this segment was already written + rendered on an earlier run,
-                // re-attach its audio instead of re-producing it.
                 var saved = producedSegments.FirstOrDefault(s => s.Key == contributor.Key && s.Done);
                 if (saved is not null)
                 {
                     var reused = await TryLoadSavedSegmentAsync(saved, ct);
                     if (reused is not null)
                     {
-                        await UpdateStepAsync(package.Id, stepNo, totalSteps, $"Reusing {contributor.Key} segment.", ct);
-                        firstSegmentHost ??= reused.Host;
-                        fallbackModerator ??= reused.Host;
-                        producedAnnouncements.Add(reused.Intro);
-                        if (reused.Body is not null)
-                        {
-                            producedAnnouncements.Add(reused.Body);
-                        }
-                        if (reused.GapLine is not null)
-                        {
-                            producedAnnouncements.Add(reused.GapLine);
-                        }
-                        allItems.AddRange(reused.Items);
-                        if (saved.DegradationReason is not null)
-                        {
-                            degradationReasons.Add(saved.DegradationReason);
-                        }
+                        prepared.Add(PreparedSegment.FromReuse(reused, saved.DegradationReason));
                         previousSegmentHost = reused.Host;
                         continue;
                     }
@@ -478,8 +468,8 @@ public sealed class NewsPackageProductionService(
                     producedSegments.RemoveAll(s => s.Key == contributor.Key);
                 }
 
-                step = $"producing {contributor.Key} segment";
-                await UpdateStepAsync(package.Id, stepNo, totalSteps, $"Producing {contributor.Key} segment.", ct);
+                step = $"preparing {contributor.Key} segment";
+                await UpdatePackageProductionStateAsync(package.Id, $"Preparing {contributor.Key} segment.", ct);
 
                 var segmentContext = new SegmentProductionContext(
                     settings,
@@ -492,10 +482,11 @@ public sealed class NewsPackageProductionService(
                     scope.ServiceProvider,
                     (state, token) => UpdatePackageProductionStateAsync(package.Id, state, token));
 
-                SegmentResult? result = null;
                 try
                 {
-                    result = await contributor.ProduceAsync(segmentContext, ct);
+                    var draftPlan = await contributor.PlanDraftsAsync(segmentContext, ct);
+                    prepared.Add(PreparedSegment.FromPlan(draftPlan));
+                    previousSegmentHost = draftPlan.Host;
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -506,48 +497,73 @@ public sealed class NewsPackageProductionService(
                     metrics.GenerationFailed("news");
                     logger.LogError(
                         ex,
-                        "Top-of-hour {Key} contributor failed: {Message}",
+                        "Top-of-hour {Key} contributor prep failed: {Message}",
                         contributor.Key,
                         ex.GetBaseException().Message);
                     degradationReasons.Add($"{contributor.Key} segment failed: {FailureDetail(ex)}");
                 }
+            }
 
-                if (result is not null)
+            // --- Phase 2: queue every script write at once and voice each draft as it lands.
+            // The GPU scheduler orders writes vs. voices by priority -> affinity -> FIFO, so a
+            // high-priority handover recording may finish before a later script is even written.
+            step = "writing and recording segments";
+            var plannedPlans = prepared.Where(p => p.Plan is not null).Select(p => p.Plan!).ToList();
+            var jobCount = plannedPlans.Sum(draftPlan => draftPlan.Jobs.Count);
+            // load context (1) + one step per write and per voice + schedule/render/finalize (3).
+            var stepTotal = 1 + (jobCount * 2) + 3;
+            var stepCounter = new StepCounter(startAt: 1);
+            using var dbGate = new SemaphoreSlim(1, 1);
+
+            var runResults = await Task.WhenAll(plannedPlans.Select(draftPlan =>
+                RunPlannedSegmentAsync(draftPlan, package.Id, stepTotal, stepCounter, dbGate, producedSegments, ct)));
+            var resultsByKey = runResults.ToDictionary(result => result.SegmentKey);
+
+            // Reassemble in contributor order (independent of voice completion order).
+            foreach (var prep in prepared)
+            {
+                if (prep.Reused is { } reused)
                 {
-                    firstSegmentHost ??= result.SegmentHost;
-                    fallbackModerator ??= result.SegmentHost;
-                    producedAnnouncements.Add(result.Intro);
-                    if (result.Body is not null)
+                    firstSegmentHost ??= reused.Host;
+                    fallbackModerator ??= reused.Host;
+                    producedAnnouncements.Add(reused.Intro);
+                    if (reused.Body is not null)
                     {
-                        producedAnnouncements.Add(result.Body);
+                        producedAnnouncements.Add(reused.Body);
                     }
-                    if (result.GapLine is not null)
+                    if (reused.GapLine is not null)
                     {
-                        producedAnnouncements.Add(result.GapLine);
+                        producedAnnouncements.Add(reused.GapLine);
                     }
-                    allItems.AddRange(result.SelectedItems);
-                    if (result.DegradationReason is not null)
+                    allItems.AddRange(reused.Items);
+                    if (prep.SavedDegradationReason is not null)
                     {
-                        degradationReasons.Add(result.DegradationReason);
+                        degradationReasons.Add(prep.SavedDegradationReason);
                     }
-                    previousSegmentHost = result.SegmentHost;
-
-                    // Persist immediately so a restart resumes from here instead of re-writing.
-                    producedSegments.RemoveAll(s => s.Key == contributor.Key);
-                    producedSegments.Add(new NewsPackageSegmentState
-                    {
-                        Key = contributor.Key,
-                        Done = true,
-                        IntroAnnouncementId = result.Intro.Id,
-                        BodyAnnouncementId = result.Body?.Id,
-                        GapLineAnnouncementId = result.GapLine?.Id,
-                        SegmentHostModeratorId = result.SegmentHost.Id,
-                        DegradationReason = result.DegradationReason,
-                        SourceSummary = result.SourceSummary,
-                        SelectedItemIds = result.SelectedItems.Select(item => item.Id).ToList(),
-                    });
-                    await PersistSegmentsAsync(package.Id, producedSegments, ct);
+                    continue;
                 }
+
+                if (prep.Plan is null || !resultsByKey.TryGetValue(prep.Plan.SegmentKey, out var result))
+                {
+                    continue;
+                }
+
+                firstSegmentHost ??= result.Host;
+                fallbackModerator ??= result.Host;
+                if (result.Intro is not null)
+                {
+                    producedAnnouncements.Add(result.Intro);
+                }
+                if (result.Body is not null)
+                {
+                    producedAnnouncements.Add(result.Body);
+                }
+                if (result.GapLine is not null)
+                {
+                    producedAnnouncements.Add(result.GapLine);
+                }
+                allItems.AddRange(result.Items);
+                degradationReasons.AddRange(result.DegradationReasons);
             }
 
             if (producedAnnouncements.Count == 0)
@@ -561,16 +577,16 @@ public sealed class NewsPackageProductionService(
             }
 
             step = "marking package announcements as scheduled";
-            await UpdateStepAsync(package.Id, totalSteps - 2, totalSteps, "Scheduling package audio.", ct);
+            await UpdateStepAsync(package.Id, stepTotal - 2, stepTotal, "Scheduling package audio.", ct);
             await MarkScheduledAsync(producedAnnouncements.Select(a => a.Id).ToList(), targetUtc, targetEnd, expiresAt, ct);
             step = "rendering package audio";
-            await UpdateStepAsync(package.Id, totalSteps - 1, totalSteps, "Rendering package audio.", ct);
+            await UpdateStepAsync(package.Id, stepTotal - 1, stepTotal, "Rendering package audio.", ct);
             var fallback = fallbackModerator ?? context.Moderator;
             var composite = producedAnnouncements.Count == 1
                 ? producedAnnouncements[0]
                 : await renderer.RenderAsync(producedAnnouncements, fallback, ct);
             step = "finalizing package";
-            await UpdateStepAsync(package.Id, totalSteps, totalSteps, "Finalizing package.", ct);
+            await UpdateStepAsync(package.Id, stepTotal, stepTotal, "Finalizing package.", ct);
             await FinalizePackageAsync(
                 package.Id,
                 composite,
@@ -957,6 +973,182 @@ public sealed class NewsPackageProductionService(
 
     private static string SerializeSegments(IReadOnlyList<NewsPackageSegmentState> segments)
         => JsonSerializer.Serialize(segments);
+
+    /// <summary>
+    /// Run one planned segment: fan its draft jobs out (so all writes queue together), voice
+    /// each as its script lands, then persist the segment for resume once the handover aired.
+    /// </summary>
+    private async Task<SegmentRunResult> RunPlannedSegmentAsync(
+        SegmentDraftPlan plan,
+        Guid packageId,
+        int stepTotal,
+        StepCounter stepCounter,
+        SemaphoreSlim dbGate,
+        List<NewsPackageSegmentState> producedSegments,
+        CancellationToken ct)
+    {
+        var slots = await Task.WhenAll(
+            plan.Jobs.Select(job => RunSlotAsync(plan, job, packageId, stepTotal, stepCounter, dbGate, ct)));
+
+        Announcement? intro = null;
+        Announcement? body = null;
+        Announcement? gapLine = null;
+        var degradations = new List<string>();
+        foreach (var slot in slots)
+        {
+            if (slot.DegradationReason is not null)
+            {
+                degradations.Add(slot.DegradationReason);
+            }
+
+            if (slot.Slot == SegmentSlot.Handover)
+            {
+                intro = slot.Announcement;
+            }
+            else if (slot.IsGap)
+            {
+                gapLine = slot.Announcement;
+            }
+            else
+            {
+                body = slot.Announcement;
+            }
+        }
+
+        // Persist for resume once the whole segment is voiced (only when the handover aired).
+        if (intro is not null)
+        {
+            await dbGate.WaitAsync(ct);
+            try
+            {
+                producedSegments.RemoveAll(s => s.Key == plan.SegmentKey);
+                producedSegments.Add(new NewsPackageSegmentState
+                {
+                    Key = plan.SegmentKey,
+                    Done = true,
+                    IntroAnnouncementId = intro.Id,
+                    BodyAnnouncementId = body?.Id,
+                    GapLineAnnouncementId = gapLine?.Id,
+                    SegmentHostModeratorId = plan.Host.Id,
+                    DegradationReason = degradations.FirstOrDefault(),
+                    SourceSummary = plan.SourceSummary,
+                    SelectedItemIds = plan.Items.Select(item => item.Id).ToList(),
+                });
+                await PersistSegmentsAsync(packageId, producedSegments, ct);
+            }
+            finally
+            {
+                dbGate.Release();
+            }
+        }
+
+        return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, body, gapLine, plan.Items, degradations);
+    }
+
+    /// <summary>Write one slot's script (its own DI scope), then voice it. Each write and each
+    /// recording advances the production step counter.</summary>
+    private async Task<SlotRunResult> RunSlotAsync(
+        SegmentDraftPlan plan,
+        SegmentDraftJob job,
+        Guid packageId,
+        int stepTotal,
+        StepCounter stepCounter,
+        SemaphoreSlim dbGate,
+        CancellationToken ct)
+    {
+        using var slotScope = scopeFactory.CreateScope();
+        var services = slotScope.ServiceProvider;
+
+        SlotDraft draft;
+        try
+        {
+            draft = await job.WriteAsync(services, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            metrics.GenerationFailed("news");
+            logger.LogError(
+                ex,
+                "Top-of-hour {Segment} {Slot} writing failed: {Message}",
+                plan.SegmentKey, job.ProgressLabel, ex.GetBaseException().Message);
+            await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Writing {job.ProgressLabel}.", ct);
+            await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Recording {job.ProgressLabel}.", ct);
+            return new SlotRunResult(
+                job.Slot, null, job.Slot == SegmentSlot.Body, $"{job.ProgressLabel} writing failed: {FailureDetail(ex)}");
+        }
+
+        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Writing {job.ProgressLabel}.", ct);
+
+        Announcement? announcement = null;
+        var degradation = draft.DegradationReason;
+        try
+        {
+            announcement = await SegmentProductionRunner.VoiceAsync(services, draft, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            metrics.GenerationFailed("news");
+            logger.LogError(
+                ex,
+                "Top-of-hour {Segment} {Slot} recording failed: {Message}",
+                plan.SegmentKey, job.ProgressLabel, ex.GetBaseException().Message);
+            degradation ??= $"{job.ProgressLabel} recording failed: {FailureDetail(ex)}";
+        }
+
+        await BumpStepAsync(packageId, stepCounter, stepTotal, dbGate, $"Recording {job.ProgressLabel}.", ct);
+        return new SlotRunResult(job.Slot, announcement, draft.IsGap, degradation);
+    }
+
+    private async Task BumpStepAsync(
+        Guid packageId, StepCounter counter, int total, SemaphoreSlim dbGate, string state, CancellationToken ct)
+    {
+        var index = counter.Next();
+        await dbGate.WaitAsync(ct);
+        try
+        {
+            await UpdateStepAsync(packageId, index, total, state, ct);
+        }
+        finally
+        {
+            dbGate.Release();
+        }
+    }
+
+    private sealed record PreparedSegment(
+        SegmentDraftPlan? Plan, ReusedSegment? Reused, string? SavedDegradationReason)
+    {
+        public static PreparedSegment FromPlan(SegmentDraftPlan plan) => new(plan, null, null);
+
+        public static PreparedSegment FromReuse(ReusedSegment reused, string? degradation)
+            => new(null, reused, degradation);
+    }
+
+    private sealed record SegmentRunResult(
+        string SegmentKey,
+        Moderator Host,
+        Announcement? Intro,
+        Announcement? Body,
+        Announcement? GapLine,
+        IReadOnlyList<NewsItem> Items,
+        IReadOnlyList<string> DegradationReasons);
+
+    private sealed record SlotRunResult(
+        SegmentSlot Slot, Announcement? Announcement, bool IsGap, string? DegradationReason);
+
+    private sealed class StepCounter(int startAt)
+    {
+        private int _value = startAt;
+
+        public int Next() => Interlocked.Increment(ref _value);
+    }
 
     private sealed record ReusedSegment(
         Moderator Host,

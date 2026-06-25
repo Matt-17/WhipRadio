@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Playout;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Core.Speech;
 using WhipRadio.Infrastructure.Persistence;
@@ -37,6 +38,7 @@ public class AnnouncementFactory(
         DateTimeOffset? localNowOverride = null,
         string? purpose = null)
     {
+        using var priorityScope = PriorityScope(kind);
         var allowBreath = await GetAllowBreathAsync(moderator, ct);
 
         // Personal talks reference what the host already said today.
@@ -160,6 +162,8 @@ public class AnnouncementFactory(
         PromptPriority priority = PromptPriority.Normal,
         string? purpose = null)
     {
+        using var priorityScope = PriorityScope(kind);
+
         // Personal talks reference what the host already said today.
         if (kind == AnnouncementKind.PersonalNote && string.IsNullOrEmpty(facts))
         {
@@ -207,6 +211,7 @@ public class AnnouncementFactory(
 
     public async Task<Announcement> ProduceFromDraftAsync(AnnouncementScriptDraft draft, CancellationToken ct)
     {
+        using var priorityScope = PriorityScope(draft.Kind);
         var allowBreath = await GetAllowBreathAsync(draft.Moderator, ct);
 
         // The combined run already produced the delivery + voice direction; finalizing a
@@ -308,6 +313,7 @@ public class AnnouncementFactory(
         int? desiredDurationSeconds = null,
         int? wordBudget = null)
     {
+        using var priorityScope = PriorityScope(kind);
         var script = text.Trim();
         if (string.IsNullOrWhiteSpace(script))
         {
@@ -491,6 +497,22 @@ public class AnnouncementFactory(
             ],
         };
     }
+
+    /// <summary>Default GPU scheduling priority for a standalone announcement; defers to any
+    /// production-wide scope already set by the caller (e.g. a news package's air-time ramp).</summary>
+    private static IDisposable PriorityScope(AnnouncementKind kind)
+        => GpuPriorityContext.PushIfUnset(GpuPriorityFor(kind));
+
+    private static int GpuPriorityFor(AnnouncementKind kind)
+        => kind switch
+        {
+            AnnouncementKind.EmergencyMessage => GpuJobPriority.Emergency,
+            AnnouncementKind.SongIntro or AnnouncementKind.SongOutro
+                or AnnouncementKind.ListenerGreeting or AnnouncementKind.RequestDedication
+                or AnnouncementKind.HostChange => GpuJobPriority.High,
+            AnnouncementKind.StationId or AnnouncementKind.Jingle => GpuJobPriority.Low,
+            _ => GpuJobPriority.Normal,
+        };
 
     private static TalkBreakPriority PriorityFor(AnnouncementKind kind)
         => kind switch

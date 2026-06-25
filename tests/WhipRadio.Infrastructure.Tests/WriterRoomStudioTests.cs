@@ -25,6 +25,8 @@ public class WriterRoomStudioTests
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var result = await coordinator.TestAsync(
@@ -46,6 +48,8 @@ public class WriterRoomStudioTests
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var result = await coordinator.TestAsync(
@@ -68,6 +72,8 @@ public class WriterRoomStudioTests
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var result = await coordinator.TestAsync(
@@ -96,6 +102,8 @@ public class WriterRoomStudioTests
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var result = await coordinator.TestAsync(
@@ -118,6 +126,8 @@ public class WriterRoomStudioTests
             new ThrowingDbFactory(),
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var result = await coordinator.TestAsync(
@@ -156,6 +166,8 @@ public class WriterRoomStudioTests
             fixture,
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         await using var verify = fixture.CreateDbContext();
@@ -193,6 +205,8 @@ public class WriterRoomStudioTests
             fixture,
             new SingleClientFactory(handler.CreateClient()),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var studio = await coordinator.TryAcquireAsync(
@@ -239,6 +253,8 @@ public class WriterRoomStudioTests
             fixture,
             ReadyLocalStudiosClientFactory(),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var first = await coordinator.TryAcquireAsync(
@@ -296,6 +312,8 @@ public class WriterRoomStudioTests
             fixture,
             ReadyLocalStudiosClientFactory(),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var studio = await coordinator.TryAcquireAsync(
@@ -349,6 +367,8 @@ public class WriterRoomStudioTests
             fixture,
             ReadyLocalStudiosClientFactory(),
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
 
         var first = await coordinator.TryAcquireAsync(
@@ -394,6 +414,8 @@ public class WriterRoomStudioTests
             fixture,
             clientFactory,
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
         var llmOptions = Options.Create(new LlmOptions { Model = "test-model" });
         var router = new TextGenerationRouter(
@@ -402,11 +424,6 @@ public class WriterRoomStudioTests
             new StationSettingsCache(fixture, TimeProvider.System),
             coordinator,
             History(fixture),
-            new OllamaModelMemoryManager(
-                clientFactory,
-                llmOptions,
-                fixture,
-                NullLogger<OllamaModelMemoryManager>.Instance),
             NullLogger<TextGenerationRouter>.Instance,
             NullLoggerFactory.Instance);
 
@@ -467,6 +484,8 @@ public class WriterRoomStudioTests
             fixture,
             clientFactory,
             new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
             NullLogger<StudioCoordinator>.Instance);
         var llmOptions = Options.Create(new LlmOptions { Model = "test-model" });
         var router = new TextGenerationRouter(
@@ -475,11 +494,6 @@ public class WriterRoomStudioTests
             new StationSettingsCache(fixture, TimeProvider.System),
             coordinator,
             History(fixture),
-            new OllamaModelMemoryManager(
-                clientFactory,
-                llmOptions,
-                fixture,
-                NullLogger<OllamaModelMemoryManager>.Instance),
             NullLogger<TextGenerationRouter>.Instance,
             NullLoggerFactory.Instance);
 
@@ -506,6 +520,15 @@ public class WriterRoomStudioTests
             fixture,
             new NoOpStudioUpdatePublisher(),
             NullLogger<StudioHistoryRecorder>.Instance);
+
+    // These tests drive TryAcquireAsync/runtime probing directly, so the model-memory
+    // manager is never actually invoked — a stub with no-op deps is enough.
+    private static OllamaModelMemoryManager StubModelMemory()
+        => new(
+            new SingleClientFactory(new HttpClient()),
+            Options.Create(new LlmOptions()),
+            new ThrowingDbFactory(),
+            NullLogger<OllamaModelMemoryManager>.Instance);
 
     private static SingleClientFactory ReadyLocalStudiosClientFactory()
     {
