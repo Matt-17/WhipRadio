@@ -22,6 +22,7 @@ public sealed class AudioMixerEngine(
     IPlaybackReporter reporter,
     PlayoutStateStore stateStore,
     TrackDeletionService trackDeletions,
+    EmergencyFallbackTrackService emergencyFallback,
     IMixPlanner planner,
     MixerDiagnostics diagnostics,
     IMixerUpdatePublisher mixerUpdates,
@@ -78,6 +79,7 @@ public sealed class AudioMixerEngine(
         var pendingLogs = new List<PendingLog>();
         MixerSettings settings = await LoadSettingsAsync(ct);
         TopOfHourGuard? topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
+        PlayoutItem? lastCompletedItem = null;
 
         diagnostics.SessionStarted();
         mixerUpdates.Publish();
@@ -153,7 +155,15 @@ public sealed class AudioMixerEngine(
                         continue;
                     }
 
-                    var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
+                    if (queue.PeekNext() is null
+                        && await emergencyFallback.TryCreateFallbackTrackAsync(lastCompletedItem, ct) is { } fallback)
+                    {
+                        queue.Enqueue(fallback);
+                    }
+
+                    var item = queue.PeekNext() is null
+                        ? null
+                        : await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
                     if (item is null)
                     {
                         await WriteFrameAsync(encoderInput, outputShorts, outputBytes, clear: true, ct);
@@ -230,6 +240,7 @@ public sealed class AudioMixerEngine(
                         a.Reader.DisposeIfDisposable();
                         stateStore.Complete(a.Item);
                         await trackDeletions.MarkPlaybackCompletedAsync(a.Item, ct);
+                        lastCompletedItem = a.Item;
                         actives.RemoveAt(i);
                         if (actives.Count > 0 && i == actives.Count)
                         {

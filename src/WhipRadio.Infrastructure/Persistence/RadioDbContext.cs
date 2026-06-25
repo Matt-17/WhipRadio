@@ -159,6 +159,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<PlayLogEntry>(entry =>
         {
             entry.Property(e => e.ItemType).HasConversion<string>();
+            entry.Property(e => e.WasFallback).HasDefaultValue(false);
             entry.HasIndex(e => e.PlayedAt);
             entry.HasIndex(e => new { e.ItemType, e.PlayedAt });
         });

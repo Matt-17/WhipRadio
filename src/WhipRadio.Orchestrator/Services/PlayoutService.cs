@@ -22,6 +22,7 @@ public class PlayoutService(
     PlayoutStateStore stateStore,
     IPlaybackReporter reporter,
     TrackDeletionService trackDeletions,
+    EmergencyFallbackTrackService emergencyFallback,
     AudioMixerEngine mixerEngine,
     FfmpegProcessRegistry ffmpegRegistry,
     EncoderHeartbeat heartbeat,
@@ -174,6 +175,7 @@ public class PlayoutService(
 
         var encoderInput = encoder.StandardInput.BaseStream;
         var offAir = false;
+        PlayoutItem? lastCompletedItem = null;
 
         while (!ct.IsCancellationRequested)
         {
@@ -226,7 +228,15 @@ public class PlayoutService(
                 continue;
             }
 
-            var item = await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
+            if (queue.PeekNext() is null
+                && await emergencyFallback.TryCreateFallbackTrackAsync(lastCompletedItem, ct) is { } fallback)
+            {
+                queue.Enqueue(fallback);
+            }
+
+            var item = queue.PeekNext() is null
+                ? null
+                : await TryDequeueAsync(TimeSpan.FromSeconds(1), ct);
             if (item is null)
             {
                 await encoderInput.WriteAsync(SilenceChunk, ct);
@@ -237,14 +247,19 @@ public class PlayoutService(
             stateStore.MarkStarted(item);
             trackDeletions.MarkPlaybackStarted(item);
             await reporter.ReportStartedAsync(item, ct);
+            var completed = false;
             try
             {
-                await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
+                completed = await PlayItemAsync(item, encoderInput, ct); // aborted items land in the off-air branch above
             }
             finally
             {
                 stateStore.Complete(item);
                 await trackDeletions.MarkPlaybackCompletedAsync(item, ct);
+                if (completed)
+                {
+                    lastCompletedItem = item;
+                }
             }
         }
     }

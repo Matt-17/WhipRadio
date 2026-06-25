@@ -58,8 +58,13 @@ public class AudioMixerEngineTests
             var timedInterrupts = new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance);
             var readers = new FakeReaderFactory(audioDuration);
             var logger = new CollectingLogger();
+            var fallback = new EmergencyFallbackTrackService(
+                dbFactory,
+                new QueueStateTracker(),
+                radioOptions,
+                NullLogger<EmergencyFallbackTrackService>.Instance);
             var mixer = new AudioMixerEngine(
-                queue, reporter, stateStore, trackDeletions, planner, diagnostics, mixerUpdates,
+                queue, reporter, stateStore, trackDeletions, fallback, planner, diagnostics, mixerUpdates,
                 timedInterrupts, readers, NullStationMetrics.Instance, dbFactory,
                 collectLogs ? logger : NullLogger<AudioMixerEngine>.Instance);
             return new Fixture(mixer, queue, reporter, trackDeletions, readers, timedInterrupts, logger);

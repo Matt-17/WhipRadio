@@ -126,7 +126,8 @@ public sealed record PlayLogEntryDto(
     string? ArtistName = null,
     string? ArtistSlug = null,
     bool IsNews = false,
-    bool IsDeleted = false);
+    bool IsDeleted = false,
+    bool WasFallback = false);
 
 public sealed record PlayLogHostDto(string Name, string Slug);
 

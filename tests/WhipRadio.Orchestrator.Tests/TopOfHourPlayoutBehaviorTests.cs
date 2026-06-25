@@ -327,8 +327,13 @@ public class TopOfHourPlayoutBehaviorTests
         var mixerUpdates = new NoOpMixerUpdatePublisher();
         var timedInterrupts = new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance);
         var readers = new FakeReaderFactory(null);
+        var fallback = new EmergencyFallbackTrackService(
+            db,
+            new QueueStateTracker(),
+            radioOptions,
+            NullLogger<EmergencyFallbackTrackService>.Instance);
         return new AudioMixerEngine(
-            queue, reporter, stateStore, trackDeletions, planner, diagnostics, mixerUpdates,
+            queue, reporter, stateStore, trackDeletions, fallback, planner, diagnostics, mixerUpdates,
             timedInterrupts, readers, NullStationMetrics.Instance, db,
             NullLogger<AudioMixerEngine>.Instance);
     }

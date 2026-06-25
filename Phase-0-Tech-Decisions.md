@@ -293,6 +293,19 @@ reflects it (green-red live, amber reconnecting, fast-red offline). This is
 distinct from `PlayoutEnabled` (operator intent) and the `EncoderHeartbeat`
 liveness probe.
 
+## Emergency audio fallback
+
+When normal planning/generation stalls and the live queue is empty at an item
+boundary, playout may reuse an already generated local track as emergency
+fallback audio. This path is deliberately dependency-free: it does not call the
+LLM, TTS, news, music generation, or analysis services, and it does not create
+new media. First startup can still warm up with silence until at least one valid
+generated track exists.
+
+Fallback plays are regular track plays for counters and listener metadata, but
+the play log persists `WasFallback=true` so the UI can mark exactly which plays
+were delivered by the UPS path.
+
 ## Standing Constraints
 
 - Never break the live stream; risky subsystems ship behind flags or queues.

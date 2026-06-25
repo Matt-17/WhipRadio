@@ -100,6 +100,7 @@ public class PlaybackReporter(
                 ItemId = item.ItemId,
                 ModeratorId = item.ModeratorId,
                 DurationSeconds = item.DurationSeconds,
+                WasFallback = item.Origin == PlayoutItemOrigin.Fallback,
             });
         }
 

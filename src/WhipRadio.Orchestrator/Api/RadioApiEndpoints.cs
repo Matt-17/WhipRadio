@@ -552,7 +552,8 @@ public static class RadioApiEndpoints
                     artistName,
                     artistSlug,
                     isNews,
-                    isDeleted);
+                    isDeleted,
+                    e.WasFallback);
             }).ToList();
 
             return Results.Ok(result);

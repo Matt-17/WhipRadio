@@ -20,4 +20,6 @@ public class PlayLogEntry
     public int? ModeratorId { get; set; }
 
     public double DurationSeconds { get; set; }
+
+    public bool WasFallback { get; set; }
 }

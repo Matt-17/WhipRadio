@@ -738,6 +738,14 @@ table.console-table {
 /* A new entry just went out over the air — drop it in with a warm VFD phosphor
    flash so the eye catches it, no jarring reload. The marker is removed once
    the flash plays out (see PlayLog) so normal row hover returns. */
+.playlog-fallback {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 7px;
+    color: var(--amber);
+    vertical-align: -2px;
+}
+
 .console-table tbody tr.playlog-new {
     animation:
         playlog-drop .5s cubic-bezier(.2, .7, .3, 1),

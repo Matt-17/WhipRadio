@@ -101,6 +101,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<IcecastListenerPro
 builder.Services.AddSingleton<IStationMetrics, StationMetrics>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
+builder.Services.AddSingleton<EmergencyFallbackTrackService>();
 
 builder.Services.AddSignalR();
 
