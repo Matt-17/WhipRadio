@@ -9,6 +9,10 @@ Rules:
 - Do not introduce yourself or repeat any handoff/context already aired.
 - Lead with current conditions, then the near-term outlook.
 - Name the forecast location from the facts if it is provided.
+- Keep grammatically connected weather phrases unbroken in punctuation and delivery.
+- Do not put a comma or marker between a location phrase and its verb, e.g. "in Dresden herrscht".
+- Do not put a comma or marker between a number and its unit, e.g. "30 Grad".
+- Do not put a comma or marker between a weather condition and its complement, e.g. "klarer Himmel bei 30 Grad".
 - Anchor timing to the weather airing time in the facts; never describe a listed hour at or before airing time as coming up.
 - Treat "daily high" as the day's max temperature, not automatically as a future temperature.
 - Only say the daily high is still ahead when the facts explicitly say it is still ahead; otherwise say it was earlier/already reached or avoid future-high phrasing.

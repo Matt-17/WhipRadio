@@ -16,7 +16,7 @@ aired-tracks lists; reference past spins honestly or stay silent about them.
 Respond with ONLY one JSON object and nothing else:
 {
   "script": "<clean transcript: the exact words with correct punctuation, no markers, no markdown, no parentheses, no quotes>",
-  "delivery": "<the SAME words shaped for speech: add this host's natural fillers and speech markers>",
+  "delivery": "<the SAME words shaped for speech: insert allowed speech markers only>",
   "voice": { "deliveryPrompt": "<3-8 word TTS delivery hint>", "rate": <number 0.7-1.3> }
 }
 
@@ -24,13 +24,17 @@ Respond with ONLY one JSON object and nothing else:
 - Use correct punctuation. End every script with a period, exclamation mark, or question mark.
 
 "delivery" rules:
-- Keep the meaning and wording of "script". Only add fillers and speech markers.
-- Add fillers ("uh", "y'know") only if they fit THIS host, and use them sparingly.
+- Keep the script wording exactly unchanged. You may only insert allowed speech markers.
+- Do not add spoken fillers.
 - Allowed markers ONLY: [pause:NNNms] (100-1500), [breath], [rate:slow], [rate:normal], [rate:fast].
-- Place pauses where a real host naturally would: at clause or sentence boundaries, between
-  list or news items, or as a brief hesitation while gathering a thought. Keep them sparing
-  and natural, not mechanical, and don't break a tight phrase mid-word.
-- Between paragraphs or separate news items, use a longer pause: [pause:1000ms].
+- Insert [pause] and [breath] only immediately after existing punctuation in the script:
+  after a period, comma, semicolon, colon, question mark, or exclamation mark.
+- Never insert a marker inside an unpunctuated phrase or between grammatically connected words.
+- Never place a marker between a location phrase and its verb, such as "in Dresden herrscht".
+- Never place a marker between a number and its unit, such as "30 Grad".
+- Never place a marker between a weather condition and its complement, such as "klarer Himmel bei 30 Grad".
+- For concise weather reports, prefer pauses after full sentences. Use at most one short pause inside a long sentence, and only after a comma.
+- Between paragraphs or separate news or forecast items, use one longer pause after the sentence: [pause:700ms] to [pause:1000ms].
 "voice" rules:
 - deliveryPrompt: pace/tone for THIS moment, e.g. "slightly slow, intimate, clear".
 - rate: 1.0 is normal; lower is slower. Never add words or commentary in any field.

@@ -49,17 +49,18 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
         var raw = await llm.CompleteAsync(
             new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<SpokenDeliveryDto>(), "spokenDelivery"),
             ct);
-        return await ParseOrRetryAsync(raw, systemPrompt, userPrompt, jobLabel, ct);
+        return await ParseOrRetryAsync(raw, request.Kind, systemPrompt, userPrompt, jobLabel, ct);
     }
 
     private async Task<SpokenAnnouncement> ParseOrRetryAsync(
         string raw,
+        AnnouncementKind kind,
         string systemPrompt,
         string userPrompt,
         string jobLabel,
         CancellationToken ct)
     {
-        if (TryBuild(raw, out var result))
+        if (TryBuild(raw, kind, out var result))
         {
             return result;
         }
@@ -70,7 +71,7 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
         var retry = await llm.CompleteAsync(
             new TextGenerationRequest(systemPrompt, retryPrompt, $"{jobLabel} retry", StructuredJson.SchemaFor<SpokenDeliveryDto>(), "spokenDelivery"),
             ct);
-        if (TryBuild(retry, out result))
+        if (TryBuild(retry, kind, out result))
         {
             return result;
         }
@@ -80,7 +81,7 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
 
     /// <summary>Parses the combined DTO and cleans both text fields: the transcript is
     /// stripped of any stray markers, the delivery keeps its markers.</summary>
-    private static bool TryBuild(string raw, out SpokenAnnouncement result)
+    private static bool TryBuild(string raw, AnnouncementKind kind, out SpokenAnnouncement result)
     {
         result = null!;
         var parsed = StructuredJson.Parse<SpokenDeliveryDto>(raw);
@@ -96,6 +97,11 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
             || string.IsNullOrWhiteSpace(delivery))
         {
             return false;
+        }
+
+        if (kind == AnnouncementKind.Weather)
+        {
+            delivery = RemoveWeatherPhraseInternalMarkers(delivery);
         }
 
         // Script is the transcript: sanitize, then strip any markers the model leaked in.
@@ -117,6 +123,28 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
     private static string? NormalizePrompt(string? prompt)
         => string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
 
+    private static string RemoveWeatherPhraseInternalMarkers(string delivery)
+    {
+        var cleaned = WeatherPhraseInternalMarkerRegex().Replace(delivery, match =>
+            IsAfterAllowedMarkerPunctuation(delivery, match.Index) ? match.Value : string.Empty);
+        return MarkerCleanupWhitespaceRegex().Replace(cleaned, " ").Trim();
+    }
+
+    private static bool IsAfterAllowedMarkerPunctuation(string text, int markerStart)
+    {
+        for (var i = markerStart - 1; i >= 0; i--)
+        {
+            if (char.IsWhiteSpace(text[i]))
+            {
+                continue;
+            }
+
+            return text[i] is '.' or ',' or ';' or ':' or '?' or '!';
+        }
+
+        return false;
+    }
+
     /// <summary>Guarantees the transcript ends on a sentence terminator (allowing a trailing
     /// closing quote/bracket), so even a one-line script reads cleanly.</summary>
     private static string EnsureTerminalPunctuation(string text)
@@ -132,6 +160,14 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
 
     [System.Text.RegularExpressions.GeneratedRegex(@"[.!?…][""'”’)\]]?$")]
     private static partial System.Text.RegularExpressions.Regex TerminalPunctuationRegex();
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"[ \t]*(?:\[pause\s*:\s*\d+\s*ms\]|\[breath\])",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex WeatherPhraseInternalMarkerRegex();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[ \t]{2,}")]
+    private static partial System.Text.RegularExpressions.Regex MarkerCleanupWhitespaceRegex();
 
     private static string StationIdTemplate(AnnouncementRequest request)
         => request.PromptContext?.Purpose switch

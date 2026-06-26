@@ -119,6 +119,28 @@ public class AnnouncementWriterTests
     }
 
     [TestMethod]
+    public async Task Weather_RemovesPauseAndBreathMarkersInsideUnpunctuatedPhrases()
+    {
+        var llm = new CapturingLlm(
+            """
+            {
+              "script": "Aktuell in Dresden herrscht klarer Himmel bei 30 Grad. Danach bleibt es trocken.",
+              "delivery": "Aktuell in Dresden [pause:300ms] herrscht klarer Himmel bei 30 [breath] Grad. [pause:600ms] Danach bleibt es trocken."
+            }
+            """);
+        var writer = new AnnouncementWriter(llm);
+
+        var result = await writer.WriteAsync(
+            new AnnouncementRequest(AnnouncementKind.Weather, "WhipRadio", "de", Facts: "Location: Dresden."),
+            Host(),
+            CancellationToken.None);
+
+        Assert.Equal(
+            "Aktuell in Dresden herrscht klarer Himmel bei 30 Grad. [pause:600ms] Danach bleibt es trocken.",
+            result.Delivery);
+    }
+
+    [TestMethod]
     public async Task InjectsPersonaAndStyleIntoSystemPrompt()
     {
         var llm = new CapturingLlm();
@@ -130,20 +152,27 @@ public class AnnouncementWriterTests
         Assert.Contains("Quirlige Moderatorin", llm.SystemPrompt);
         Assert.Contains("fast-energetic", llm.SystemPrompt);
         Assert.Contains("[pause:NNNms]", llm.SystemPrompt);
+        Assert.Contains("Do not add spoken fillers", llm.SystemPrompt);
+        Assert.Contains("only immediately after existing punctuation", llm.SystemPrompt);
+        Assert.Contains("Never insert a marker inside an unpunctuated phrase", llm.SystemPrompt);
+        Assert.Contains("in Dresden herrscht", llm.SystemPrompt);
+        Assert.Contains("30 Grad", llm.SystemPrompt);
+        Assert.DoesNotContain("\"uh\"", llm.SystemPrompt);
+        Assert.DoesNotContain("y'know", llm.SystemPrompt);
     }
 
     [TestMethod]
     public async Task ReturnsCleanScriptAndMarkedDelivery()
     {
         var llm = new CapturingLlm(
-            """{"script":"Up next, a banger.","delivery":"Up next, uh [pause:300ms] a banger!","voice":{"deliveryPrompt":"slightly slow, warm","rate":0.95}}""");
+            """{"script":"Up next, a banger.","delivery":"Up next, a banger. [pause:300ms]","voice":{"deliveryPrompt":"slightly slow, warm","rate":0.95}}""");
         var writer = new AnnouncementWriter(llm);
 
         var result = await writer.WriteAsync(
             new AnnouncementRequest(AnnouncementKind.Joke, "WhipRadio", "en"), Host(), CancellationToken.None);
 
         Assert.Equal("Up next, a banger.", result.Script);
-        Assert.Equal("Up next, uh [pause:300ms] a banger!", result.Delivery);
+        Assert.Equal("Up next, a banger. [pause:300ms]", result.Delivery);
         Assert.Equal("slightly slow, warm", result.DeliveryPrompt);
         Assert.Equal(0.95, result.Rate);
         Assert.Equal(1, llm.CallCount);

@@ -5,7 +5,7 @@ namespace WhipRadio.Core.Speech;
 /// <summary>
 /// Schema-constrained envelope for a single combined script/delivery run. One LLM call
 /// returns the clean transcript (<c>script</c>), the same words shaped for speech with the
-/// host's fillers and speech markers (<c>delivery</c>), and a small per-delivery voice hint.
+/// host's speech markers (<c>delivery</c>), and a small per-delivery voice hint.
 /// Replaces the old two-run ScriptWriter + VoiceDirector envelopes.
 /// </summary>
 public sealed record SpokenDeliveryDto(

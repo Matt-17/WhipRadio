@@ -41,8 +41,8 @@ public class PromptTemplatesTests
         Assert.Contains("Do not frame this like a DJ break", prompt);
         Assert.Contains("Do not introduce yourself", prompt);
         Assert.Contains("Anchor the lead to the bulletin time", prompt);
-        Assert.Contains("Vary the opening slightly", prompt);
-        Assert.Contains("Avoid geography-tour transitions", prompt);
+        Assert.Contains("vary the opening from bulletin to bulletin", prompt);
+        Assert.Contains("Avoid abstract topic framing and essay-style transitions", prompt);
         Assert.DoesNotContain("{NewsFacts}", prompt);
     }
 
@@ -62,6 +62,10 @@ public class PromptTemplatesTests
         Assert.Contains("Do not introduce yourself", prompt);
         Assert.Contains("weather airing time", prompt);
         Assert.Contains("next-hours-after-airing-time", prompt);
+        Assert.Contains("Keep grammatically connected weather phrases unbroken", prompt);
+        Assert.Contains("in Dresden herrscht", prompt);
+        Assert.Contains("30 Grad", prompt);
+        Assert.Contains("klarer Himmel bei 30 Grad", prompt);
         Assert.DoesNotContain("{WeatherFacts}", prompt);
     }
 
