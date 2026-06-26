@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
@@ -24,7 +22,7 @@ public class PlayoutService(
     TrackDeletionService trackDeletions,
     EmergencyFallbackTrackService emergencyFallback,
     AudioMixerEngine mixerEngine,
-    FfmpegProcessRegistry ffmpegRegistry,
+    IFfmpegLauncher launcher,
     EncoderHeartbeat heartbeat,
     IStationMetrics metrics,
     IStationStatusReporter statusReporter,
@@ -130,6 +128,7 @@ public class PlayoutService(
             logger.LogWarning(ex, "Failed to persist PlayoutEnabled=false while parking; waiting for manual re-enable anyway");
         }
 
+        statusReporter.SetPlayoutEnabled(false);
         statusReporter.Set(
             StationStatus.Offline,
             "Encoder circuit breaker tripped — re-enable On Air to resume.");
@@ -148,6 +147,7 @@ public class PlayoutService(
 
             if (await IsPlayoutEnabledAsync(ct))
             {
+                statusReporter.SetPlayoutEnabled(true);
                 logger.LogInformation("Station re-enabled after circuit-breaker park; resuming encoder");
                 return;
             }
@@ -167,13 +167,13 @@ public class PlayoutService(
 
     private async Task RunEncoderSessionAsync(CancellationToken ct)
     {
-        using var encoder = StartEncoder();
+        using var encoder = launcher.StartEncoder();
         statusReporter.Set(StationStatus.Online);
         logger.LogInformation(
             "Encoder started, pushing to icecast://{Host}:{Port}{Mount}",
             icecastOptions.Value.Host, icecastOptions.Value.Port, streamOptions.Value.Mount);
 
-        var encoderInput = encoder.StandardInput.BaseStream;
+        var encoderInput = encoder.StandardInput;
         var offAir = false;
         PlayoutItem? lastCompletedItem = null;
 
@@ -194,6 +194,7 @@ public class PlayoutService(
                 {
                     offAir = true;
                     reporter.ReportIdle();
+                    statusReporter.SetPlayoutEnabled(false); // header lamp goes dark
                     logger.LogInformation("Off air — streaming silence until re-enabled");
                 }
 
@@ -205,6 +206,7 @@ public class PlayoutService(
             if (offAir)
             {
                 offAir = false;
+                statusReporter.SetPlayoutEnabled(true); // lamp lights back up
                 logger.LogInformation("Back on air");
             }
 
@@ -214,8 +216,9 @@ public class PlayoutService(
             if (await IsMixerEnabledAsync(ct))
             {
                 logger.LogInformation("Mixer engaged");
-                await mixerEngine.RunSessionAsync(new ProcessEncoderSink(encoder), encoderInput,
-                    async token => await IsPlayoutEnabledAsync(token) && await IsMixerEnabledAsync(token), ct);
+                await mixerEngine.RunSessionAsync(encoder, encoderInput,
+                    async token => await IsPlayoutEnabledAsync(token) && await IsMixerEnabledAsync(token), ct,
+                    offAirRequested: async token => !await IsPlayoutEnabledAsync(token));
                 logger.LogInformation("Mixer disengaged — legacy playout resumes");
                 continue;
             }
@@ -391,14 +394,14 @@ public class PlayoutService(
             return true;
         }
 
-        using var decoder = StartDecoder(absolutePath, item.StartOffsetSeconds);
+        using var decoder = launcher.StartDecoder(absolutePath, item.StartOffsetSeconds);
         try
         {
             // Manual pump instead of CopyToAsync so the off-air switch is honored
             // mid-item: the admin expects the station to fall silent within seconds,
             // not after the current track finishes. -re backpressure paces the loop.
             var buffer = new byte[32 * 1024];
-            var decoderOutput = decoder.StandardOutput.BaseStream;
+            var decoderOutput = decoder.StandardOutput;
             var lastEnabledCheck = DateTime.UtcNow;
             int bytesRead;
 
@@ -439,65 +442,8 @@ public class PlayoutService(
         {
             if (!decoder.HasExited)
             {
-                decoder.Kill(entireProcessTree: true);
+                decoder.Kill();
             }
         }
-    }
-
-    private Process StartEncoder()
-    {
-        var stream = streamOptions.Value;
-        var icecast = icecastOptions.Value;
-        var target = $"icecast://{icecast.SourceUser}:{icecast.SourcePassword}@{icecast.Host}:{icecast.Port}{stream.Mount}";
-
-        // -re paces the pipe read at realtime so silence and audio stay in sync with the stream clock.
-        var args =
-            $"-hide_banner -loglevel warning -re -f s16le -ar 44100 -ac 2 -i pipe:0 " +
-            $"-c:a libmp3lame -b:a {stream.Bitrate} -content_type audio/mpeg -f mp3 \"{target}\"";
-
-        return StartFfmpeg(args, redirectStdin: true, redirectStdout: false);
-    }
-
-    private Process StartDecoder(string absolutePath, double startOffsetSeconds)
-    {
-        var seek = startOffsetSeconds > 0
-            ? $"-ss {startOffsetSeconds.ToString("0.###", CultureInfo.InvariantCulture)} "
-            : string.Empty;
-
-        return StartFfmpeg(
-            $"-hide_banner -loglevel error {seek}-i \"{absolutePath}\" -f s16le -ar 44100 -ac 2 pipe:1",
-            redirectStdin: false,
-            redirectStdout: true);
-    }
-
-    private Process StartFfmpeg(string arguments, bool redirectStdin, bool redirectStdout)
-    {
-        var process = new Process
-        {
-            StartInfo = new ProcessStartInfo
-            {
-                FileName = streamOptions.Value.FfmpegPath,
-                Arguments = arguments,
-                RedirectStandardInput = redirectStdin,
-                RedirectStandardOutput = redirectStdout,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            },
-            EnableRaisingEvents = true,
-        };
-
-        process.ErrorDataReceived += (_, e) =>
-        {
-            if (!string.IsNullOrWhiteSpace(e.Data))
-            {
-                logger.LogDebug("ffmpeg: {Line}", e.Data);
-            }
-        };
-
-        process.Start();
-        process.BeginErrorReadLine();
-        ffmpegRegistry.Register(process); // next startup kills it if we crash
-        return process;
     }
 }

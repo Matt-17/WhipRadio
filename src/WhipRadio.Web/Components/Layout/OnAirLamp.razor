@@ -1,9 +1,10 @@
+@using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioLiveClient Live
 
 <div class="onair @LampClass" title="@LampTitle">
-    <span class="lamp"></span> @LampLabel
+    <span class="lamp"></span> On Air
 </div>
 
 @code {
@@ -21,44 +22,22 @@
 
     public void Dispose() => Live.Changed -= OnChanged;
 
-    private static readonly Dictionary<string, string> StatusLabel = new(StringComparer.OrdinalIgnoreCase)
+    // The "ON AIR" wording never changes — state is shown purely through the lamp's
+    // colour/glow/blink. PlayoutEnabled now rides the live feed, so the lamp shares
+    // the exact derivation the admin badge uses and the two can never disagree.
+    private StationPresentation State
+        => StationPresentationState.Derive(
+            Live.StationStatus?.Status,
+            Live.StationStatus?.PlayoutEnabled ?? true,
+            Live.NowPlaying is not null);
+
+    private string? LampClass => State switch
     {
-        ["Offline"] = "Offline",
-        ["Reconnecting"] = "Reconnecting",
+        StationPresentation.Offline => "offline",       // red, blinking
+        StationPresentation.Reconnecting => "reconnecting", // border stays, dot goes amber + blinks
+        StationPresentation.OffAir => "offair",         // dark, border off, text grey
+        _ => "live",                                    // Live or Standby: red glow
     };
-
-    private string LampLabel
-    {
-        get
-        {
-            var status = Live.StationStatus?.Status;
-            if (!string.IsNullOrEmpty(status) && StatusLabel.TryGetValue(status, out var label))
-            {
-                return label;
-            }
-
-            return "On Air";
-        }
-    }
-
-    private string? LampClass
-    {
-        get
-        {
-            var status = Live.StationStatus?.Status;
-            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
-            {
-                return "offline";
-            }
-
-            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
-            {
-                return "reconnecting";
-            }
-
-            return Live.NowPlaying is not null ? "live" : null;
-        }
-    }
 
     private string? LampTitle
     {

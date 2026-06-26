@@ -86,9 +86,9 @@ public sealed class NewsSegmentContributor(
 
         var jobs = new List<SegmentDraftJob>
         {
-            new(SegmentSlot.Handover, 0, "news handover",
+            new(SegmentSlot.Handover, 0, ScriptOperationLabels.Describe(AnnouncementKind.StationId, "NewsHandover"),
                 (sp, token) => WriteHandoverAsync(sp, context, newsModerator, handoverFacts, token)),
-            new(SegmentSlot.Body, 1, "news bulletin",
+            new(SegmentSlot.Body, 1, ScriptOperationLabels.Describe(AnnouncementKind.News, "NewsReport"),
                 (sp, token) => WriteBodyAsync(sp, context, newsModerator, items, token)),
         };
 
@@ -103,7 +103,7 @@ public sealed class NewsSegmentContributor(
         CancellationToken ct)
     {
         var factory = sp.GetRequiredService<AnnouncementFactory>();
-        await context.ReportProgress("Writing news intro.", ct);
+        await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.StationId, "NewsHandover")}.", ct);
         try
         {
             // The news host opens the block by briefly introducing THEMSELVES (not the show
@@ -233,7 +233,7 @@ public sealed class NewsSegmentContributor(
 
                 await context.ReportProgress("Extracting article text.", ct);
                 await EnrichItemsAsync(items, context.Settings.NewsExtractionEnabled, extractor, ct);
-                await context.ReportProgress("Writing news script.", ct);
+                await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.News, "NewsReport")}.", ct);
                 var handoff = BuildSelfIntroText(newsModerator, context.TargetLocal);
                 var draft = await factory.WriteScriptDraftAsync(
                     AnnouncementKind.News,

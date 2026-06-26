@@ -45,7 +45,7 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
         }
 
         var userPrompt = BuildUserPrompt(request);
-        var jobLabel = ScriptJobLabel(request.Kind);
+        var jobLabel = ScriptOperationLabels.Writing(request.Kind, request.PromptContext?.Purpose);
         var raw = await llm.CompleteAsync(
             new TextGenerationRequest(systemPrompt, userPrompt, jobLabel, StructuredJson.SchemaFor<SpokenDeliveryDto>(), "spokenDelivery"),
             ct);
@@ -132,24 +132,6 @@ public partial class AnnouncementWriter(ITextGenerationService llm) : IAnnouncem
 
     [System.Text.RegularExpressions.GeneratedRegex(@"[.!?…][""'”’)\]]?$")]
     private static partial System.Text.RegularExpressions.Regex TerminalPunctuationRegex();
-
-    private static string ScriptJobLabel(AnnouncementKind kind) => kind switch
-    {
-        AnnouncementKind.SongIntro => "Writing song intro",
-        AnnouncementKind.SongOutro => "Writing song outro",
-        AnnouncementKind.Weather => "Writing weather report",
-        AnnouncementKind.News => "Writing news bulletin",
-        AnnouncementKind.Joke => "Writing joke",
-        AnnouncementKind.Banter => "Writing banter",
-        AnnouncementKind.PersonalNote => "Writing personal note",
-        AnnouncementKind.TalkBit => "Writing talk bit",
-        AnnouncementKind.EmergencyMessage => "Writing emergency message",
-        AnnouncementKind.HostChange => "Writing host handover",
-        AnnouncementKind.ListenerGreeting => "Writing listener greeting",
-        AnnouncementKind.RequestDedication => "Writing song dedication",
-        AnnouncementKind.StationId => "Writing station ID",
-        _ => "Writing announcement",
-    };
 
     private static string StationIdTemplate(AnnouncementRequest request)
         => request.PromptContext?.Purpose switch

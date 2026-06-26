@@ -129,7 +129,7 @@ public static class RadioApiEndpoints
         api.MapGet("/station/status", (IStationStatusReporter reporter) =>
         {
             var info = reporter.Current;
-            return Results.Ok(new StationStatusDto(info.Status.ToString(), info.Reason, info.NextAttemptUtc));
+            return Results.Ok(new StationStatusDto(info.Status.ToString(), info.Reason, info.NextAttemptUtc, info.PlayoutEnabled));
         });
     }
 

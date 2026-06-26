@@ -55,16 +55,16 @@ public sealed class WeatherSegmentContributor(
         var handoverHost = newsHost ?? weatherModerator;
         var jobs = new List<SegmentDraftJob>
         {
-            new(SegmentSlot.Handover, 0, "weather handoff",
+            new(SegmentSlot.Handover, 0, ScriptOperationLabels.Describe(AnnouncementKind.StationId, "WeatherHandoff"),
                 (sp, token) => WriteHandoverAsync(sp, context, handoverHost, weatherModerator, newsHost is null, handoverFacts, token)),
-            new(SegmentSlot.Body, 1, "weather forecast",
+            new(SegmentSlot.Body, 1, ScriptOperationLabels.Describe(AnnouncementKind.Weather, "WeatherReport"),
                 (sp, token) => WriteBodyAsync(sp, context, weatherModerator, token)),
         };
 
         if (newsHost is not null)
         {
             var returnFacts = BuildReturnFacts(context, weatherModerator, newsHost);
-            jobs.Add(new(SegmentSlot.Outro, 2, "weather return",
+            jobs.Add(new(SegmentSlot.Outro, 2, ScriptOperationLabels.Describe(AnnouncementKind.StationId, "WeatherReturn"),
                 (sp, token) => WriteReturnAsync(sp, context, newsHost, weatherModerator, returnFacts, token)));
         }
 
@@ -81,7 +81,7 @@ public sealed class WeatherSegmentContributor(
         CancellationToken ct)
     {
         var factory = sp.GetRequiredService<AnnouncementFactory>();
-        await context.ReportProgress("Writing weather handoff.", ct);
+        await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.StationId, "WeatherHandoff")}.", ct);
         try
         {
             var draft = await factory.WriteScriptDraftAsync(
@@ -128,7 +128,7 @@ public sealed class WeatherSegmentContributor(
         CancellationToken ct)
     {
         var factory = sp.GetRequiredService<AnnouncementFactory>();
-        await context.ReportProgress("Writing weather return.", ct);
+        await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.StationId, "WeatherReturn")}.", ct);
         try
         {
             var draft = await factory.WriteScriptDraftAsync(
@@ -215,7 +215,7 @@ public sealed class WeatherSegmentContributor(
                 var handoff = $"{weatherModerator.Name} has the weather.";
                 await context.ReportProgress("Loading weather report.", ct);
                 var report = await weatherSource.GetReportAsync(weatherModerator.Language, ct);
-                await context.ReportProgress("Writing weather script.", ct);
+                await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.Weather, "WeatherReport")}.", ct);
                 var draft = await factory.WriteScriptDraftAsync(
                     AnnouncementKind.Weather,
                     weatherModerator,

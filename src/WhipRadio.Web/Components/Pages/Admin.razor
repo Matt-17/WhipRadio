@@ -36,7 +36,7 @@ else
             }
         </div>
         <UiSwitch Value="@_settings.PlayoutEnabled"
-                  ValueChanged="@(_ => TogglePlayoutAsync())"
+                  ValueChanged="@(_ => RequestTogglePlayoutAsync())"
                   Size="SwitchSize.Big"
                   Tone="SwitchTone.Red"
                   Title="@(_settings.PlayoutEnabled ? "Playout enabled" : "Playout disabled")" />
@@ -99,6 +99,17 @@ else
             }
         </div>
     </div>
+
+    <ConfirmDialog Visible="@_confirmOffAir"
+                   Title="Go off air?"
+                   ConfirmText="Go off air"
+                   CancelText="Stay on air"
+                   Danger="true"
+                   OnConfirm="ConfirmOffAirAsync"
+                   OnCancel="CancelOffAir">
+        This cuts the current track and the Icecast mount falls silent within ~2&nbsp;seconds.
+        Listeners stay connected to dead air until you switch On Air back on.
+    </ConfirmDialog>
 }
 
 @code {
@@ -112,43 +123,28 @@ else
     private StationStatusDto? _runtimeStatus;
     private string? _loadError;
 
-    private string RuntimeStatusLabel
+    // Shares the encoder-status derivation with the header lamp so the two surfaces
+    // can never disagree. The admin page has no now-playing signal and renders Live
+    // and Standby identically, so the hasNowPlaying input is irrelevant here.
+    private StationPresentation RuntimeState
+        => StationPresentationState.Derive(
+            _runtimeStatus?.Status, _settings?.PlayoutEnabled == true, hasNowPlaying: true);
+
+    private string RuntimeStatusLabel => RuntimeState switch
     {
-        get
-        {
-            var status = _runtimeStatus?.Status;
-            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
-            {
-                return "offline";
-            }
+        StationPresentation.Offline => "offline",
+        StationPresentation.Reconnecting => "reconnecting",
+        StationPresentation.OffAir => "off air",
+        _ => "on air",
+    };
 
-            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
-            {
-                return "reconnecting";
-            }
-
-            return _settings?.PlayoutEnabled == true ? "on air" : "off air";
-        }
-    }
-
-    private StatusBadgeTone RuntimeStatusTone
+    private StatusBadgeTone RuntimeStatusTone => RuntimeState switch
     {
-        get
-        {
-            var status = _runtimeStatus?.Status;
-            if (string.Equals(status, "Offline", StringComparison.OrdinalIgnoreCase))
-            {
-                return StatusBadgeTone.Red;
-            }
-
-            if (string.Equals(status, "Reconnecting", StringComparison.OrdinalIgnoreCase))
-            {
-                return StatusBadgeTone.Amber;
-            }
-
-            return _settings?.PlayoutEnabled == true ? StatusBadgeTone.Green : StatusBadgeTone.Default;
-        }
-    }
+        StationPresentation.Offline => StatusBadgeTone.Red,
+        StationPresentation.Reconnecting => StatusBadgeTone.Amber,
+        StationPresentation.OffAir => StatusBadgeTone.Default,
+        _ => StatusBadgeTone.Green,
+    };
 
     protected override async Task OnInitializedAsync()
     {
@@ -174,6 +170,29 @@ else
         _runtimeStatus = Live.StationStatus;
         StateHasChanged();
     });
+
+    private bool _confirmOffAir;
+
+    // Switching ON goes through immediately; switching OFF asks first — going off air
+    // cuts the current track and drops the mount to silence, so it deserves a guard.
+    private Task RequestTogglePlayoutAsync()
+    {
+        if (_settings?.PlayoutEnabled == true)
+        {
+            _confirmOffAir = true;
+            return Task.CompletedTask;
+        }
+
+        return TogglePlayoutAsync();
+    }
+
+    private async Task ConfirmOffAirAsync()
+    {
+        _confirmOffAir = false;
+        await TogglePlayoutAsync();
+    }
+
+    private void CancelOffAir() => _confirmOffAir = false;
 
     private async Task TogglePlayoutAsync()
     {

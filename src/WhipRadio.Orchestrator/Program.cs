@@ -94,6 +94,7 @@ builder.Services.AddSingleton<IMixerUpdatePublisher, MixerUpdatePublisher>();
 builder.Services.AddSingleton<IPcmSampleReaderFactory, FfmpegPcmSampleReaderFactory>();
 builder.Services.AddSingleton<TimedPlayoutInterruptService>();
 builder.Services.AddSingleton<FfmpegProcessRegistry>();
+builder.Services.AddSingleton<IFfmpegLauncher, ProcessFfmpegLauncher>();
 builder.Services.AddSingleton<EncoderHeartbeat>();
 builder.Services.AddSingleton<IStationStatusReporter, StationStatusReporter>();
 builder.Services.AddSingleton<IcecastListenerProbe>();

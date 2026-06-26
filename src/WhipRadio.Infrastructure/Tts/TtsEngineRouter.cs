@@ -70,7 +70,7 @@ public class TtsEngineRouter(
     private async Task<TtsResult> SynthesizeInBoothAsync(
         string requiredProvider, string markedUpText, TtsVoiceOptions options, CancellationToken ct)
     {
-        var label = $"Voicing ({options.Engine}/{options.VoiceId})";
+        var label = RecordingLabel(options);
 
         // Order against everyone else waiting on the shared GPU (priority -> affinity -> FIFO);
         // local-TTS booths only reload the model when switching away from text/music work.
@@ -116,7 +116,7 @@ public class TtsEngineRouter(
             studioName,
             StudioKind.VoiceBooth,
             provider,
-            $"Voicing ({options.Engine}/{options.VoiceId})",
+            RecordingLabel(options),
             VoicePrompt(markedUpText),
             VoiceDetail(options),
             ct);
@@ -134,18 +134,27 @@ public class TtsEngineRouter(
         }
     }
 
+    // Header label: the operation ("Recording news intro"), never the voice id — the engine and
+    // voice live in the details. Falls back to a bare "Recording" when no operation was supplied.
+    private static string RecordingLabel(TtsVoiceOptions options)
+        => string.IsNullOrWhiteSpace(options.Operation) ? "Recording" : $"Recording {options.Operation}";
+
     private static string VoicePrompt(string markedUpText)
         => markedUpText;
 
     private static string VoiceDetail(TtsVoiceOptions options)
     {
-        var lines = new List<string>
+        var lines = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(options.SpeakerName))
         {
-            $"Engine: {options.Engine}",
-            $"Voice: {options.VoiceId}",
-            $"Language: {options.Language}",
-            $"Rate: {options.Rate:0.###}",
-        };
+            lines.Add($"Speaker: {options.SpeakerName}");
+        }
+
+        lines.Add($"Engine: {options.Engine}");
+        lines.Add($"Voice: {options.VoiceId}");
+        lines.Add($"Language: {options.Language}");
+        lines.Add($"Rate: {options.Rate:0.###}");
 
         if (!string.IsNullOrWhiteSpace(options.Instruction))
         {

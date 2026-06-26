@@ -134,6 +134,34 @@ public class AudioMixerEngineTests
     }
 
     [TestMethod]
+    public async Task OffAirRequested_FadesCurrentItemFast_DoesNotPlayToEnd()
+    {
+        var fix = Fixture.Create();
+        // A long item: if the mixer let it finish (the handback behavior) this would
+        // be ~12 s. Off air must instead fast-fade it within ~1.5 s of the ~2 s
+        // flag-check and return — so the mount falls silent in a few seconds, not 12.
+        var item = Track("long", seconds: 12);
+        fix.Queue.Enqueue(item);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20)); // safety
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, delayMs: 1);
+
+        var seen = false;
+        fix.Reporter.OnStarted = _ => seen = true;
+        // Session no longer wanted AND it is an off-air request (not just mixer-disable).
+        await fix.Mixer.RunSessionAsync(sink, pace,
+            _ => Task.FromResult(!seen), cts.Token,
+            offAirRequested: _ => Task.FromResult(true));
+
+        Assert.False(cts.IsCancellationRequested, "session should return on its own after the fade");
+        Assert.Equal(1, fix.Reporter.Starts.Count);
+        Assert.False(fix.TrackDeletions.IsTrackActive(item.ItemId));
+        // ~2 s flag-check + ~1.5 s fade ≈ 3.5 s ≈ 150 frames — far below the ~516
+        // frames a full 12 s item would write, proving it was cut short.
+        Assert.True(pace.Writes < 250, $"off air must cut the item short; wrote {pace.Writes} frames");
+    }
+
+    [TestMethod]
     public async Task TwoSongs_HardCutTransition_BothReported()
     {
         var fix = Fixture.Create();

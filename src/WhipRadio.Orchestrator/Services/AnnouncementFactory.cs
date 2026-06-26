@@ -80,7 +80,8 @@ public class AnnouncementFactory(
         var tts = await ttsEngine.SynthesizeAsync(
             normalized,
             new TtsVoiceOptions(
-                moderator.VoiceId, moderator.Language, ResolveRate(spoken.Rate, moderator.SpeechRate), moderator.TtsEngine, instruction),
+                moderator.VoiceId, moderator.Language, ResolveRate(spoken.Rate, moderator.SpeechRate), moderator.TtsEngine, instruction,
+                Operation: ScriptOperationLabels.Describe(kind, purpose), SpeakerName: moderator.Name),
             ct);
         var producedWords = PromptWordBudget.CountWords(script);
         if (tts.DurationSeconds <= 0)
@@ -226,7 +227,9 @@ public class AnnouncementFactory(
                 draft.Moderator.Language,
                 ResolveRate(draft.Rate, draft.Moderator.SpeechRate),
                 draft.Moderator.TtsEngine,
-                instruction),
+                instruction,
+                Operation: ScriptOperationLabels.Describe(draft.Kind, draft.ScriptContext.Purpose),
+                SpeakerName: draft.Moderator.Name),
             ct);
         var producedWords = PromptWordBudget.CountWords(draft.Script);
         if (tts.DurationSeconds <= 0)
@@ -329,7 +332,9 @@ public class AnnouncementFactory(
                 moderator.Language,
                 moderator.SpeechRate,
                 moderator.TtsEngine,
-                BuildTtsInstruction(moderator, allowBreath, null)),
+                BuildTtsInstruction(moderator, allowBreath, null),
+                Operation: ScriptOperationLabels.Describe(kind, purpose),
+                SpeakerName: moderator.Name),
             ct);
 
         if (tts.DurationSeconds <= 0)

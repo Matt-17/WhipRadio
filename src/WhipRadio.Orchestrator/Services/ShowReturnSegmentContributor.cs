@@ -41,7 +41,7 @@ public sealed class ShowReturnSegmentContributor : ITopOfHourSegmentContributor
         var facts = BuildReturnFacts(context);
         var jobs = new List<SegmentDraftJob>
         {
-            new(SegmentSlot.Handover, 0, "show return",
+            new(SegmentSlot.Handover, 0, ScriptOperationLabels.Describe(AnnouncementKind.StationId, "ShowReturn"),
                 (sp, token) => WriteReturnAsync(sp, context, showHost, facts, token)),
         };
 
@@ -56,7 +56,7 @@ public sealed class ShowReturnSegmentContributor : ITopOfHourSegmentContributor
         CancellationToken ct)
     {
         var factory = sp.GetRequiredService<AnnouncementFactory>();
-        await context.ReportProgress("Writing show return.", ct);
+        await context.ReportProgress($"{ScriptOperationLabels.Writing(AnnouncementKind.StationId, "ShowReturn")}.", ct);
         try
         {
             var draft = await factory.WriteScriptDraftAsync(

@@ -63,7 +63,8 @@ public sealed class AudioMixerEngine(
     /// turns the session off (returns at an item boundary).</summary>
     public async Task RunSessionAsync(
         IMixerEncoderSink encoder, Stream encoderInput,
-        Func<CancellationToken, Task<bool>> sessionStillWanted, CancellationToken ct)
+        Func<CancellationToken, Task<bool>> sessionStillWanted, CancellationToken ct,
+        Func<CancellationToken, Task<bool>>? offAirRequested = null)
     {
         var core = new MixerCore(Format);
         var actives = new List<ActiveSource>(4);
@@ -101,9 +102,18 @@ public sealed class AudioMixerEngine(
                 if (++framesSinceCheck >= 86)
                 {
                     framesSinceCheck = 0;
-                    if (!await sessionStillWanted(ct))
+                    if (!stopScheduling && !await sessionStillWanted(ct))
                     {
-                        stopScheduling = true; // finish what's playing, then hand back
+                        stopScheduling = true;
+                        // Off air (operator switched On Air off) ⇒ silence ASAP: fast-fade
+                        // everything currently on air — including any crossfade-staged next
+                        // track — so no further song slips through. A plain mixer-disable
+                        // (still on air) just stops scheduling and lets the current item
+                        // finish before handing back to the legacy loop.
+                        if (offAirRequested is not null && await offAirRequested(ct))
+                        {
+                            ApplyOffAirFade(masterPos, actives);
+                        }
                     }
 
                     topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
@@ -593,6 +603,31 @@ public sealed class AudioMixerEngine(
             "Mixer timed package: starting {Title} at {Delay:F1}s after decision",
             interrupt.Item.Title,
             Format.SamplesToSeconds(startAt - masterPos));
+    }
+
+    // Fast declick fade applied when the operator switches On Air off mid-session.
+    // Short enough to feel immediate, long enough to avoid a hard click.
+    private const double OffAirFadeSeconds = 1.5;
+
+    /// <summary>
+    /// Ramps every active source (current item AND any crossfade-staged incoming)
+    /// down to silence over <see cref="OffAirFadeSeconds"/>, then trims its end so
+    /// the cleanup loop drops it. Guarantees the mount falls silent within ~1.5 s of
+    /// going off air instead of letting a pre-staged next track play out.
+    /// </summary>
+    private void ApplyOffAirFade(long masterPos, List<ActiveSource> actives)
+    {
+        var fadeEnd = masterPos + Math.Max(1, Format.SecondsToSamples(OffAirFadeSeconds));
+        foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
+        {
+            var currentGain = active.Slot.Envelope.GainAt(masterPos);
+            active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
+            active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
+            active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
+            active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+        }
+
+        logger.LogInformation("Mixer off air — fading {Count} active source(s) to silence over {Fade:F1}s", actives.Count, OffAirFadeSeconds);
     }
 
     private bool ApplyTopOfHourHoldFade(

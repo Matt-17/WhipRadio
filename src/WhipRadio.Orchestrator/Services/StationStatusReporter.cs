@@ -22,7 +22,7 @@ public enum StationStatus
     Offline,
 }
 
-public sealed record StationStatusInfo(StationStatus Status, string? Reason, DateTime? NextAttemptUtc)
+public sealed record StationStatusInfo(StationStatus Status, string? Reason, DateTime? NextAttemptUtc, bool PlayoutEnabled = true)
 {
     public static readonly StationStatusInfo Online = new(StationStatus.Online, null, null);
 }
@@ -37,8 +37,11 @@ public interface IStationStatusReporter
 {
     StationStatusInfo Current { get; }
 
-    /// <summary>Update the state and fire-and-forget a hub push.</summary>
+    /// <summary>Update the encoder health and fire-and-forget a hub push. Preserves the current On Air intent.</summary>
     void Set(StationStatus status, string? reason = null, DateTime? nextAttemptUtc = null);
+
+    /// <summary>Update the operator On Air intent (off air = playout disabled) and push it to the lamp.</summary>
+    void SetPlayoutEnabled(bool enabled);
 
     Task PublishAsync(CancellationToken ct = default);
 }
@@ -54,7 +57,19 @@ public sealed class StationStatusReporter(
 
     public void Set(StationStatus status, string? reason = null, DateTime? nextAttemptUtc = null)
     {
-        Volatile.Write(ref _current, new StationStatusInfo(status, reason, nextAttemptUtc));
+        Volatile.Write(ref _current, Current with { Status = status, Reason = reason, NextAttemptUtc = nextAttemptUtc });
+        _ = PublishAsync();
+    }
+
+    public void SetPlayoutEnabled(bool enabled)
+    {
+        var prev = Current;
+        if (prev.PlayoutEnabled == enabled)
+        {
+            return;
+        }
+
+        Volatile.Write(ref _current, prev with { PlayoutEnabled = enabled });
         _ = PublishAsync();
     }
 
@@ -68,7 +83,7 @@ public sealed class StationStatusReporter(
         try
         {
             var info = Current;
-            var dto = new StationStatusDto(info.Status.ToString(), info.Reason, info.NextAttemptUtc);
+            var dto = new StationStatusDto(info.Status.ToString(), info.Reason, info.NextAttemptUtc, info.PlayoutEnabled);
             await hub.Clients.All.SendAsync("StationStatusChanged", dto, ct);
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)

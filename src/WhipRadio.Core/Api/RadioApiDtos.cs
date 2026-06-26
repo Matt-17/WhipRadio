@@ -34,8 +34,11 @@ public sealed record QueueItemDto(
 /// Encoder/stream health surfaced to the console lamp: "Online", "Reconnecting"
 /// (encoder crashed, backing off before restart, <see cref="NextAttemptUtc"/> set),
 /// or "Offline" (circuit breaker tripped — station parked until On Air re-enabled).
+/// <see cref="PlayoutEnabled"/> is the orthogonal operator On Air intent so the
+/// header lamp can show "off air" without a separate settings fetch; defaults to
+/// true so an older snapshot reads as on air.
 /// </summary>
-public sealed record StationStatusDto(string Status, string? Reason, DateTime? NextAttemptUtc);
+public sealed record StationStatusDto(string Status, string? Reason, DateTime? NextAttemptUtc, bool PlayoutEnabled = true);
 
 public sealed record TrackDto(
     Guid Id,
