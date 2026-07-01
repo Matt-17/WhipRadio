@@ -1,10 +1,10 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -89,23 +89,41 @@ public class TopOfHourPackageDispatcherTests
         Assert.Equal(announcementId, interrupt!.Item.ItemId);
     }
 
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
+    private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
     {
-        public static async Task<DbFixture> CreateAsync()
-        {
-            SqliteConnection connection = new("Data Source=:memory:");
-            await connection.OpenAsync();
-            DbContextOptions<RadioDbContext> options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (RadioDbContext db = new(options))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
+        public override DateTimeOffset GetUtcNow() => new(utcNow);
+    }
 
-            return new DbFixture(connection, options);
+    private sealed class FakePlayoutQueue : IPlayoutQueue
+    {
+        public int Count => 0;
+        public void Enqueue(PlayoutItem item) { }
+        public void EnqueueFront(PlayoutItem item) { }
+        public PlayoutItem? PeekNext() => null;
+        public Task<PlayoutItem> DequeueAsync(CancellationToken ct)
+            => Task.FromException<PlayoutItem>(new InvalidOperationException("Queue should not be consumed."));
+    }
+
+    private sealed class NoOpProductionUpdatePublisher : IProductionUpdatePublisher
+    {
+        public Task PublishNewsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task PublishWeatherChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    // Local fixture (Postgres-backed) with the package seed helper this suite needs.
+    private sealed class DbFixture : IDbContextFactory<RadioDbContext>, IAsyncDisposable
+    {
+        private readonly string _connectionString;
+        private readonly DbContextOptions<RadioDbContext> _options;
+
+        private DbFixture(string connectionString)
+        {
+            _connectionString = connectionString;
+            _options = new DbContextOptionsBuilder<RadioDbContext>().UseNpgsql(connectionString).Options;
         }
+
+        public static async Task<DbFixture> CreateAsync()
+            => new(await PostgresTestDatabase.CreateDatabaseAsync());
 
         public async Task SeedPackageAsync(Guid announcementId, NewsPackageStatus status)
         {
@@ -154,35 +172,11 @@ public class TopOfHourPackageDispatcherTests
             await db.SaveChangesAsync();
         }
 
-        public RadioDbContext CreateDbContext() => new(options);
+        public RadioDbContext CreateDbContext() => new(_options);
 
         public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(CreateDbContext());
 
-        public async ValueTask DisposeAsync()
-        {
-            await connection.DisposeAsync();
-        }
-    }
-
-    private sealed class FixedTimeProvider(DateTime utcNow) : TimeProvider
-    {
-        public override DateTimeOffset GetUtcNow() => new(utcNow);
-    }
-
-    private sealed class FakePlayoutQueue : IPlayoutQueue
-    {
-        public int Count => 0;
-        public void Enqueue(PlayoutItem item) { }
-        public void EnqueueFront(PlayoutItem item) { }
-        public PlayoutItem? PeekNext() => null;
-        public Task<PlayoutItem> DequeueAsync(CancellationToken ct)
-            => Task.FromException<PlayoutItem>(new InvalidOperationException("Queue should not be consumed."));
-    }
-
-    private sealed class NoOpProductionUpdatePublisher : IProductionUpdatePublisher
-    {
-        public Task PublishNewsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
-        public Task PublishWeatherChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public async ValueTask DisposeAsync() => await PostgresTestDatabase.DropDatabaseAsync(_connectionString);
     }
 }

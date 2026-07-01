@@ -1,7 +1,7 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Infrastructure.Tests;
 
@@ -11,13 +11,9 @@ public class DbInitializerTests
     [TestMethod]
     public async Task EnsureSeededAsync_UpdatesLegacyDefaultTrackDurationRange()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.MigrateAsync();
             db.StationSettings.Add(new StationSettings
@@ -29,12 +25,12 @@ public class DbInitializerTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await DbInitializer.EnsureSeededAsync(db);
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var settings = await db.StationSettings.SingleAsync();
             Assert.Equal(150, settings.MinTrackDurationSeconds);
@@ -45,14 +41,10 @@ public class DbInitializerTests
     [TestMethod]
     public async Task EnsureSeededAsync_MarksAbandonedRunningStudioHistoryFailed()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
         var runningId = Guid.NewGuid();
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.MigrateAsync();
             db.StudioHistory.Add(new StudioHistoryEntry
@@ -69,12 +61,12 @@ public class DbInitializerTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await DbInitializer.EnsureSeededAsync(db);
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var entry = await db.StudioHistory.SingleAsync(h => h.Id == runningId);
             Assert.Equal(StudioHistoryStatus.Failed, entry.Status);
@@ -86,14 +78,10 @@ public class DbInitializerTests
     [TestMethod]
     public async Task EnsureSeededAsync_MarksExistingPackageAnnouncementsScheduledOnly()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
         var announcementId = Guid.NewGuid();
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.MigrateAsync();
             db.Moderators.Add(new Moderator
@@ -130,12 +118,12 @@ public class DbInitializerTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await DbInitializer.EnsureSeededAsync(db);
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var announcement = await db.Announcements.SingleAsync(a => a.Id == announcementId);
             Assert.Equal(AnnouncementPlayoutIntent.ScheduledOnly, announcement.PlayoutIntent);

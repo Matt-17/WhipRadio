@@ -88,7 +88,8 @@ Key settings:
 | `Stream__EncoderCrashThreshold` | `5` | circuit breaker: park the station after this many encoder crashes in the window |
 | `Stream__EncoderCrashWindowMinutes` | `5` | rolling window for the encoder crash circuit breaker |
 | `Icecast__SourcePassword` | _required_ | Icecast source push password; set via `.env` / `ICECAST_SOURCE_PASSWORD` |
-| `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, SQLite |
+| `Radio__DataRoot` | `/data` or `./data` | tracks, announcements, generated audio (station metadata lives in Postgres) |
+| `ConnectionStrings__radio` | _injected by AppHost_ | PostgreSQL connection string for the `radio` database |
 
 ### Secrets
 

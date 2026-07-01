@@ -9,7 +9,7 @@ Sources used:
 - NuGet `.nuspec` license metadata from the restored package cache
 - NuGet package metadata and package-local license files where the `.nuspec` points to an in-package license
 
-The restore completed, but NuGet reported `NU1903` for `SQLitePCLRaw.lib.e_sqlite3` 2.1.11: GHSA-2m69-gcr7-jv3q. That is a security issue rather than a license issue, but it should be tracked before distribution.
+NuGet reports `NU1903` for `SQLitePCLRaw.lib.e_sqlite3` 2.1.11: GHSA-2m69-gcr7-jv3q. After the Postgres cutover this package is no longer referenced by the shipped application — it now only comes in via the throwaway `tools/WhipRadio.DbMigrator` (one-shot SQLite-to-Postgres copy, not distributed). It can be dropped entirely once that tool is deleted post-migration.
 
 ## Direct Package References
 
@@ -27,7 +27,8 @@ The restore completed, but NuGet reported `NU1903` for `SQLitePCLRaw.lib.e_sqlit
 | ServiceDefaults | `OpenTelemetry.Instrumentation.Http` | 1.15.1 | Apache-2.0 |
 | ServiceDefaults | `OpenTelemetry.Instrumentation.Runtime` | 1.15.1 | Apache-2.0 |
 | Infrastructure | `Microsoft.EntityFrameworkCore.Design` | 10.0.9 | MIT |
-| Infrastructure | `Microsoft.EntityFrameworkCore.Sqlite` | 10.0.9 | MIT |
+| Infrastructure | `Npgsql.EntityFrameworkCore.PostgreSQL` | 10.0.2 | PostgreSQL |
+| Infrastructure | `Microsoft.EntityFrameworkCore.Relational` | 10.0.9 | MIT |
 | Infrastructure | `Microsoft.Extensions.Http` | 10.0.9 | MIT |
 | Infrastructure | `Microsoft.Extensions.Http.Resilience` | 10.7.0 | MIT |
 | Orchestrator | `Microsoft.EntityFrameworkCore.Design` | 10.0.9 | MIT |

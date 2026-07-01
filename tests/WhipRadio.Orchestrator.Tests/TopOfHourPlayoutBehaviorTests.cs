@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
@@ -7,6 +6,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -296,19 +296,7 @@ public class TopOfHourPlayoutBehaviorTests
 
     // === Helpers ===
 
-    private static async Task<DbFixture> CreateDbAsync()
-    {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using (var db = new RadioDbContext(options))
-        {
-            await db.Database.EnsureCreatedAsync();
-        }
-        return new DbFixture(connection, options);
-    }
+    private static Task<DbFixture> CreateDbAsync() => DbFixture.CreateAsync();
 
     private static AudioMixerEngine CreateMixerEngine(DbFixture db)
     {
@@ -529,14 +517,6 @@ public class TopOfHourPlayoutBehaviorTests
     }
 
     // --- Fakes (copied from AudioMixerEngineTests for self-containment) ---
-
-    internal sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public RadioDbContext CreateDbContext() => new(options);
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken ct = default) => Task.FromResult(CreateDbContext());
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
-    }
 
     private sealed class FakeQueue : IPlayoutQueue
     {

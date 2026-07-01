@@ -1,5 +1,5 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using WhipRadio.TestSupport;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -23,22 +23,9 @@ namespace WhipRadio.Orchestrator.Tests;
 /// </summary>
 internal static class SegmentTestFixtures
 {
-    public static async Task<SqliteDbFixture> CreateDbAsync()
-    {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        await using (var db = new RadioDbContext(options))
-        {
-            await db.Database.EnsureCreatedAsync();
-        }
+    public static Task<DbFixture> CreateDbAsync() => DbFixture.CreateAsync();
 
-        return new SqliteDbFixture(connection, options);
-    }
-
-    public static AnnouncementFactory CreateFactory(SqliteDbFixture db, string dataRoot)
+    public static AnnouncementFactory CreateFactory(DbFixture db, string dataRoot)
     {
         var radioOptions = Options.Create(new RadioOptions { DataRoot = dataRoot });
         var analysisRecorder = new MediaAnalysisRecorder(
@@ -56,7 +43,7 @@ internal static class SegmentTestFixtures
             NullLogger<AnnouncementFactory>.Instance);
     }
 
-    public static NewsFeedPollingService CreateFeedPollingService(SqliteDbFixture db)
+    public static NewsFeedPollingService CreateFeedPollingService(DbFixture db)
     {
         var services = new ServiceCollection();
         services.AddSingleton<INewsFeedReader, EmptyNewsFeedReader>();
@@ -69,7 +56,7 @@ internal static class SegmentTestFixtures
             NullLogger<NewsFeedPollingService>.Instance);
     }
 
-    public static SpecialistHostCreationService CreateSpecialistHosts(SqliteDbFixture db)
+    public static SpecialistHostCreationService CreateSpecialistHosts(DbFixture db)
         => new(
             db,
             new ThrowingTextGenerationService(),
@@ -78,7 +65,7 @@ internal static class SegmentTestFixtures
             NullLogger<SpecialistHostCreationService>.Instance);
 
     public static IServiceProvider CreateScopeServices(
-        SqliteDbFixture db,
+        DbFixture db,
         AnnouncementFactory factory,
         INewsArticleExtractor? extractor = null,
         IWeatherReportSource? weatherSource = null,
@@ -111,7 +98,7 @@ internal static class SegmentTestFixtures
         EnableBreathMarkers = false,
     };
 
-    public static async Task SeedStationSettingsAsync(SqliteDbFixture db, StationSettings? settings = null)
+    public static async Task SeedStationSettingsAsync(DbFixture db, StationSettings? settings = null)
     {
         await using var ctx = db.CreateDbContext();
         ctx.StationSettings.Add(settings ?? DefaultSettings());
@@ -119,7 +106,7 @@ internal static class SegmentTestFixtures
     }
 
     public static async Task SeedModeratorAsync(
-        SqliteDbFixture db,
+        DbFixture db,
         int id,
         string name,
         bool isNewsSpecialist = false,
@@ -143,7 +130,7 @@ internal static class SegmentTestFixtures
     }
 
     public static async Task SeedNewsItemAsync(
-        SqliteDbFixture db,
+        DbFixture db,
         string title = "Markets move",
         NewsItemStatus status = NewsItemStatus.New)
     {
@@ -197,17 +184,6 @@ internal static class SegmentTestFixtures
     }
 
     // --- Fakes ---
-
-    internal sealed class SqliteDbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public RadioDbContext CreateDbContext() => new(options);
-
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateDbContext());
-
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
-    }
 
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {

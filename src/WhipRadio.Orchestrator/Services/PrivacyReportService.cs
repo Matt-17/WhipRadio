@@ -44,7 +44,8 @@ public class PrivacyReportService(
                     ?? (Directory.Exists("/data") ? "/data" : Path.Combine(environment.ContentRootPath, "data")),
                 "local",
                 "local",
-                "Tracks, generated announcements, images, and SQLite data stay under the configured data root."),
+                "Tracks, generated announcements, and images stay under the configured data root; "
+                + "station metadata is stored in a local PostgreSQL database."),
             EndpointService(
                 "Ollama Writer Room",
                 configuration["Llm:Endpoint"] ?? "http://localhost:11434",

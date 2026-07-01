@@ -353,7 +353,7 @@ else
 
         if (service.Name.Contains("data", StringComparison.OrdinalIgnoreCase))
         {
-            return "files and SQLite under data root";
+            return "files under data root; metadata in local PostgreSQL";
         }
 
         return service.Detail;

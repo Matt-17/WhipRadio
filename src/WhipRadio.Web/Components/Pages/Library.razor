@@ -566,9 +566,10 @@
     private async Task ApplyArtistRouteAsync(string? artistSlug)
     {
         _currentRouteArtistSlug = artistSlug;
+        var normalizedSlug = WhipRadio.Core.Slugs.SlugGenerator.Normalize(artistSlug);
         var artist = string.IsNullOrWhiteSpace(artistSlug)
             ? null
-            : _artists.FirstOrDefault(a => string.Equals(a.Slug, artistSlug, StringComparison.OrdinalIgnoreCase));
+            : _artists.FirstOrDefault(a => string.Equals(a.Slug, normalizedSlug, StringComparison.Ordinal));
         _selectedArtistId = artist?.Id;
         _selectedMemberId = null;
         _artistDetail = null;

@@ -4,6 +4,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -240,7 +241,7 @@ public class WeatherSegmentContributorTests
     private static Moderator NewsHost() => new() { Id = 2, Name = "Maya", Language = "en" };
 
     private static AnnouncementFactory CreateFactoryWithThrowingScriptWriter(
-        SegmentTestFixtures.SqliteDbFixture db)
+        DbFixture db)
     {
         var radioOptions = Microsoft.Extensions.Options.Options.Create(
             new WhipRadio.Orchestrator.Configuration.RadioOptions { DataRoot = TempRoot });

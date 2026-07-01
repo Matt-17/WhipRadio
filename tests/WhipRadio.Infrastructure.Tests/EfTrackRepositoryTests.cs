@@ -1,8 +1,8 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Selection;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Infrastructure.Tests;
 
@@ -12,15 +12,11 @@ public class EfTrackRepositoryTests
     [TestMethod]
     public async Task GetCandidatesAsync_LoadsArtistForAnnouncementPrompts()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
 
         var artistId = Guid.NewGuid();
         var trackId = Guid.NewGuid();
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.EnsureCreatedAsync();
             db.Artists.Add(new Artist
@@ -45,7 +41,7 @@ public class EfTrackRepositoryTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var repository = new EfTrackRepository(db);
 
@@ -60,17 +56,13 @@ public class EfTrackRepositoryTests
     [TestMethod]
     public async Task GetTrackIdsPlayedSinceAsync_ReturnsOnlyTracksInWindow()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
 
         var oldTrack = Guid.NewGuid();
         var newTrack = Guid.NewGuid();
         var cutoff = DateTime.UtcNow.AddMinutes(-30);
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.EnsureCreatedAsync();
             db.PlayLog.Add(new PlayLogEntry
@@ -88,7 +80,7 @@ public class EfTrackRepositoryTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var repository = new EfTrackRepository(db);
             var ids = await repository.GetTrackIdsPlayedSinceAsync(cutoff, 50, CancellationToken.None);
@@ -101,16 +93,12 @@ public class EfTrackRepositoryTests
     [TestMethod]
     public async Task GetRecentPlayedRefsAsync_ReturnsArtistAndSubgenreMetadata()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
+        await using var fixture = await DbFixture.CreateAsync();
 
         var artistId = Guid.NewGuid();
         var trackId = Guid.NewGuid();
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.EnsureCreatedAsync();
             db.Artists.Add(new Artist
@@ -140,7 +128,7 @@ public class EfTrackRepositoryTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var repository = new EfTrackRepository(db);
             var refs = await repository.GetRecentPlayedRefsAsync(10, CancellationToken.None);

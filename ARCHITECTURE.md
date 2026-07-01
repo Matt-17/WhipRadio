@@ -3,9 +3,10 @@
 WhipRadio is a local-first AI radio station built as a .NET 10 Aspire solution.
 The system is split into three runtime layers:
 
-1. The Aspire app graph: Icecast, the Orchestrator, and the Blazor web console.
+1. The Aspire app graph: PostgreSQL, Icecast, the Orchestrator, and the Blazor web console.
 2. The studio layer: long-lived AI sidecars started by repo-root scripts.
-3. The data root: SQLite, generated audio, cached state, and model-adjacent assets.
+3. The data root: generated audio, cached state, and model-adjacent assets (durable
+   station state lives in PostgreSQL).
 
 The main architectural rule is that the Orchestrator owns radio behavior. The
 web app presents and controls state, the studio services provide external
@@ -15,6 +16,7 @@ capabilities, and Core/Infrastructure provide reusable domain and adapter code.
 
 ```text
 AppHost (src/WhipRadio.AppHost/AppHost.cs)
+|-- postgres      persistent PostgreSQL container (radio db), named data volume
 |-- icecast       persistent libretime/icecast container, :8000/radio.mp3
 |-- orchestrator  long-running station workers, API, SignalR, ffmpeg playout
 `-- web           Blazor Server console and same-origin media proxy
@@ -26,10 +28,10 @@ Studio services (start-studios.ps1)
 `-- analysis      audio analysis service, http://localhost:8301
 
 Data root (Radio:DataRoot, usually ./data in development)
-|-- db/radio.db
 |-- library/tracks/*.wav
 |-- announcements, jingles, generated media
 `-- voice references and other generated support files
+(durable station state lives in the PostgreSQL container, not the data root)
 ```
 
 Aspire deliberately does not own Ollama, ACE-Step, TTS, or analysis. Those
@@ -83,7 +85,7 @@ Important hosted services include:
 
 Startup responsibilities also live here:
 
-- resolve `Radio:DataRoot` and the SQLite connection string;
+- resolve `Radio:DataRoot` and the PostgreSQL connection string (`ConnectionStrings:radio`);
 - run `DbInitializer.EnsureSeededAsync`;
 - kill stale ffmpeg processes from previous runs;
 - align moderator language with the station language;
@@ -167,7 +169,7 @@ provider IDs; `ace-step` is only an accepted alias that normalizes to
 4. `MusicGenGenerationProvider` handles MusicGen requests.
 5. `AceStepGenerationProvider` handles ACE-Step requests through the async
    `/release_task`, `/query_result`, and `/v1/audio` API flow.
-6. Generated WAV files are stored under the data root and indexed in SQLite.
+6. Generated WAV files are stored under the data root and indexed in PostgreSQL.
 
 ACE-Step should generate one complete song. Do not add MusicGen-style
 continuation, chunking, or stitching to ACE-Step paths.
@@ -194,7 +196,7 @@ song makes ACE-Step spend minutes decoding reference audio before generation.
 
 ## State And Persistence
 
-SQLite is the source of truth for durable station state. Runtime APIs and read
+PostgreSQL is the source of truth for durable station state. Runtime APIs and read
 paths must not run pending migrations. Schema changes belong in EF migrations,
 and startup applies migration/seed/default recovery through
 `DbInitializer.EnsureSeededAsync`.

@@ -10,17 +10,16 @@ using WhipRadio.Orchestrator.Api;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
 
+// Note: the Npgsql legacy-timestamp mapping (DateTime -> `timestamp without time zone`)
+// is configured by a module initializer in WhipRadio.Infrastructure
+// (NpgsqlConfiguration), so it applies to both the app and `dotnet ef` tooling.
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
-// Default the SQLite path under the configured data root unless explicitly set.
-if (string.IsNullOrEmpty(builder.Configuration.GetConnectionString("radio")))
-{
-    var dataRoot = builder.Configuration["Radio:DataRoot"]
-        ?? (Directory.Exists("/data") ? "/data" : Path.Combine(Directory.GetCurrentDirectory(), "data"));
-    builder.Configuration["ConnectionStrings:radio"] = $"Data Source={Path.Combine(dataRoot, "db", "radio.db")}";
-}
+// The Aspire AppHost injects ConnectionStrings__radio for the "radio" Postgres
+// database; AddRadioPersistence fails fast if it is missing.
 
 builder.Services.Configure<RadioOptions>(builder.Configuration.GetSection(RadioOptions.SectionName));
 builder.Services.Configure<IcecastOptions>(builder.Configuration.GetSection(IcecastOptions.SectionName));

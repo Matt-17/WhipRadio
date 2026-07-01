@@ -4,7 +4,7 @@ using WhipRadio.Core.Entities;
 namespace WhipRadio.Infrastructure.Persistence;
 
 /// <summary>Hot-path read access to StationSettings with a short TTL, so routers
-/// can react to settings changes without hammering SQLite.</summary>
+/// can react to settings changes without hammering the database.</summary>
 public class StationSettingsCache(IDbContextFactory<RadioDbContext> dbFactory, TimeProvider timeProvider)
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(15);

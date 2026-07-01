@@ -448,9 +448,10 @@ else
     private void ApplyHostRoute(string? hostSlug)
     {
         _currentRouteHostSlug = hostSlug;
+        var normalizedSlug = WhipRadio.Core.Slugs.SlugGenerator.Normalize(hostSlug);
         var host = string.IsNullOrWhiteSpace(hostSlug)
             ? null
-            : _moderators?.FirstOrDefault(m => string.Equals(m.Slug, hostSlug, StringComparison.OrdinalIgnoreCase));
+            : _moderators?.FirstOrDefault(m => string.Equals(m.Slug, normalizedSlug, StringComparison.Ordinal));
         _selectedId = host?.Id ?? RosterHosts.FirstOrDefault()?.Id;
         _photoUrlEdit = Selected?.PhotoUrl ?? "";
         _talksFor = null;

@@ -3,6 +3,7 @@ using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -251,7 +252,7 @@ public class NewsSegmentContributorTests
     private static Moderator ShowHost() => new() { Id = 1, Name = "Ava", Language = "en" };
 
     private static AnnouncementFactory CreateFactoryWithThrowingScriptWriter(
-        SegmentTestFixtures.SqliteDbFixture db)
+        DbFixture db)
     {
         var radioOptions = Microsoft.Extensions.Options.Options.Create(
             new WhipRadio.Orchestrator.Configuration.RadioOptions { DataRoot = TempRoot });

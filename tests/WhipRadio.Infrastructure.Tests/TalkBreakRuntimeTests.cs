@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -10,6 +9,7 @@ using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Infrastructure.Tests;
 
@@ -383,31 +383,5 @@ public class TalkBreakRuntimeTests
             => throw new InvalidOperationException("analysis unavailable in test");
 
         public Task<bool> IsAvailableAsync(CancellationToken ct) => Task.FromResult(false);
-    }
-
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public static async Task<DbFixture> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (var db = new RadioDbContext(options))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
-
-            return new DbFixture(connection, options);
-        }
-
-        public RadioDbContext CreateDbContext() => new(options);
-
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateDbContext());
-
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
     }
 }

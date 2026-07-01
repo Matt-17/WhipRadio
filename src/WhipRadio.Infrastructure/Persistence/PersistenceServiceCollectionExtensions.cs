@@ -9,41 +9,21 @@ namespace WhipRadio.Infrastructure.Persistence;
 public static class PersistenceServiceCollectionExtensions
 {
     /// <summary>
-    /// Registers the SQLite DbContext. Connection string from ConnectionStrings:radio;
-    /// default /data/db/radio.db (container), falling back to ./data/db/radio.db when
-    /// /data is not available (local dev on Windows).
+    /// Registers the PostgreSQL DbContext. Connection string comes from
+    /// ConnectionStrings:radio, which the Aspire AppHost injects for the
+    /// "radio" database resource. Fails fast if it is missing.
     /// </summary>
     public static IServiceCollection AddRadioPersistence(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("radio") ?? BuildDefaultConnectionString();
-        EnsureDatabaseDirectory(connectionString);
+        var connectionString = configuration.GetConnectionString("radio")
+            ?? throw new InvalidOperationException(
+                "Connection string 'radio' is not configured. The Aspire AppHost supplies it for the "
+                + "'radio' Postgres database; for a standalone run set ConnectionStrings__radio "
+                + "(e.g. Host=localhost;Port=5432;Database=radio;Username=postgres;Password=...).");
 
-        services.AddDbContextFactory<RadioDbContext>(options => options.UseSqlite(connectionString));
+        services.AddDbContextFactory<RadioDbContext>(options => options.UseNpgsql(connectionString));
         services.AddScoped<ITrackRepository, EfTrackRepository>();
         services.AddScoped<ITrackSelector>(sp => new WeightedTrackSelector(sp.GetRequiredService<ITrackRepository>()));
         return services;
-    }
-
-    private static string BuildDefaultConnectionString()
-    {
-        var root = Directory.Exists("/data") ? "/data" : Path.Combine(Directory.GetCurrentDirectory(), "data");
-        return $"Data Source={Path.Combine(root, "db", "radio.db")}";
-    }
-
-    private static void EnsureDatabaseDirectory(string connectionString)
-    {
-        const string prefix = "Data Source=";
-        var idx = connectionString.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0)
-        {
-            return;
-        }
-
-        var path = connectionString[(idx + prefix.Length)..].Split(';')[0].Trim();
-        var dir = Path.GetDirectoryName(path);
-        if (!string.IsNullOrEmpty(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
     }
 }

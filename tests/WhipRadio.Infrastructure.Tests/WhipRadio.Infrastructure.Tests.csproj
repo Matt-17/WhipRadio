@@ -15,10 +15,13 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageReference Include="MSTest.TestAdapter" Version="4.2.3" />
     <PackageReference Include="MSTest.TestFramework" Version="4.2.3" />
+    <PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\TestSupport\TestAssert.cs" Link="TestSupport\TestAssert.cs" />
+    <Compile Include="..\TestSupport\PostgresTestDatabase.cs" Link="TestSupport\PostgresTestDatabase.cs" />
+    <Compile Include="..\TestSupport\DbFixture.cs" Link="TestSupport\DbFixture.cs" />
   </ItemGroup>
 
   <ItemGroup>

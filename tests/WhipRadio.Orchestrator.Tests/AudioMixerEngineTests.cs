@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -9,6 +8,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -561,30 +561,55 @@ public class AudioMixerEngineTests
             => throw new InvalidOperationException("no DB in mixer tests");
     }
 
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
+    private sealed class NoOpMixerUpdatePublisher : IMixerUpdatePublisher
     {
+        public void Publish() { }
+        public Task PublishAsync(CancellationToken ct = default) => Task.CompletedTask;
+    }
+
+    private sealed class CollectingLogger : ILogger<AudioMixerEngine>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter)
+            => Entries.Add((logLevel, formatter(state, exception)));
+
+        private sealed class NullScope : IDisposable
+        {
+            public static readonly NullScope Instance = new();
+            public void Dispose() { }
+        }
+    }
+
+    // Local fixture (Postgres-backed) with the package/grace seed helpers this suite needs.
+    private sealed class DbFixture : IDbContextFactory<RadioDbContext>, IAsyncDisposable
+    {
+        private readonly string _connectionString;
+        private readonly DbContextOptions<RadioDbContext> _options;
+
+        private DbFixture(string connectionString)
+        {
+            _connectionString = connectionString;
+            _options = new DbContextOptionsBuilder<RadioDbContext>().UseNpgsql(connectionString).Options;
+        }
+
         public static async Task<DbFixture> CreateAsync()
         {
-            SqliteConnection connection = new("Data Source=:memory:");
-            await connection.OpenAsync();
-            DbContextOptions<RadioDbContext> options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (RadioDbContext db = new(options))
+            var fixture = new DbFixture(await PostgresTestDatabase.CreateDatabaseAsync());
+            await using RadioDbContext db = fixture.CreateDbContext();
+            db.StationSettings.Add(new StationSettings
             {
-                await db.Database.EnsureCreatedAsync();
-                db.StationSettings.Add(new StationSettings
-                {
-                    Id = StationSettings.SingletonId,
-                    NewsEnabled = true,
-                    TopOfHourIntroGraceSeconds = 15,
-                    DefaultCrossfadeSeconds = 1,
-                });
-                await db.SaveChangesAsync();
-            }
-
-            return new DbFixture(connection, options);
+                Id = StationSettings.SingletonId,
+                NewsEnabled = true,
+                TopOfHourIntroGraceSeconds = 15,
+                DefaultCrossfadeSeconds = 1,
+            });
+            await db.SaveChangesAsync();
+            return fixture;
         }
 
         public async Task SetPackageAsync(NewsPackageStatus status, DateTime targetUtc)
@@ -642,38 +667,11 @@ public class AudioMixerEngineTests
             await db.SaveChangesAsync();
         }
 
-        public RadioDbContext CreateDbContext() => new(options);
+        public RadioDbContext CreateDbContext() => new(_options);
 
         public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => Task.FromResult(CreateDbContext());
 
-        public async ValueTask DisposeAsync()
-        {
-            await connection.DisposeAsync();
-        }
-    }
-
-    private sealed class NoOpMixerUpdatePublisher : IMixerUpdatePublisher
-    {
-        public void Publish() { }
-        public Task PublishAsync(CancellationToken ct = default) => Task.CompletedTask;
-    }
-
-    private sealed class CollectingLogger : ILogger<AudioMixerEngine>
-    {
-        public List<(LogLevel Level, string Message)> Entries { get; } = [];
-
-        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
-            Func<TState, Exception?, string> formatter)
-            => Entries.Add((logLevel, formatter(state, exception)));
-
-        private sealed class NullScope : IDisposable
-        {
-            public static readonly NullScope Instance = new();
-            public void Dispose() { }
-        }
+        public async ValueTask DisposeAsync() => await PostgresTestDatabase.DropDatabaseAsync(_connectionString);
     }
 }

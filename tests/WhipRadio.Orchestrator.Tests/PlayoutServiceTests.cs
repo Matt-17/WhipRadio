@@ -1,5 +1,4 @@
 using System.Reflection;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -9,6 +8,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -285,38 +285,5 @@ public class PlayoutServiceTests
         public RadioDbContext CreateDbContext() => throw new InvalidOperationException("no DB on this path");
         public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
             => throw new InvalidOperationException("no DB on this path");
-    }
-
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public static async Task<DbFixture> CreateAsync(bool playoutEnabled)
-        {
-            SqliteConnection connection = new("Data Source=:memory:");
-            await connection.OpenAsync();
-            DbContextOptions<RadioDbContext> options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (RadioDbContext db = new(options))
-            {
-                await db.Database.EnsureCreatedAsync();
-                db.StationSettings.Add(new StationSettings
-                {
-                    Id = StationSettings.SingletonId,
-                    PlayoutEnabled = playoutEnabled,
-                    MixerEnabled = false,
-                });
-                await db.SaveChangesAsync();
-            }
-
-            return new DbFixture(connection, options);
-        }
-
-        public RadioDbContext CreateDbContext() => new(options);
-
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateDbContext());
-
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
     }
 }

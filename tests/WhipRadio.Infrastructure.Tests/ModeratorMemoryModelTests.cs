@@ -1,7 +1,7 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Infrastructure.Tests;
 
@@ -9,39 +9,27 @@ namespace WhipRadio.Infrastructure.Tests;
 public class ModeratorMemoryModelTests
 {
     [TestMethod]
-    public void Migrations_ExposePhase3bSchemaUpdates()
+    public void Migrations_ExposeConsolidatedPostgresBaseline()
     {
+        // The phase-tagged SQLite migrations were squashed into a single Postgres
+        // baseline at the cutover; this verifies the consolidated migration is wired.
         var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite("Data Source=:memory:")
+            .UseNpgsql("Host=localhost;Database=whipradio;Username=postgres")
             .Options;
 
         using var db = new RadioDbContext(options);
         var migrations = db.Database.GetMigrations().ToList();
 
-        CollectionAssert.IsSubsetOf(
-            new[]
-            {
-                "20260617140000_Phase3bMemoryLayers",
-                "20260617150000_Phase3bPersonalityTraits",
-                "20260617160000_Phase3bTalkProfiles",
-                "20260617170000_Phase3bTalkBreaksAndBits",
-                "20260617180000_Phase3bWeather",
-                "20260617190000_Phase3bBrandingAndJingles",
-            },
-            migrations);
+        Assert.Equal(1, migrations.Count);
+        Assert.True(migrations[0].EndsWith("InitialPostgres", StringComparison.Ordinal));
     }
 
     [TestMethod]
     public async Task ModeratorMemory_PersistsLayer()
     {
-        await using var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
+        await using var fixture = await DbFixture.CreateAsync();
 
-        var options = new DbContextOptionsBuilder<RadioDbContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             await db.Database.EnsureCreatedAsync();
             db.Moderators.Add(new Moderator
@@ -63,7 +51,7 @@ public class ModeratorMemoryModelTests
             await db.SaveChangesAsync();
         }
 
-        await using (var db = new RadioDbContext(options))
+        await using (var db = fixture.CreateDbContext())
         {
             var memory = await db.ModeratorMemories.AsNoTracking().SingleAsync();
 

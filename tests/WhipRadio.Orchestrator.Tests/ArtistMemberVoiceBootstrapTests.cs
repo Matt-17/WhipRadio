@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -10,6 +9,7 @@ using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -313,31 +313,5 @@ public class ArtistMemberVoiceBootstrapTests
                 Directory.Delete(Path, recursive: true);
             }
         }
-    }
-
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public static async Task<DbFixture> CreateAsync()
-        {
-            SqliteConnection connection = new("Data Source=:memory:");
-            await connection.OpenAsync();
-            DbContextOptions<RadioDbContext> options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (RadioDbContext db = new(options))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
-
-            return new DbFixture(connection, options);
-        }
-
-        public RadioDbContext CreateDbContext() => new(options);
-
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateDbContext());
-
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
     }
 }

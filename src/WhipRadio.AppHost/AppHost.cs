@@ -28,10 +28,20 @@ static string RequiredSecret(string key) =>
         $"Required secret '{key}' is not set. Copy .env.example to .env and fill in the values, "
         + "or set the environment variable directly.");
 
-// Shared data root: SQLite db + generated audio. The .NET projects run as local
+// Shared data root: generated audio files. The .NET projects run as local
 // processes in dev, so a plain folder under the repo root works on Windows.
+// The relational store lives in Postgres (below), not under this folder.
 var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
 var writerRoomEndpoint = builder.Configuration["Llm:Endpoint"] ?? "http://localhost:11434";
+
+// --- PostgreSQL: relational store ---------------------------------------------
+// Persistent container with a named data volume so the station's library, play
+// history, and settings survive restarts. AddDatabase("radio") injects the
+// connection string as ConnectionStrings__radio, which AddRadioPersistence reads.
+var postgres = builder.AddPostgres("postgres")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("whipradio-pgdata");
+var radioDb = postgres.AddDatabase("radio");
 
 // --- Icecast streaming server -------------------------------------------------
 // libretime/icecast generates icecast.xml from env vars; deploy/icecast/icecast.xml
@@ -53,6 +63,8 @@ var icecastEndpoint = icecast.GetEndpoint("http");
 // --- Orchestrator: pipelines + playout -----------------------------------------
 var orchestrator = builder.AddProject<Projects.WhipRadio_Orchestrator>("orchestrator")
     .WithHttpEndpoint(port: 5151, name: "http")
+    .WithReference(radioDb)
+    .WaitFor(radioDb)
     .WaitFor(icecast)
     .WithEnvironment("Llm__Endpoint", writerRoomEndpoint)
     .WithEnvironment("Radio__DataRoot", dataRoot)

@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
@@ -6,6 +5,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Services;
+using WhipRadio.TestSupport;
 
 namespace WhipRadio.Orchestrator.Tests;
 
@@ -153,31 +153,5 @@ public class ModeratorMemoryServiceTests
         }
 
         public sealed record Request(string SystemPrompt, string UserPrompt);
-    }
-
-    private sealed class DbFixture(SqliteConnection connection, DbContextOptions<RadioDbContext> options)
-        : IDbContextFactory<RadioDbContext>, IAsyncDisposable
-    {
-        public static async Task<DbFixture> CreateAsync()
-        {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<RadioDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            await using (var db = new RadioDbContext(options))
-            {
-                await db.Database.EnsureCreatedAsync();
-            }
-
-            return new DbFixture(connection, options);
-        }
-
-        public RadioDbContext CreateDbContext() => new(options);
-
-        public Task<RadioDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateDbContext());
-
-        public async ValueTask DisposeAsync() => await connection.DisposeAsync();
     }
 }

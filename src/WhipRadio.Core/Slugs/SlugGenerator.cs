@@ -42,6 +42,12 @@ public static class SlugGenerator
         return slug.Length <= MaxLength ? slug : slug[..MaxLength].TrimEnd('-');
     }
 
+    /// <summary>Normalizes an incoming slug (e.g. from a route or API input) for lookup.
+    /// Slugs are always stored lowercase (see <see cref="FromName"/>), and Postgres string
+    /// equality is case-sensitive, so a read must compare against the lowercased value.</summary>
+    public static string Normalize(string? slug) =>
+        (slug ?? string.Empty).Trim().ToLowerInvariant();
+
     public static string UniqueFromName(string? name, IEnumerable<string?> existingSlugs)
     {
         var baseSlug = FromName(name);
