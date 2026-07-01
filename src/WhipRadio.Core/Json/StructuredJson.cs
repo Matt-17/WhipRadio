@@ -34,7 +34,7 @@ public static class StructuredJson
     {
         // Decoders such as Ollama's reject schemas whose root permits null; strip the
         // "null" that the exporter adds for every reference type, at every level.
-        TransformSchemaNode = static (_, node) => StripNullType(node),
+        TransformSchemaNode = static (_, node) => NormalizeSchemaNode(node),
     };
 
     /// <summary>Generates (and caches) the JSON Schema for an output record.</summary>
@@ -97,7 +97,7 @@ public static class StructuredJson
             : trimmed;
     }
 
-    private static JsonNode StripNullType(JsonNode node)
+    private static JsonNode NormalizeSchemaNode(JsonNode node)
     {
         if (node is not JsonObject obj || !obj.TryGetPropertyValue("type", out var type) || type is not JsonArray array)
         {
@@ -108,6 +108,13 @@ public static class StructuredJson
             .Where(item => item is not null && item.GetValue<string>() != "null")
             .Select(item => item!.GetValue<string>())
             .ToArray();
+
+        if (kept.Contains("string", StringComparer.Ordinal)
+            && (kept.Contains("number", StringComparer.Ordinal) || kept.Contains("integer", StringComparer.Ordinal)))
+        {
+            kept = kept.Where(value => value != "string").ToArray();
+            obj.Remove("pattern");
+        }
 
         obj["type"] = kept.Length == 1 ? kept[0] : new JsonArray(kept.Select(value => (JsonNode)value!).ToArray());
         return obj;

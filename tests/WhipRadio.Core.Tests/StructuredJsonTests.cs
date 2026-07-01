@@ -11,6 +11,8 @@ public class StructuredJsonTests
         int Count = 0,
         string? Note = null);
 
+    private sealed record NumericDto(double? Rate = null, int? Count = null);
+
     [TestMethod]
     public void Parse_ValidJson_ReturnsValue()
     {
@@ -64,5 +66,20 @@ public class StructuredJsonTests
         // Defaulted/optional members must not be required.
         Assert.DoesNotContain("count", required);
         Assert.DoesNotContain("note", required);
+    }
+
+    [TestMethod]
+    public void SchemaFor_NumericProperties_DoNotPermitStringNumbers()
+    {
+        var schema = StructuredJson.SchemaFor<NumericDto>();
+        var properties = schema["properties"]!;
+
+        var rate = properties["rate"]!;
+        Assert.Equal("number", rate["type"]!.GetValue<string>());
+        Assert.Null(rate["pattern"]);
+
+        var count = properties["count"]!;
+        Assert.Equal("integer", count["type"]!.GetValue<string>());
+        Assert.Null(count["pattern"]);
     }
 }
