@@ -84,19 +84,21 @@ public class DbInitializerTests
         await using (var db = fixture.CreateDbContext())
         {
             await db.Database.MigrateAsync();
-            db.Moderators.Add(new Moderator
+            var moderator = new Moderator
             {
-                Id = 1,
                 Name = "Maya",
                 Language = "en",
                 Gender = ModeratorGenders.Female,
                 TtsEngine = TtsEngines.Kokoro,
                 VoiceId = "af_bella",
-            });
+            };
+            db.Moderators.Add(moderator);
+            await db.SaveChangesAsync();
+
             db.Announcements.Add(new Announcement
             {
                 Id = announcementId,
-                ModeratorId = 1,
+                ModeratorId = moderator.Id,
                 Kind = AnnouncementKind.News,
                 ScriptText = "script",
                 VoicedText = "voice",

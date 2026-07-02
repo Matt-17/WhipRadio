@@ -170,6 +170,14 @@ public class StationSettings
 
     /// <summary>Play-count fatigue coefficient in TrackWeighting. Higher = heavy-rotation tracks fade faster.</summary>
     public double FatigueFactor { get; set; } = 0.15;
+
+    // --- Chat control ---------------------------------------------------------
+
+    public int ChatMaxAgentHops { get; set; } = 6;
+
+    public int ChatHistoryPromptMessages { get; set; } = 20;
+
+    public int ChatRetainedMessagesPerChannel { get; set; } = 500;
 }
 
 public static class TextProviders

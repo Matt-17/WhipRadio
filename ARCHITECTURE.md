@@ -82,6 +82,8 @@ Important hosted services include:
 - `TalkBreakCleanupService`: removes stale generated talk content.
 - `AnalysisBackfillService`: backfills audio analysis.
 - `ConsoleLogBroadcaster`: publishes live logs to the console UI.
+- `ChatAgentWorker`: runs queued host/director chat turns through the writer room.
+- `ChatCleanupService`: trims retained chat history and expires stale pending actions.
 
 Startup responsibilities also live here:
 
@@ -194,6 +196,32 @@ song makes ACE-Step spend minutes decoding reference audio before generation.
 5. TTS renders WAV audio through the configured booth.
 6. announcements are queued for playout and stored for diagnostics.
 
+### Chat Control
+
+1. The Blazor Chat page calls `/api/chat` and subscribes to `/hubs/radio`.
+2. `ChatService` owns channel bootstrap, persisted messages, admin read state,
+   action result JSON, and SignalR events (`ChatMessageAdded`,
+   `ChatChannelUpdated`, `ChatAgentThinking`).
+3. Admin messages are resolved by `ChatResponderResolver` and queued through
+   `ChatTurnQueue`; `ChatAgentWorker` creates a scoped `ChatAgentTurnService`
+   per turn.
+4. `PromptContextBuilder` builds `PromptScope.Chat` context with persona,
+   station state, recent chat history, and role-available `ICharacterTool`s.
+5. `ChatReplyParser` reads the JSON envelope, validates actions against the
+   catalog, and the bounded retry path asks the agent to correct malformed
+   output.
+6. `ChatActionExecutor` dispatches actions to existing station services:
+   `AnnouncementFactory`, `PriorityTalkBreakDispatcher`,
+   `DirectorPlanningService`, `SpecialistHostCreationService`,
+   `TrackQueryService`, and `ChatService`.
+7. Fast lookup actions such as `SearchMusic` and `StatusReport` run inside the
+   agent turn and feed their results back to the model before the final reply.
+8. Host-to-host `Message` actions create normalized one-to-one channels,
+   preserve correlation/hop counts, enforce the hop cap, and create a scheduled
+   `TalkBreak` when a terminal Admin report ends the exchange.
+9. `ChatNotificationBus` lets existing services publish proactive System
+   messages for director results, production failures, and show handovers.
+
 ## State And Persistence
 
 PostgreSQL is the source of truth for durable station state. Runtime APIs and read
@@ -253,4 +281,3 @@ path:
 ```powershell
 dotnet test WhipRadio.slnx --artifacts-path D:\tmp\whipradio-artifacts
 ```
-

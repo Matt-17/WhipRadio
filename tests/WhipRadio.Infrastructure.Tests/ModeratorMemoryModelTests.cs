@@ -20,8 +20,9 @@ public class ModeratorMemoryModelTests
         using var db = new RadioDbContext(options);
         var migrations = db.Database.GetMigrations().ToList();
 
-        Assert.Equal(1, migrations.Count);
+        Assert.True(migrations.Count >= 1);
         Assert.True(migrations[0].EndsWith("InitialPostgres", StringComparison.Ordinal));
+        Assert.Contains(migrations, migration => migration.EndsWith("Phase4Chat", StringComparison.Ordinal));
     }
 
     [TestMethod]

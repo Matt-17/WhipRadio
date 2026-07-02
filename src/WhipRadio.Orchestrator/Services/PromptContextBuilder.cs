@@ -29,7 +29,10 @@ public sealed class PromptContextBuilder(
             logger.LogDebug(ex, "Could not resolve schedule context for prompt context");
         }
 
-        var moderator = input.Moderator ?? show?.Moderator;
+        // Chat turns must never inherit the on-air host: a null moderator in Chat
+        // scope means the Program Director is speaking, not whoever is on air.
+        var moderator = input.Moderator
+            ?? (input.Scope == PromptScope.Chat ? null : show?.Moderator);
         var format = input.Format ?? show?.Format;
         // The broadcast/written language is the STATION language (from settings). A host's own
         // Language is a per-host attribute (voice accent / occasional native-language guest
@@ -96,6 +99,8 @@ public sealed class PromptContextBuilder(
             RecurringBits = await GetRecurringBitsAsync(db, moderator?.Id, ct),
             QueuedListenerMessages = await GetQueuedListenerMessagesAsync(db, ct),
             MemorySlices = await GetMemorySlicesAsync(db, moderator?.Id, ct),
+            ChatHistory = await GetChatHistoryAsync(db, input.ChatChannelId, settings.ChatHistoryPromptMessages, ct),
+            ChatAudience = ResolveChatAudience(input),
             Tools = toolCatalog.GetTools(input.Scope, role),
         };
     }
@@ -105,6 +110,24 @@ public sealed class PromptContextBuilder(
         if (input.Scope == PromptScope.ProgramDirector)
         {
             return CharacterRole.ProgramDirector;
+        }
+
+        if (input.Scope == PromptScope.Chat && moderator is null)
+        {
+            return CharacterRole.ProgramDirector;
+        }
+
+        if (input.Scope == PromptScope.Chat && moderator is not null)
+        {
+            if (moderator.IsNewsSpecialist)
+            {
+                return CharacterRole.NewsSpecialist;
+            }
+
+            if (moderator.IsWeatherSpecialist)
+            {
+                return CharacterRole.WeatherSpecialist;
+            }
         }
 
         if (input.AnnouncementKind == AnnouncementKind.Weather)
@@ -126,6 +149,9 @@ public sealed class PromptContextBuilder(
 
     private static string? FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim();
+
+    private static string? ResolveChatAudience(PromptContextInput input)
+        => FirstNonEmpty(input.ChatCounterpartName, input.ChatAudience?.ToString());
 
     private static string? FormatTrack(Track? track)
     {
@@ -330,5 +356,41 @@ public sealed class PromptContextBuilder(
             .ToListAsync(ct);
 
         return dayMemory.Concat(longTermMemory).ToList();
+    }
+
+    private static async Task<IReadOnlyList<string>> GetChatHistoryAsync(
+        RadioDbContext db,
+        Guid? channelId,
+        int maxMessages,
+        CancellationToken ct)
+    {
+        if (channelId is null)
+        {
+            return [];
+        }
+
+        int take = Math.Clamp(maxMessages <= 0 ? 20 : maxMessages, 1, 80);
+        List<ChatMessage> messages = await db.ChatMessages.AsNoTracking()
+            .Include(message => message.SenderModerator)
+            .Where(message => message.ChannelId == channelId.Value)
+            .OrderByDescending(message => message.CreatedAtUtc)
+            .Take(take)
+            .ToListAsync(ct);
+        messages.Reverse();
+
+        return messages
+            .Select(message =>
+            {
+                string sender = message.SenderKind switch
+                {
+                    ChatSenderKind.Admin => "Admin",
+                    ChatSenderKind.Host => message.SenderModerator?.Name ?? "Host",
+                    ChatSenderKind.Director => "Program Director",
+                    ChatSenderKind.System => "System",
+                    _ => message.SenderKind.ToString(),
+                };
+                return $"[{message.CreatedAtUtc.ToLocalTime():HH:mm}] {sender}: {message.Text}";
+            })
+            .ToList();
     }
 }

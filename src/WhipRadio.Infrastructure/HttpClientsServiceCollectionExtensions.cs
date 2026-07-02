@@ -113,10 +113,17 @@ public static class HttpClientsServiceCollectionExtensions
 
         services.AddScoped<IAnnouncementWriter, AnnouncementWriter>();
         services.AddSingleton<ICharacterToolCallParser, CharacterToolCallParser>();
+        services.AddSingleton<IChatReplyParser, ChatReplyParser>();
         services.AddSingleton<ICharacterToolCatalog, CharacterToolCatalog>();
         services.AddSingleton<ICharacterTool, AnnounceTool>();
         services.AddSingleton<ICharacterTool, PlayTool>();
         services.AddSingleton<ICharacterTool, MessageTool>();
+        services.AddSingleton<ICharacterTool, AnnouncementTool>();
+        services.AddSingleton<ICharacterTool, SearchMusicTool>();
+        services.AddSingleton<ICharacterTool, PlanFormatTool>();
+        services.AddSingleton<ICharacterTool, HireHostTool>();
+        services.AddSingleton<ICharacterTool, AssignHostTool>();
+        services.AddSingleton<ICharacterTool, StatusReportTool>();
         services.AddSingleton<ICharacterTool, StartTalkBreakTool>();
         services.AddSingleton<ICharacterTool, RememberTool>();
         services.AddSingleton<ICharacterTool, RequestBitTool>();

@@ -19,6 +19,7 @@ public class AnnouncementProductionService(
     ScheduleService schedule,
     TimeProvider timeProvider,
     IStationMetrics metrics,
+    INotificationBus notifications,
     ILogger<AnnouncementProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
@@ -47,6 +48,7 @@ public class AnnouncementProductionService(
                 logger.LogError(ex,
                     "Announcement production cycle failed ({Reason}); retrying in {Delay}s",
                     ex.GetBaseException().Message, CycleDelay.TotalSeconds);
+                await PublishFailureAsync(kind, ex, stoppingToken);
             }
 
             await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
@@ -209,5 +211,21 @@ public class AnnouncementProductionService(
         }
 
         return $"- {m.SenderName}: \"{m.MessageText}\"";
+    }
+
+    private async Task PublishFailureAsync(string kind, Exception ex, CancellationToken ct)
+    {
+        try
+        {
+            await notifications.PublishAsync(new StationNotification(
+                "Production failure",
+                kind,
+                ex.GetBaseException().Message,
+                DateTime.UtcNow), ct);
+        }
+        catch (Exception publishEx) when (publishEx is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(publishEx, "Failed to publish {Kind} production failure notification", kind);
+        }
     }
 }

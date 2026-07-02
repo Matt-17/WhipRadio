@@ -12,6 +12,7 @@ public enum PromptScope
     ProgramDirector,
     MessageModeration,
     CharacterDecision,
+    Chat,
     Utility,
 }
 
@@ -107,6 +108,10 @@ public sealed class PromptContext
     public IReadOnlyList<string> QueuedListenerMessages { get; init; } = [];
 
     public IReadOnlyList<string> MemorySlices { get; init; } = [];
+
+    public IReadOnlyList<string> ChatHistory { get; init; } = [];
+
+    public string? ChatAudience { get; init; }
 
     public IReadOnlyList<CharacterToolDefinition> Tools { get; init; } = [];
 
@@ -225,12 +230,30 @@ public sealed class PromptContext
         AppendList(builder, "Queued listener messages", QueuedListenerMessages);
         AppendList(builder, "Memory", MemorySlices);
 
+        if (!string.IsNullOrWhiteSpace(ChatAudience))
+        {
+            builder.AppendLine($"- Chat audience: {ChatAudience}");
+        }
+
+        AppendList(builder, "Chat conversation", ChatHistory);
+
         if (Tools.Count > 0)
         {
-            builder.AppendLine(
-                "If you are choosing an action, respond with exactly one JSON object and nothing else, " +
-                """in the form {"tool":"<ToolName>","arguments":{"<argument>":"<value>"}}. """ +
-                "Available tools:");
+            if (Scope == PromptScope.Chat)
+            {
+                builder.AppendLine(
+                    "For chat, respond with exactly one JSON object and nothing else, " +
+                    """in the form {"reply":"<message prose>","actions":[{"tool":"<ToolName>","arguments":{"<argument>":"<value>"}}]}. """ +
+                    "Use an empty actions array when no action is needed. Available tools:");
+            }
+            else
+            {
+                builder.AppendLine(
+                    "If you are choosing an action, respond with exactly one JSON object and nothing else, " +
+                    """in the form {"tool":"<ToolName>","arguments":{"<argument>":"<value>"}}. """ +
+                    "Available tools:");
+            }
+
             foreach (var tool in Tools)
             {
                 var args = tool.Arguments.Count == 0

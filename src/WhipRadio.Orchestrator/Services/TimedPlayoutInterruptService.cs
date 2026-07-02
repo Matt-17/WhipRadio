@@ -51,6 +51,9 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
     }
 
     public bool WasRecentlyConsumed(Guid announcementId, DateTime targetUtc, TimeSpan minimumDelay)
+        => WasRecentlyConsumed(announcementId, targetUtc, minimumDelay, DateTime.UtcNow);
+
+    public bool WasRecentlyConsumed(Guid announcementId, DateTime targetUtc, TimeSpan minimumDelay, DateTime utcNow)
     {
         if (minimumDelay <= TimeSpan.Zero)
         {
@@ -67,7 +70,7 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
                 return false;
             }
 
-            return DateTime.UtcNow - _recentlyConsumedAtUtc.Value < minimumDelay;
+            return utcNow - _recentlyConsumedAtUtc.Value < minimumDelay;
         }
     }
 

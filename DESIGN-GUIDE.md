@@ -62,6 +62,7 @@ All current pages should stay within one of these patterns:
 | Record Collection | Music library | Sticky artist rail, dense track grid, modal creation/confirmation |
 | Play Log | Broadcast history | Console table plus expandable transcript/talk rows |
 | Listener Messages | Message moderation | Segmented filter, console table, row actions |
+| Chat | Station/director/host control | Full-height split dashboard, channel rail, live message pane, action chips |
 | Weekly Program | Schedule view | Horizontal schedule grid inside one panel |
 | Show Formats | Format management | `mod-grid` cards with vote buttons and trailing enable switch |
 | Branding | Station identity and jingles | Form panels plus library-style jingle rows |

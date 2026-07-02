@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Globalization;
 using WhipRadio.Core.Api;
 
 namespace WhipRadio.Web.Services;
@@ -70,6 +71,68 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         CancellationToken ct = default)
         => await SafeGetAsync<PagedArtistPostsDto>($"/api/artist-posts?page={page}&pageSize={pageSize}", ct)
             ?? new PagedArtistPostsDto(0, page, pageSize, []);
+
+    public async Task<List<ChatChannelDto>> GetChatChannelsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ChatChannelDto>>("/api/chat/channels", ct) ?? [];
+
+    public async Task<List<AgentLogEntryDto>> GetAgentLogAsync(
+        string? agent = null,
+        int take = 200,
+        CancellationToken ct = default)
+    {
+        string url = $"/api/agent-log?take={take}";
+        if (!string.IsNullOrWhiteSpace(agent))
+        {
+            url += $"&agent={Uri.EscapeDataString(agent)}";
+        }
+
+        return await SafeGetAsync<List<AgentLogEntryDto>>(url, ct) ?? [];
+    }
+
+    public async Task<PagedChatMessagesDto> GetChatMessagesAsync(
+        Guid channelId,
+        DateTime? beforeUtc = null,
+        int take = 50,
+        CancellationToken ct = default)
+    {
+        string url = $"/api/chat/channels/{channelId}/messages?take={take}";
+        if (beforeUtc is { } before)
+        {
+            url += $"&before={Uri.EscapeDataString(before.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture))}";
+        }
+
+        return await SafeGetAsync<PagedChatMessagesDto>(url, ct)
+            ?? new PagedChatMessagesDto([], false);
+    }
+
+    public async Task<(ChatMessageDto? Message, string? Error)> PostChatMessageAsync(
+        Guid channelId,
+        string text,
+        CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.PostAsJsonAsync(
+            $"/api/chat/channels/{channelId}/messages",
+            new PostChatMessageRequest(text),
+            ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<ChatMessageDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task MarkChatReadAsync(Guid channelId, CancellationToken ct = default)
+        => await http.PostAsync($"/api/chat/channels/{channelId}/read", null, ct);
+
+    public async Task<string?> ConfirmChatActionAsync(Guid messageId, int actionIndex, CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.PostAsync($"/api/chat/actions/{messageId}/{actionIndex}/confirm", null, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<string?> DismissChatActionAsync(Guid messageId, int actionIndex, CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.PostAsync($"/api/chat/actions/{messageId}/{actionIndex}/dismiss", null, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
 
     public async Task<ArtistDto?> GetArtistAsync(Guid id, CancellationToken ct = default)
         => await SafeGetAsync<ArtistDto>($"/api/artists/{id}", ct);

@@ -31,6 +31,7 @@ public class MusicProductionService(
     IOptions<RadioOptions> radioOptions,
     IOptions<MusicOptions> musicOptions,
     IStationMetrics metrics,
+    INotificationBus notifications,
     ILogger<MusicProductionService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -67,6 +68,7 @@ public class MusicProductionService(
                             logger.LogWarning(ex,
                                 "Recording studio became unavailable while producing requested artist {ArtistId}; keeping the request queued.",
                                 artistId);
+                            await PublishFailureAsync(kind, ex, stoppingToken);
                         }
                         catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
                         {
@@ -111,6 +113,7 @@ public class MusicProductionService(
                 logger.LogError(ex,
                     "Music production cycle failed ({Reason}); retrying in {Backoff}s",
                     ex.GetBaseException().Message, backoff.TotalSeconds);
+                await PublishFailureAsync(kind, ex, stoppingToken);
             }
 
             await Task.Delay(backoff, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
@@ -122,6 +125,22 @@ public class MusicProductionService(
         var baseException = ex.GetBaseException();
         return ex is MusicBackendUnavailableException or HttpRequestException or TaskCanceledException
             || baseException is MusicBackendUnavailableException or HttpRequestException or TaskCanceledException;
+    }
+
+    private async Task PublishFailureAsync(string kind, Exception ex, CancellationToken ct)
+    {
+        try
+        {
+            await notifications.PublishAsync(new StationNotification(
+                "Production failure",
+                kind,
+                ex.GetBaseException().Message,
+                DateTime.UtcNow), ct);
+        }
+        catch (Exception publishEx) when (publishEx is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(publishEx, "Failed to publish {Kind} production failure notification", kind);
+        }
     }
 
     private async Task<StationSettings> GetSettingsAsync(CancellationToken ct)

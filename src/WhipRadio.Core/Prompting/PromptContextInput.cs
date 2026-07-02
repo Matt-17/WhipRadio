@@ -14,7 +14,10 @@ public sealed record PromptContextInput(
     PromptPriority Priority = PromptPriority.Normal,
     int? TargetSeconds = null,
     string? AlreadySpokenContext = null,
-    DateTimeOffset? LocalNowOverride = null);
+    DateTimeOffset? LocalNowOverride = null,
+    Guid? ChatChannelId = null,
+    string? ChatCounterpartName = null,
+    ChatSenderKind? ChatAudience = null);
 
 public static class PromptWordBudget
 {

@@ -83,9 +83,7 @@ public sealed class TopOfHourPackageDispatcher(
             if (next.Status == NewsPackageStatus.Queued
                 && (interrupts.HasPending(announcementId, next.TargetUtc)
                     || interrupts.WasRecentlyConsumed(
-                        announcementId, next.TargetUtc, duplicateGuardWindow)
-                    || (next.QueuedAtUtc is { } queuedAt
-                        && now - queuedAt < duplicateGuardWindow)))
+                        announcementId, next.TargetUtc, duplicateGuardWindow, now)))
             {
                 if (changed)
                 {

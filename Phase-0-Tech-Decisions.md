@@ -277,6 +277,12 @@ collect name or gender for specialist hiring; if no suitable specialist exists w
 production needs one, the director creates and assigns one instead of skipping the
 desk by default.
 
+**Implemented in Phase 4:** director chat host hiring uses the same
+`SpecialistHostCreationService` path for general hosts. The operator provides only
+a short brief; the director/writer-room path chooses persona, traits, gender, and
+voice description, and the active voice booth resolves the TTS voice. Chat does not
+add name lists, gender pickers, model pickers, or voice-id fields.
+
 ## Encoder / Icecast resilience
 
 PlayoutService no longer hot-loops ffmpeg into a dead Icecast mount. The restart

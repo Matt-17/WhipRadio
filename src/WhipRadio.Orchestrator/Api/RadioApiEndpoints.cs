@@ -35,6 +35,8 @@ public static class RadioApiEndpoints
         MapStationStatus(api);
         MapLibrary(api);
         MapArtistPosts(api);
+        MapChat(api);
+        MapAgentLog(api);
         MapPlayLog(api);
         MapTalkBreaks(api);
         MapVotes(api);
@@ -48,6 +50,127 @@ public static class RadioApiEndpoints
         MapPrivacy(api);
 
         return app;
+    }
+
+    private static void MapAgentLog(RouteGroupBuilder api)
+    {
+        api.MapGet("/agent-log", async (
+            string? agent,
+            int? take,
+            AgentActionLogService service,
+            CancellationToken ct) =>
+            Results.Ok(await service.GetAsync(agent, take ?? 200, ct)));
+    }
+
+    private static void MapChat(RouteGroupBuilder api)
+    {
+        RouteGroupBuilder chat = api.MapGroup("/chat");
+
+        chat.MapGet("/channels", async (ChatService service, CancellationToken ct) =>
+            Results.Ok(await service.GetChannelsAsync(ct)));
+
+        chat.MapGet("/channels/{id:guid}/messages", async (
+            Guid id,
+            DateTime? before,
+            int? take,
+            ChatService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                return Results.Ok(await service.GetMessagesAsync(id, before, take ?? 50, ct));
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+        });
+
+        chat.MapPost("/channels/{id:guid}/messages", async (
+            Guid id,
+            PostChatMessageRequest request,
+            ChatService service,
+            ChatResponderResolver responders,
+            CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Text))
+            {
+                return Results.BadRequest("Text is required.");
+            }
+
+            string text = request.Text.Trim();
+            if (text.Length > 4000)
+            {
+                return Results.BadRequest("Text must be 4000 characters or fewer.");
+            }
+
+            try
+            {
+                Guid correlationId = Guid.NewGuid();
+                ChatMessageDto posted = await service.PostAsync(
+                    id,
+                    ChatSenderKind.Admin,
+                    moderatorId: null,
+                    text,
+                    actionsJson: null,
+                    correlationId,
+                    hopCount: 0,
+                    ct);
+                await responders.TryEnqueueForAdminMessageAsync(posted, ct);
+                return Results.Ok(posted);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(ex.Message);
+            }
+        });
+
+        chat.MapPost("/channels/{id:guid}/read", async (
+            Guid id,
+            ChatService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await service.MarkReadAsync(id, ct);
+                return Results.NoContent();
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+        });
+
+        chat.MapPost("/actions/{messageId:guid}/{actionIndex:int}/confirm", (
+            Guid messageId,
+            int actionIndex) =>
+            Results.Conflict(
+                "Chat action confirmation is disabled in this phase because chat actions auto-run."));
+
+        chat.MapPost("/actions/{messageId:guid}/{actionIndex:int}/dismiss", async (
+            Guid messageId,
+            int actionIndex,
+            ChatService service,
+            CancellationToken ct) =>
+        {
+            try
+            {
+                await service.DismissActionAsync(messageId, actionIndex, ct);
+                return Results.NoContent();
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                return Results.BadRequest(ex.Message);
+            }
+        });
     }
 
     private static void MapArtistPosts(RouteGroupBuilder api)

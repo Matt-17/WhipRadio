@@ -44,6 +44,8 @@ builder.Services.AddScoped<StudioLiveClient>();
 builder.Services.AddScoped<MixerLiveClient>();
 builder.Services.AddScoped<ProductionLiveClient>();
 builder.Services.AddScoped<ArtistFeedLiveClient>();
+builder.Services.AddScoped<ChatLiveClient>();
+builder.Services.AddScoped<AgentLogLiveClient>();
 builder.Services.AddScoped<PlayerState>();
 
 var app = builder.Build();

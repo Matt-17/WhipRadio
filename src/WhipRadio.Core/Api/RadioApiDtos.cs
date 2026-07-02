@@ -100,6 +100,60 @@ public sealed record ArtistPostDto(
     string Body,
     DateTime CreatedAtUtc);
 
+public sealed record ChatChannelDto(
+    Guid Id,
+    string Kind,
+    string Name,
+    int? ModeratorId,
+    string? PhotoUrl,
+    DateTime LastMessageAtUtc,
+    string? LastMessagePreview,
+    int UnreadCount,
+    bool IsArchived);
+
+public sealed record ChatActionDto(
+    string Tool,
+    IReadOnlyDictionary<string, string> Arguments,
+    string State,
+    string? ResultSummary);
+
+public sealed record ChatMessageDto(
+    Guid Id,
+    Guid ChannelId,
+    string SenderKind,
+    int? SenderModeratorId,
+    string SenderName,
+    string? SenderPhotoUrl,
+    string Text,
+    IReadOnlyList<ChatActionDto> Actions,
+    DateTime CreatedAtUtc,
+    Guid? CorrelationId,
+    int HopCount);
+
+public sealed record PagedChatMessagesDto(
+    IReadOnlyList<ChatMessageDto> Messages,
+    bool HasMore);
+
+public sealed record PostChatMessageRequest(string Text);
+
+public sealed record ChatAgentThinkingDto(
+    Guid ChannelId,
+    string SenderName,
+    bool IsThinking);
+
+public sealed record AgentLogEntryDto(
+    Guid Id,
+    DateTime CreatedAtUtc,
+    string AgentName,
+    int? ModeratorId,
+    string Source,
+    Guid? CorrelationId,
+    int Round,
+    string Kind,
+    string? Tool,
+    string Content,
+    string? Outcome);
+
 public sealed record PagedArtistPostsDto(
     int Total,
     int Page,

@@ -16,6 +16,7 @@ public enum SpecialistHostRole
 {
     News,
     Weather,
+    General,
 }
 
 public sealed class SpecialistHostCreationService(
@@ -57,9 +58,7 @@ public sealed class SpecialistHostCreationService(
             TtsEngine = TtsEngines.Qwen,
             Style = style,
             PersonaPrompt = persona,
-            PreferredGenres = SanitizeOptional(plan.PreferredGenres, role == SpecialistHostRole.News
-                ? "news,current events"
-                : "weather,forecast"),
+            PreferredGenres = SanitizeOptional(plan.PreferredGenres, DefaultPreferredGenres(role)),
             Talkativeness = Math.Clamp(plan.Talkativeness ?? DefaultTalkativeness(role), 0, 1),
             BaselineEnergy = traits.Energy,
             BaselineFormality = traits.Formality,
@@ -97,7 +96,7 @@ public sealed class SpecialistHostCreationService(
         {
             trackedSettings.NewsPresenterModeratorId = moderator.Id;
         }
-        else
+        else if (role == SpecialistHostRole.Weather)
         {
             trackedSettings.WeatherSpecialistModeratorId = moderator.Id;
         }
@@ -173,7 +172,7 @@ public sealed class SpecialistHostCreationService(
         {
             await productionUpdates.PublishNewsChangedAsync(ct);
         }
-        else
+        else if (role == SpecialistHostRole.Weather)
         {
             await productionUpdates.PublishWeatherChangedAsync(ct);
         }
@@ -297,12 +296,14 @@ public sealed class SpecialistHostCreationService(
                 HumorLevel.VeryLow,
                 WhipRadio.Core.Personality.Talkativeness.Low,
                 inferred.Warmth)
-            : new HostPersonalityTraits(
+            : role == SpecialistHostRole.Weather
+                ? new HostPersonalityTraits(
                 inferred.Energy,
                 Formality.Formal,
                 HumorLevel.Low,
                 WhipRadio.Core.Personality.Talkativeness.Low,
-                inferred.Warmth);
+                inferred.Warmth)
+                : inferred;
 
     private static T ParseTrait<T>(string? value, T fallback)
         where T : struct, Enum
@@ -310,6 +311,17 @@ public sealed class SpecialistHostCreationService(
 
     private static void ApplySpecialistTalkProfile(Moderator moderator, SpecialistHostRole role)
     {
+        if (role == SpecialistHostRole.General)
+        {
+            moderator.TalkBreakFrequencyTracks = 1;
+            moderator.MinTalkPartsPerBreak = 1;
+            moderator.MaxTalkPartsPerBreak = 3;
+            moderator.AllowedTalkPartKinds = new Moderator().AllowedTalkPartKinds;
+            moderator.ExactReplayTolerance = 2;
+            moderator.EvergreenBitTolerance = 0.5;
+            return;
+        }
+
         moderator.TalkBreakFrequencyTracks = 0;
         moderator.MinTalkPartsPerBreak = 1;
         moderator.MaxTalkPartsPerBreak = 1;
@@ -321,12 +333,28 @@ public sealed class SpecialistHostCreationService(
     }
 
     private static string BuildVoiceIntroSample(Moderator moderator, SpecialistHostRole role)
-        => role == SpecialistHostRole.News
-            ? $"I'm {moderator.Name}. Here is the latest from the news desk."
-            : $"I'm {moderator.Name}. Here is the local forecast.";
+        => role switch
+        {
+            SpecialistHostRole.News => $"I'm {moderator.Name}. Here is the latest from the news desk.",
+            SpecialistHostRole.Weather => $"I'm {moderator.Name}. Here is the local forecast.",
+            _ => $"Hi, I'm {moderator.Name}. You're listening to WhipRadio.",
+        };
 
     private static double DefaultTalkativeness(SpecialistHostRole role)
-        => role == SpecialistHostRole.News ? 0.3 : 0.25;
+        => role switch
+        {
+            SpecialistHostRole.News => 0.3,
+            SpecialistHostRole.Weather => 0.25,
+            _ => 0.55,
+        };
+
+    private static string DefaultPreferredGenres(SpecialistHostRole role)
+        => role switch
+        {
+            SpecialistHostRole.News => "news,current events",
+            SpecialistHostRole.Weather => "weather,forecast",
+            _ => "late night,variety",
+        };
 
     private static string FirstNonEmpty(params string?[] values)
         => values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;

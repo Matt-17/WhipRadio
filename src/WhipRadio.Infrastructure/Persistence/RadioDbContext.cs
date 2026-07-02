@@ -56,6 +56,14 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<NewsPackage> NewsPackages => Set<NewsPackage>();
 
+    public DbSet<ChatChannel> ChatChannels => Set<ChatChannel>();
+
+    public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
+
+    public DbSet<ProgramDirectorLog> ProgramDirectorLogs => Set<ProgramDirectorLog>();
+
+    public DbSet<AgentActionLog> AgentActionLogs => Set<AgentActionLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Track>(track =>
@@ -274,6 +282,50 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
                 .WithMany()
                 .HasForeignKey(p => p.AnnouncementId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ChatChannel>(channel =>
+        {
+            channel.Property(c => c.Kind).HasConversion<string>();
+            channel.HasIndex(c => new { c.Kind, c.ModeratorId, c.CounterpartModeratorId });
+            channel.HasIndex(c => c.LastMessageAtUtc);
+            channel.HasOne(c => c.Moderator)
+                .WithMany()
+                .HasForeignKey(c => c.ModeratorId)
+                .OnDelete(DeleteBehavior.SetNull);
+            channel.HasOne(c => c.CounterpartModerator)
+                .WithMany()
+                .HasForeignKey(c => c.CounterpartModeratorId)
+                .OnDelete(DeleteBehavior.SetNull);
+            channel.HasMany(c => c.Messages)
+                .WithOne(m => m.Channel)
+                .HasForeignKey(m => m.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChatMessage>(message =>
+        {
+            message.Property(m => m.SenderKind).HasConversion<string>();
+            message.HasIndex(m => new { m.ChannelId, m.CreatedAtUtc });
+            message.HasIndex(m => m.CorrelationId);
+            message.HasOne(m => m.SenderModerator)
+                .WithMany()
+                .HasForeignKey(m => m.SenderModeratorId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProgramDirectorLog>(log =>
+        {
+            log.Property(l => l.Source).HasConversion<string>();
+            log.HasIndex(l => new { l.Source, l.CreatedAtUtc });
+        });
+
+        modelBuilder.Entity<AgentActionLog>(log =>
+        {
+            log.Property(l => l.Kind).HasConversion<string>();
+            log.HasIndex(l => l.CreatedAtUtc);
+            log.HasIndex(l => new { l.AgentName, l.CreatedAtUtc });
+            log.HasIndex(l => l.CorrelationId);
         });
     }
 }

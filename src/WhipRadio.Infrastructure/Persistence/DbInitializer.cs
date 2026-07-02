@@ -236,6 +236,24 @@ public static class DbInitializer
             patched = true;
         }
 
+        if (settings.ChatMaxAgentHops <= 0)
+        {
+            settings.ChatMaxAgentHops = defaults.ChatMaxAgentHops;
+            patched = true;
+        }
+
+        if (settings.ChatHistoryPromptMessages <= 0)
+        {
+            settings.ChatHistoryPromptMessages = defaults.ChatHistoryPromptMessages;
+            patched = true;
+        }
+
+        if (settings.ChatRetainedMessagesPerChannel <= 0)
+        {
+            settings.ChatRetainedMessagesPerChannel = defaults.ChatRetainedMessagesPerChannel;
+            patched = true;
+        }
+
         if (string.IsNullOrWhiteSpace(settings.WeatherLocationName)
             || (settings.WeatherLatitude == 0 && settings.WeatherLongitude == 0))
         {

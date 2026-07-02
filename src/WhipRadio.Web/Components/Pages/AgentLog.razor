@@ -1,0 +1,135 @@
+@page "/agent-log"
+@rendermode InteractiveServer
+@using System.Globalization
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject AgentLogLiveClient Live
+
+<PageTitle>WhipRadio - Agent Log</PageTitle>
+
+<div class="agentlog-dashboard">
+    <h1 class="stage-title">Agent Log</h1>
+    <div class="stage-sub">every move the agents make</div>
+
+    <div class="panel agentlog-panel reveal">
+        <div class="agentlog-head">
+            <div class="panel-label">Events</div>
+            <select class="agentlog-filter" @bind="_agentFilter">
+                <option value="">all agents</option>
+                @foreach (string agent in AgentNames)
+                {
+                    <option value="@agent">@agent</option>
+                }
+            </select>
+        </div>
+
+        @if (_loading)
+        {
+            <div class="empty-state"><span class="blink">&#x25AE;</span> reading the room...</div>
+        }
+        else if (FilteredEntries.Count == 0)
+        {
+            <div class="empty-state">No agent activity logged yet.</div>
+        }
+        else
+        {
+            <div class="agentlog-list">
+                @foreach (AgentLogEntryDto entry in FilteredEntries)
+                {
+                    <article class="agentlog-row">
+                        <span class="agentlog-time" title="@FullTime(entry.CreatedAtUtc)">@TimeLabel(entry.CreatedAtUtc)</span>
+                        <span class="agentlog-agent">@entry.AgentName</span>
+                        <span class="agentlog-kind">
+                            <StatusBadge Text="@KindLabel(entry)" Tone="@KindTone(entry.Kind)" />
+                        </span>
+                        <span class="agentlog-content">
+                            @if (!string.IsNullOrWhiteSpace(entry.Tool))
+                            {
+                                <span class="agentlog-tool">@entry.Tool</span>
+                            }
+                            @entry.Content
+                        </span>
+                        <span class="agentlog-outcome">
+                            @if (!string.IsNullOrWhiteSpace(entry.Outcome))
+                            {
+                                <StatusBadge Text="@entry.Outcome" Tone="@OutcomeTone(entry.Outcome)" />
+                            }
+                        </span>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _loading = true;
+    private string _agentFilter = string.Empty;
+
+    private IReadOnlyList<string> AgentNames
+        => Live.Entries
+            .Select(entry => entry.AgentName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private IReadOnlyList<AgentLogEntryDto> FilteredEntries
+        => string.IsNullOrWhiteSpace(_agentFilter)
+            ? Live.Entries
+            : Live.Entries
+                .Where(entry => entry.AgentName.Equals(_agentFilter, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.Changed += OnLiveChanged;
+        try
+        {
+            await Live.EnsureStartedAsync();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OnLiveChanged()
+        => _ = InvokeAsync(StateHasChanged);
+
+    private static string KindLabel(AgentLogEntryDto entry)
+        => entry.Round > 0 ? $"{entry.Kind} {entry.Round}" : entry.Kind;
+
+    private static StatusBadgeTone KindTone(string kind)
+        => kind switch
+        {
+            "Action" => StatusBadgeTone.Amber,
+            "Error" => StatusBadgeTone.Red,
+            _ => StatusBadgeTone.Default,
+        };
+
+    private static StatusBadgeTone OutcomeTone(string outcome)
+        => outcome switch
+        {
+            "Succeeded" => StatusBadgeTone.Green,
+            "Failed" => StatusBadgeTone.Red,
+            _ => StatusBadgeTone.Amber,
+        };
+
+    private static string TimeLabel(DateTime value)
+    {
+        DateTime local = AsUtc(value).ToLocalTime();
+        return local.Date == DateTime.Now.Date
+            ? local.ToString("HH:mm:ss", CultureInfo.InvariantCulture)
+            : local.ToString("dd.MM. HH:mm", CultureInfo.InvariantCulture);
+    }
+
+    private static string FullTime(DateTime value)
+        => AsUtc(value).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+
+    private static DateTime AsUtc(DateTime value)
+        => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    public void Dispose()
+        => Live.Changed -= OnLiveChanged;
+}

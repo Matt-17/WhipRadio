@@ -20,6 +20,7 @@ public class ShowRunnerService(
     IPlayoutQueue playoutQueue,
     PriorityTalkBreakDispatcher priorityTalkBreakDispatcher,
     TimeProvider timeProvider,
+    INotificationBus notifications,
     ILogger<ShowRunnerService> logger) : BackgroundService
 {
     /// <summary>If the queue already holds ≥2 items, wait.</summary>
@@ -98,6 +99,7 @@ public class ShowRunnerService(
         if (_previousModeratorId >= 0 && _previousModeratorId != context.Moderator.Id && playoutQueue.Count < MaxQueueDepth)
         {
             await EnqueueHostChangeAsync(scope, context.Moderator, _previousModeratorId, settings.StationName, ct);
+            await PublishShowWrapUpAsync(context.Moderator.Name, ct);
         }
 
         _previousModeratorId = context.Moderator.Id;
@@ -231,6 +233,22 @@ public class ShowRunnerService(
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         return await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+    }
+
+    private async Task PublishShowWrapUpAsync(string nextHostName, CancellationToken ct)
+    {
+        try
+        {
+            await notifications.PublishAsync(new StationNotification(
+                "Show wrap-up",
+                "showrunner",
+                $"Show handover queued; {nextHostName} is taking over.",
+                DateTime.UtcNow), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "Failed to publish show wrap-up notification");
+        }
     }
 
     private async Task<Track?> PickTrackAsync(ITrackSelector selector, ShowContext context, CancellationToken ct)
