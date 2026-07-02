@@ -283,8 +283,11 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     public string JingleAudioUrl(Guid id) => $"/media/jingle/{id}";
 
+    public async Task<StudioOverviewDto> GetStudioOverviewAsync(CancellationToken ct = default)
+        => await SafeGetAsync<StudioOverviewDto>("/api/studios", ct) ?? new StudioOverviewDto([], []);
+
     public async Task<List<StudioDto>> GetStudiosAsync(CancellationToken ct = default)
-        => await SafeGetAsync<List<StudioDto>>("/api/studios", ct) ?? [];
+        => (await GetStudioOverviewAsync(ct)).Studios.ToList();
 
     public async Task<PagedStudioHistoryDto> GetStudioHistoryAsync(
         Guid? studioId = null,

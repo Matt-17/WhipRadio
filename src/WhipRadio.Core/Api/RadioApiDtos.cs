@@ -403,6 +403,21 @@ public sealed record StudioDto(
     string RuntimeStatus = "unknown",
     string? RuntimeDetail = null);
 
+public sealed record StudioPendingOperationDto(
+    Guid Id,
+    string Kind,
+    string Label,
+    DateTime StartedAtUtc,
+    string Status,
+    string? Detail = null,
+    string? Progress = null,
+    string? ResourceGroup = null,
+    Guid? StudioId = null);
+
+public sealed record StudioOverviewDto(
+    IReadOnlyList<StudioDto> Studios,
+    IReadOnlyList<StudioPendingOperationDto> PendingOperations);
+
 /// <summary>Source "local" needs Url; source "api" needs Provider + ApiKey.</summary>
 public sealed record SaveStudioDto(
     string? Name, string Kind, string Source, string? Url, string? Provider, string? ApiKey);

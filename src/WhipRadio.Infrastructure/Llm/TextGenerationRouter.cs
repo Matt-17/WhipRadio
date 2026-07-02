@@ -106,7 +106,7 @@ public class TextGenerationRouter(
 
         // Hold the GPU turn (priority -> affinity -> FIFO; unload only on engine switch) around
         // the whole completion.
-        await using var turn = await studios.AcquireGpuTurnAsync(StudioKind.WriterRoom, endpoint, ct);
+        await using var turn = await studios.AcquireGpuTurnAsync(StudioKind.WriterRoom, endpoint, label, ct);
         return await CompleteWithHistoryAsync(
             studioId: null,
             studioName: "Writer Room (Ollama default)",

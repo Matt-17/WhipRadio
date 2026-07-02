@@ -1742,7 +1742,10 @@ public static class RadioApiEndpoints
                 var runtime = await coordinator.GetRuntimeStateAsync(s, job, ct);
                 return ToStudioDto(s, job, runtime);
             }));
-            return Results.Ok(snapshots.ToList());
+            var pendingOperations = coordinator.PendingOperations
+                .Select(ToStudioPendingOperationDto)
+                .ToList();
+            return Results.Ok(new StudioOverviewDto(snapshots.ToList(), pendingOperations));
         });
 
         api.MapPost("/studios/test", async (TestStudioDto request, StudioCoordinator coordinator, CancellationToken ct) =>
@@ -2063,6 +2066,18 @@ public static class RadioApiEndpoints
         s.CreatedAt, s.LastUsedAt, s.JobsCompleted, s.JobsFailed,
         job?.Label, job?.StartedAtUtc, job?.Progress, runtime.Status, runtime.Detail);
     }
+
+    private static StudioPendingOperationDto ToStudioPendingOperationDto(StudioPendingOperation operation)
+        => new(
+            operation.Id,
+            operation.Kind.ToString(),
+            operation.Label,
+            operation.StartedAtUtc,
+            operation.Status,
+            operation.Detail,
+            operation.Progress,
+            operation.ResourceGroup,
+            operation.StudioId);
 
     private static StudioHistoryEntryDto ToStudioHistoryDto(StudioHistoryEntry entry)
     {

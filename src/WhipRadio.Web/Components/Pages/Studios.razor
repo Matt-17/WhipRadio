@@ -29,6 +29,8 @@ else
     @foreach (var kind in StudioKinds)
     {
         var kindStudios = _studios.Where(s => s.Kind == kind).ToList();
+        var kindPendingOperations = _pendingOperations.Where(operation => operation.Kind == kind).ToList();
+        var hasRows = kindStudios.Count > 0 || kindPendingOperations.Count > 0;
         <div class="panel reveal studio-section">
             <div class="studio-section-head">
                 <div>
@@ -38,11 +40,11 @@ else
                 <button class="btn small" @onclick="@(() => OpenCreate(kind))">@AddButtonText(kind)</button>
             </div>
 
-            @if (_loading && kindStudios.Count == 0)
+            @if (_loading && !hasRows)
             {
                 <div class="empty-state">loading @KindTitle(kind).ToLowerInvariant()...</div>
             }
-            else if (kindStudios.Count == 0)
+            else if (!hasRows)
             {
                 <div class="empty-state">no @(KindTitle(kind).ToLowerInvariant()) connected yet</div>
             }
@@ -51,6 +53,27 @@ else
             <div class="studio-table-wrap">
                 <table class="console-table studio-table">
                     <tbody>
+                        @foreach (var pending in kindPendingOperations)
+                        {
+                            <tr class="studio-pending-row">
+                                <td class="studio-name-cell">
+                                    <div class="studio-name-line">
+                                        <strong>@PendingName(pending)</strong>
+                                    </div>
+                                    <div class="dim micro-copy">@PendingResourceLabel(pending)</div>
+                                </td>
+                                <td class="studio-state-cell">
+                                    <div class="studio-job-line">
+                                        <StatusBadge Text="@pending.Status"
+                                                     Tone="@PendingTone(pending)"
+                                                     Pulse="@PendingPulse(pending)" />
+                                        <span class="studio-job-title" title="@pending.Label">@pending.Label</span>
+                                    </div>
+                                    <div class="dim studio-job-time">@PendingStatusDetail(pending)</div>
+                                </td>
+                                <td colspan="2" class="studio-pending-tail">runtime</td>
+                            </tr>
+                        }
                         @foreach (var studio in kindStudios)
                         {
                             <tr>
@@ -201,6 +224,7 @@ else
     };
 
     private List<StudioDto> _studios = [];
+    private List<StudioPendingOperationDto> _pendingOperations = [];
     private bool _loading = true;
 
     private string? _formKind;
@@ -282,7 +306,10 @@ else
     }
 
     private void SyncStudios()
-        => _studios = StudioLive.Studios.ToList();
+    {
+        _studios = StudioLive.Studios.ToList();
+        _pendingOperations = StudioLive.PendingOperations.ToList();
+    }
 
     private string DefaultName(string kind)
         => kind switch
@@ -335,6 +362,38 @@ else
 
     private static string BusyLabel(string kind)
         => kind == "WriterRoom" ? "WORK" : "REC";
+
+    private static string PendingName(StudioPendingOperationDto pending)
+        => $"{KindSingular(pending.Kind)} pending";
+
+    private static string PendingResourceLabel(StudioPendingOperationDto pending)
+        => string.IsNullOrWhiteSpace(pending.ResourceGroup)
+            ? "runtime"
+            : pending.ResourceGroup;
+
+    private static StatusBadgeTone? PendingTone(StudioPendingOperationDto pending)
+        => pending.Status.Equals("WAITING", StringComparison.OrdinalIgnoreCase)
+            || pending.Status.Equals("LOADING", StringComparison.OrdinalIgnoreCase)
+            || pending.Status.Equals("PREPARING", StringComparison.OrdinalIgnoreCase)
+                ? StatusBadgeTone.Amber
+                : null;
+
+    private static bool PendingPulse(StudioPendingOperationDto pending)
+        => pending.Status.Equals("LOADING", StringComparison.OrdinalIgnoreCase)
+            || pending.Status.Equals("WORK", StringComparison.OrdinalIgnoreCase)
+            || pending.Status.Equals("REC", StringComparison.OrdinalIgnoreCase);
+
+    private static string PendingStatusDetail(StudioPendingOperationDto pending)
+    {
+        var elapsed = FormatElapsed(DateTime.UtcNow - pending.StartedAtUtc);
+        var detail = string.IsNullOrWhiteSpace(pending.Progress)
+            ? pending.Detail
+            : pending.Progress;
+
+        return string.IsNullOrWhiteSpace(detail)
+            ? elapsed
+            : $"{elapsed} - {detail}";
+    }
 
     private static string RuntimeLabel(StudioDto studio)
         => studio.RuntimeStatus switch

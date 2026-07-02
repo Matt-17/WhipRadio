@@ -14,6 +14,7 @@ public class StudioLiveClient(
     private readonly object _stateLock = new();
     private HubConnection? _connection;
     private List<StudioDto> _studios = [];
+    private List<StudioPendingOperationDto> _pendingOperations = [];
     private bool _started;
     private bool _disposed;
 
@@ -24,6 +25,17 @@ public class StudioLiveClient(
             lock (_stateLock)
             {
                 return _studios.ToList();
+            }
+        }
+    }
+
+    public IReadOnlyList<StudioPendingOperationDto> PendingOperations
+    {
+        get
+        {
+            lock (_stateLock)
+            {
+                return _pendingOperations.ToList();
             }
         }
     }
@@ -108,10 +120,10 @@ public class StudioLiveClient(
 
     public async Task RefreshSnapshotAsync()
     {
-        List<StudioDto> studios = [];
+        var overview = new StudioOverviewDto([], []);
         try
         {
-            studios = await api.GetStudiosAsync();
+            overview = await api.GetStudioOverviewAsync();
         }
         catch (Exception ex)
         {
@@ -120,7 +132,8 @@ public class StudioLiveClient(
 
         lock (_stateLock)
         {
-            _studios = studios;
+            _studios = overview.Studios.ToList();
+            _pendingOperations = overview.PendingOperations.ToList();
             HasSnapshot = true;
         }
 

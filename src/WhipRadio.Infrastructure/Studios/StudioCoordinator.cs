@@ -57,9 +57,13 @@ public class StudioCoordinator(
 
     private readonly object _bookingGate = new();
     private readonly ConcurrentDictionary<Guid, StudioJob> _jobs = new();
+    private readonly ConcurrentDictionary<Guid, StudioPendingOperation> _pendingOperations = new();
     private readonly Dictionary<string, Guid> _gpuLeases = new(StringComparer.OrdinalIgnoreCase);
 
     public IReadOnlyDictionary<Guid, StudioJob> ActiveJobs => _jobs;
+
+    public IReadOnlyList<StudioPendingOperation> PendingOperations =>
+        _pendingOperations.Values.OrderBy(operation => operation.StartedAtUtc).ToList();
 
     /// <summary>First free active studio of the kind (optionally provider-filtered), marked busy.</summary>
     public async Task<Studio?> TryAcquireAsync(
@@ -141,22 +145,44 @@ public class StudioCoordinator(
             return apiStudio is null ? null : new GpuStudioLease(this, apiStudio, gpuLease: null);
         }
 
-        var lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+        var pendingId = await AddPendingOperationAsync(
+            kind,
+            jobLabel,
+            StudioPendingOperationStatus.Waiting,
+            "Waiting for GPU / previous studio job",
+            group,
+            ct);
+        LocalGpuScheduler.GpuLease? lease = null;
         try
         {
-            await ApplySwitchUnloadAsync(kind, lease, ct);
+            lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+            await ApplySwitchUnloadAsync(kind, lease, pendingId, ct);
+            await UpdatePendingOperationAsync(
+                pendingId,
+                StudioPendingOperationStatus.Preparing,
+                PreparingDetail(kind),
+                progress: null,
+                ct);
+
             var studio = await BookUnderTurnAsync(kind, requiredProvider, jobLabel, ct);
             if (studio is null)
             {
                 await lease.DisposeAsync();
+                await RemovePendingOperationAsync(pendingId, ct);
                 return null;
             }
 
+            await RemovePendingOperationAsync(pendingId, ct);
             return new GpuStudioLease(this, studio, lease);
         }
         catch
         {
-            await lease.DisposeAsync();
+            if (lease is not null)
+            {
+                await lease.DisposeAsync();
+            }
+
+            await RemovePendingOperationAsync(pendingId, CancellationToken.None);
             throw;
         }
     }
@@ -169,6 +195,10 @@ public class StudioCoordinator(
     /// </summary>
     public async Task<IAsyncDisposable> AcquireGpuTurnAsync(
         StudioKind kind, string? endpointUrl, CancellationToken ct)
+        => await AcquireGpuTurnAsync(kind, endpointUrl, DefaultPendingLabel(kind), ct);
+
+    public async Task<IAsyncDisposable> AcquireGpuTurnAsync(
+        StudioKind kind, string? endpointUrl, string? jobLabel, CancellationToken ct)
     {
         var group = GpuGroupForEndpoint(endpointUrl);
         if (group is null)
@@ -176,15 +206,35 @@ public class StudioCoordinator(
             return NoopAsyncDisposable.Instance;
         }
 
-        var lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+        var label = string.IsNullOrWhiteSpace(jobLabel) ? DefaultPendingLabel(kind) : jobLabel.Trim();
+        var pendingId = await AddPendingOperationAsync(
+            kind,
+            label,
+            StudioPendingOperationStatus.Waiting,
+            "Waiting for GPU / previous studio job",
+            group,
+            ct);
+        LocalGpuScheduler.GpuLease? lease = null;
         try
         {
-            await ApplySwitchUnloadAsync(kind, lease, ct);
-            return lease;
+            lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
+            await ApplySwitchUnloadAsync(kind, lease, pendingId, ct);
+            await UpdatePendingOperationAsync(
+                pendingId,
+                ActivePendingStatus(kind),
+                "Running on default endpoint",
+                progress: null,
+                ct);
+            return new PendingGpuTurnLease(lease, this, pendingId);
         }
         catch
         {
-            await lease.DisposeAsync();
+            if (lease is not null)
+            {
+                await lease.DisposeAsync();
+            }
+
+            await RemovePendingOperationAsync(pendingId, CancellationToken.None);
             throw;
         }
     }
@@ -192,11 +242,21 @@ public class StudioCoordinator(
     /// <summary>Unload the other engines' models only when switching to a different one;
     /// consecutive same-kind jobs keep the resident model loaded.</summary>
     private async Task ApplySwitchUnloadAsync(
-        StudioKind kind, LocalGpuScheduler.GpuLease lease, CancellationToken ct)
+        StudioKind kind, LocalGpuScheduler.GpuLease lease, Guid? pendingOperationId, CancellationToken ct)
     {
         if (!lease.ModelSwitch)
         {
             return;
+        }
+
+        if (pendingOperationId is { } id)
+        {
+            await UpdatePendingOperationAsync(
+                id,
+                StudioPendingOperationStatus.Loading,
+                ModelSwitchDetail(kind, lease),
+                progress: null,
+                ct);
         }
 
         switch (kind)
@@ -213,6 +273,94 @@ public class StudioCoordinator(
                 break;
         }
     }
+
+    private async Task<Guid> AddPendingOperationAsync(
+        StudioKind kind,
+        string label,
+        string status,
+        string? detail,
+        string? resourceGroup,
+        CancellationToken ct)
+    {
+        var id = Guid.NewGuid();
+        _pendingOperations[id] = new StudioPendingOperation(
+            id,
+            kind,
+            label.Trim(),
+            DateTime.UtcNow,
+            status,
+            detail,
+            Progress: null,
+            resourceGroup);
+        await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
+        return id;
+    }
+
+    private async Task UpdatePendingOperationAsync(
+        Guid id,
+        string status,
+        string? detail,
+        string? progress,
+        CancellationToken ct)
+    {
+        if (!_pendingOperations.TryGetValue(id, out var operation))
+        {
+            return;
+        }
+
+        _pendingOperations[id] = operation with
+        {
+            Status = status,
+            Detail = detail,
+            Progress = progress,
+        };
+        await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
+    }
+
+    private async Task RemovePendingOperationAsync(Guid id, CancellationToken ct)
+    {
+        if (_pendingOperations.TryRemove(id, out _))
+        {
+            await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
+        }
+    }
+
+    private static string DefaultPendingLabel(StudioKind kind)
+        => kind switch
+        {
+            StudioKind.WriterRoom => "Writing text",
+            StudioKind.VoiceBooth => "Voicing audio",
+            _ => "Recording music",
+        };
+
+    private static string ActivePendingStatus(StudioKind kind)
+        => kind == StudioKind.WriterRoom
+            ? StudioPendingOperationStatus.Work
+            : StudioPendingOperationStatus.Recording;
+
+    private static string PreparingDetail(StudioKind kind)
+        => $"Preparing {KindDisplayName(kind)} endpoint";
+
+    private static string ModelSwitchDetail(StudioKind kind, LocalGpuScheduler.GpuLease lease)
+    {
+        var target = KindDisplayName(kind);
+        return string.IsNullOrWhiteSpace(lease.PreviousAffinity)
+            ? $"Loading {target} model"
+            : $"Switching from {AffinityDisplayName(lease.PreviousAffinity)} to {target}";
+    }
+
+    private static string AffinityDisplayName(string affinity)
+        => Enum.TryParse<StudioKind>(affinity, ignoreCase: true, out var kind)
+            ? KindDisplayName(kind)
+            : affinity;
+
+    private static string KindDisplayName(StudioKind kind)
+        => kind switch
+        {
+            StudioKind.WriterRoom => "Writer Room",
+            StudioKind.VoiceBooth => "Voice Booth",
+            _ => "Recording",
+        };
 
     /// <summary>Book a concrete ready studio once a GPU turn is held; the turn guarantees the
     /// GPU is free, so this only absorbs a transient runtime-probe miss.</summary>
@@ -727,6 +875,32 @@ public class StudioCoordinator(
                 {
                     await _gpuLease.DisposeAsync();
                 }
+            }
+        }
+    }
+
+    private sealed class PendingGpuTurnLease(
+        LocalGpuScheduler.GpuLease gpuLease,
+        StudioCoordinator coordinator,
+        Guid pendingOperationId)
+        : IAsyncDisposable
+    {
+        private int _disposed;
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                await coordinator.RemovePendingOperationAsync(pendingOperationId, CancellationToken.None);
+            }
+            finally
+            {
+                await gpuLease.DisposeAsync();
             }
         }
     }

@@ -382,6 +382,186 @@ public class WriterRoomStudioTests
     }
 
     [TestMethod]
+    public async Task StudioCoordinator_AcquireForGpuJobAsync_ShowsPendingWhileWaitingForGpu()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        await using (var db = fixture.CreateDbContext())
+        {
+            db.Studios.AddRange(
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Studio #1",
+                    Kind = StudioKind.Recording,
+                    Url = "http://localhost:8101",
+                    Provider = MusicBackends.AceStep,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                },
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Writer Room #1",
+                    Kind = StudioKind.WriterRoom,
+                    Url = "http://localhost:11434",
+                    Provider = StudioProviders.Ollama,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddSeconds(1),
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var coordinator = new StudioCoordinator(
+            fixture,
+            ReadyLocalStudiosClientFactory(),
+            new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
+            NullLogger<StudioCoordinator>.Instance);
+
+        var activeLease = await coordinator.AcquireForGpuJobAsync(
+            StudioKind.Recording, MusicBackends.AceStep, "Recording music", CancellationToken.None);
+        Assert.NotNull(activeLease);
+
+        var waitingLeaseTask = coordinator.AcquireForGpuJobAsync(
+            StudioKind.WriterRoom, StudioProviders.Ollama, "Writing queued copy", CancellationToken.None);
+        var pending = await WaitForPendingOperationAsync(
+            coordinator,
+            operation => operation.Label == "Writing queued copy",
+            "writer-room GPU wait");
+
+        Assert.Equal(StudioKind.WriterRoom, pending.Kind);
+        Assert.Equal(StudioPendingOperationStatus.Waiting, pending.Status);
+        Assert.Contains("GPU", pending.Detail);
+        Assert.False(waitingLeaseTask.IsCompleted);
+
+        await activeLease!.CompleteAsync(success: true, CancellationToken.None);
+        var waitingLease = await AwaitWithTimeoutAsync(waitingLeaseTask, "writer-room lease");
+
+        Assert.NotNull(waitingLease);
+        Assert.Empty(coordinator.PendingOperations);
+
+        await waitingLease!.CompleteAsync(success: true, CancellationToken.None);
+        Assert.Empty(coordinator.PendingOperations);
+    }
+
+    [TestMethod]
+    public async Task StudioCoordinator_AcquireForGpuJobAsync_ShowsLoadingDuringModelSwitch()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        await using (var db = fixture.CreateDbContext())
+        {
+            db.Studios.AddRange(
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Writer Room #1",
+                    Kind = StudioKind.WriterRoom,
+                    Url = "http://localhost:11434",
+                    Provider = StudioProviders.Ollama,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                },
+                new Studio
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "Booth #1",
+                    Kind = StudioKind.VoiceBooth,
+                    Url = "http://localhost:8201",
+                    Provider = StudioProviders.LocalTts,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow.AddSeconds(1),
+                });
+            await db.SaveChangesAsync();
+        }
+
+        var unloadStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseUnload = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handler = new FakeHttpMessageHandler(request =>
+        {
+            var path = request.RequestUri!.AbsolutePath;
+            if (path == "/api/generate")
+            {
+                unloadStarted.TrySetResult();
+                Assert.True(releaseUnload.Task.Wait(TimeSpan.FromSeconds(5)));
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") };
+            }
+
+            HttpContent content = path switch
+            {
+                "/api/tags" => JsonContent.Create(new { models = new[] { new { name = "gemma4:e4b" } } }),
+                "/health" => JsonContent.Create(new { status = "ok", engine = "qwen", label = "Qwen TTS" }),
+                "/unload" => new StringContent("{}"),
+                _ => new StringContent("{}"),
+            };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
+        });
+        var clientFactory = new SingleClientFactory(() => handler.CreateClient("http://localhost:11434"));
+        var coordinator = new StudioCoordinator(
+            fixture,
+            clientFactory,
+            new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            ModelMemory(clientFactory, fixture, "gemma4:e4b"),
+            NullLogger<StudioCoordinator>.Instance);
+
+        var writerLease = await coordinator.AcquireForGpuJobAsync(
+            StudioKind.WriterRoom, StudioProviders.Ollama, "Writing first", CancellationToken.None);
+        Assert.NotNull(writerLease);
+        await writerLease!.CompleteAsync(success: true, CancellationToken.None);
+
+        var voiceLeaseTask = coordinator.AcquireForGpuJobAsync(
+            StudioKind.VoiceBooth, StudioProviders.LocalTts, "Voicing station ID", CancellationToken.None);
+        await AwaitWithTimeoutAsync(unloadStarted.Task, "model unload start");
+
+        var pending = coordinator.PendingOperations.Single();
+        Assert.Equal(StudioKind.VoiceBooth, pending.Kind);
+        Assert.Equal(StudioPendingOperationStatus.Loading, pending.Status);
+        Assert.Contains("Switching from Writer Room to Voice Booth", pending.Detail);
+
+        releaseUnload.SetResult();
+        var voiceLease = await AwaitWithTimeoutAsync(voiceLeaseTask, "voice-booth lease");
+        Assert.NotNull(voiceLease);
+        Assert.Empty(coordinator.PendingOperations);
+
+        await voiceLease!.CompleteAsync(success: true, CancellationToken.None);
+    }
+
+    [TestMethod]
+    public async Task StudioCoordinator_AcquireGpuTurnAsync_ShowsDefaultOllamaPendingOperation()
+    {
+        var coordinator = new StudioCoordinator(
+            new ThrowingDbFactory(),
+            new SingleClientFactory(new HttpClient()),
+            new NoOpStudioUpdatePublisher(),
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
+            NullLogger<StudioCoordinator>.Instance);
+
+        var turn = await coordinator.AcquireGpuTurnAsync(
+            StudioKind.WriterRoom,
+            "http://localhost:11434",
+            "Writing default copy",
+            CancellationToken.None);
+
+        try
+        {
+            var pending = coordinator.PendingOperations.Single();
+            Assert.Equal(StudioKind.WriterRoom, pending.Kind);
+            Assert.Equal("Writing default copy", pending.Label);
+            Assert.Equal(StudioPendingOperationStatus.Work, pending.Status);
+            Assert.Null(pending.StudioId);
+            Assert.Equal("gpu:local", pending.ResourceGroup);
+        }
+        finally
+        {
+            await turn.DisposeAsync();
+        }
+
+        Assert.Empty(coordinator.PendingOperations);
+    }
+
+    [TestMethod]
     public async Task TextGenerationRouter_UsesActiveWriterRoomAndUpdatesUsageStats()
     {
         await using var fixture = await DbFixture.CreateAsync();
@@ -524,11 +704,51 @@ public class WriterRoomStudioTests
     // These tests drive TryAcquireAsync/runtime probing directly, so the model-memory
     // manager is never actually invoked — a stub with no-op deps is enough.
     private static OllamaModelMemoryManager StubModelMemory()
+        => ModelMemory(new SingleClientFactory(new HttpClient()), new ThrowingDbFactory(), model: "");
+
+    private static OllamaModelMemoryManager ModelMemory(
+        IHttpClientFactory clientFactory,
+        IDbContextFactory<RadioDbContext> dbFactory,
+        string model)
         => new(
-            new SingleClientFactory(new HttpClient()),
-            Options.Create(new LlmOptions()),
-            new ThrowingDbFactory(),
+            clientFactory,
+            Options.Create(new LlmOptions { Model = model }),
+            dbFactory,
             NullLogger<OllamaModelMemoryManager>.Instance);
+
+    private static async Task<T> AwaitWithTimeoutAsync<T>(Task<T> task, string operation)
+    {
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(ReferenceEquals(task, completed), $"{operation} did not complete.");
+        return await task;
+    }
+
+    private static async Task AwaitWithTimeoutAsync(Task task, string operation)
+    {
+        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        Assert.True(ReferenceEquals(task, completed), $"{operation} did not complete.");
+        await task;
+    }
+
+    private static async Task<StudioPendingOperation> WaitForPendingOperationAsync(
+        StudioCoordinator coordinator,
+        Func<StudioPendingOperation, bool> predicate,
+        string operation)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (DateTime.UtcNow < deadline)
+        {
+            var pending = coordinator.PendingOperations.FirstOrDefault(predicate);
+            if (pending is not null)
+            {
+                return pending;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Pending operation for {operation} did not appear.");
+    }
 
     private static SingleClientFactory ReadyLocalStudiosClientFactory()
     {
