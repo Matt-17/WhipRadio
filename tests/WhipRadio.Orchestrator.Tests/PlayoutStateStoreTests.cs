@@ -13,7 +13,7 @@ public class PlayoutStateStoreTests
     private static readonly DateTime Start = new(2026, 6, 18, 12, 0, 0, DateTimeKind.Utc);
 
     [TestMethod]
-    public void BuildResumePlan_RestoresCurrentItemWithElapsedOffsetAndSameQueue()
+    public async Task BuildResumePlan_RestoresCurrentItemWithElapsedOffsetAndSameQueue()
     {
         var root = TestRoot();
         try
@@ -27,6 +27,7 @@ public class PlayoutStateStoreTests
             writer.Enqueued(next);
             writer.Enqueued(weather);
             writer.MarkStarted(current);
+            await writer.FlushAsync();
 
             var readerTime = new MutableTimeProvider(Start.AddSeconds(42));
             var plan = CreateStore(root, readerTime).BuildResumePlan();
@@ -48,7 +49,7 @@ public class PlayoutStateStoreTests
     }
 
     [TestMethod]
-    public void BuildResumePlan_AdvancesIntoNextQueuedItemWhenDowntimeOutlastsCurrent()
+    public async Task BuildResumePlan_AdvancesIntoNextQueuedItemWhenDowntimeOutlastsCurrent()
     {
         var root = TestRoot();
         try
@@ -61,6 +62,7 @@ public class PlayoutStateStoreTests
             writer.Enqueued(next);
             writer.Enqueued(weather);
             writer.MarkStarted(current);
+            await writer.FlushAsync();
 
             var plan = CreateStore(root, new MutableTimeProvider(Start.AddSeconds(75))).BuildResumePlan();
 
@@ -77,7 +79,7 @@ public class PlayoutStateStoreTests
     }
 
     [TestMethod]
-    public void BuildResumePlan_PreservesQueuedOffsetIfRestartRepeatsBeforePlaybackStarts()
+    public async Task BuildResumePlan_PreservesQueuedOffsetIfRestartRepeatsBeforePlaybackStarts()
     {
         var root = TestRoot();
         try
@@ -87,6 +89,7 @@ public class PlayoutStateStoreTests
             var writer = CreateStore(root, new MutableTimeProvider(Start));
             writer.Enqueued(current);
             writer.Enqueued(next);
+            await writer.FlushAsync();
 
             var plan = CreateStore(root, new MutableTimeProvider(Start.AddSeconds(12))).BuildResumePlan();
 

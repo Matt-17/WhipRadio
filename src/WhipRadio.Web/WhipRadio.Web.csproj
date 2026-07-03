@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\WhipRadio.Core\WhipRadio.Core.csproj" />
-    <ProjectReference Include="..\WhipRadio.Infrastructure\WhipRadio.Infrastructure.csproj" />
     <ProjectReference Include="..\WhipRadio.ServiceDefaults\WhipRadio.ServiceDefaults.csproj" />
   </ItemGroup>
 

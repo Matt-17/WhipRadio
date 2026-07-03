@@ -17,6 +17,7 @@ public class InMemoryLogBuffer
     private const int Capacity = 1200;
     private const int BroadcastCapacity = 512;
     private readonly ConcurrentQueue<LogEntry> _entries = new();
+    private int _count; // ConcurrentQueue.Count walks segments — track it ourselves
     private readonly Channel<LogEntry> _broadcast = Channel.CreateBounded<LogEntry>(
         new BoundedChannelOptions(BroadcastCapacity)
         {
@@ -30,15 +31,28 @@ public class InMemoryLogBuffer
     public void Add(LogEntry entry)
     {
         _entries.Enqueue(entry);
-        while (_entries.Count > Capacity && _entries.TryDequeue(out _))
+        Interlocked.Increment(ref _count);
+        while (Volatile.Read(ref _count) > Capacity && _entries.TryDequeue(out _))
         {
+            Interlocked.Decrement(ref _count);
         }
 
         _broadcast.Writer.TryWrite(entry);
     }
 
     public IReadOnlyList<LogEntry> Snapshot(int take = 300)
-        => _entries.Reverse().Take(take).ToList();
+    {
+        // Newest-first without materializing the whole ring: take from the tail.
+        var all = _entries.ToArray();
+        var count = Math.Min(take, all.Length);
+        var result = new List<LogEntry>(count);
+        for (var i = all.Length - 1; i >= all.Length - count; i--)
+        {
+            result.Add(all[i]);
+        }
+
+        return result;
+    }
 }
 
 public sealed class BufferLoggerProvider(InMemoryLogBuffer buffer) : ILoggerProvider

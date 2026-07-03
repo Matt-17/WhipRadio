@@ -13,17 +13,36 @@ public sealed class PriorityTalkBreakDispatcher(
     TimeProvider timeProvider,
     ILogger<PriorityTalkBreakDispatcher> logger)
 {
+    // PushReadyAsync is called concurrently from the show loop, HTTP endpoints, and the
+    // chat worker; the gate keeps the de-dup set and front-push sequence race-free.
+    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly HashSet<Guid> _frontPushedAnnouncementIds = [];
 
     public async Task<int> PushReadyAsync(CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            return await PushReadyLockedAsync(ct);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<int> PushReadyLockedAsync(CancellationToken ct)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
         List<TalkBreak> candidates;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             candidates = await db.TalkBreaks.AsNoTracking()
-                .Where(talkBreak => talkBreak.AnnouncementId != null)
-                .Include(talkBreak => talkBreak.Parts)
+                .Where(talkBreak => talkBreak.AnnouncementId != null
+                    && talkBreak.Status == TalkBreakStatus.Rendered
+                    && (talkBreak.Priority == TalkBreakPriority.High
+                        || talkBreak.Priority == TalkBreakPriority.Emergency)
+                    && (talkBreak.ExpiresAtUtc == null || talkBreak.ExpiresAtUtc > now))
                 .ToListAsync(ct);
 
             var candidateAnnouncementIds = candidates

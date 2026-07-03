@@ -20,6 +20,7 @@ public sealed class EmergencyFallbackTrackService(
 {
     private const int CandidateLimit = 200;
     private const int RecentFallbackAvoidCount = 5;
+    private static readonly TimeSpan FallbackHistoryWindow = TimeSpan.FromDays(30);
 
     public async Task<PlayoutItem?> TryCreateFallbackTrackAsync(
         PlayoutItem? justFinished,
@@ -54,12 +55,6 @@ public sealed class EmergencyFallbackTrackService(
             .ToListAsync(ct);
         var recentFallbackSet = recentlyFallbackIds.ToHashSet();
 
-        var lastFallbackByTrack = await db.PlayLog.AsNoTracking()
-            .Where(entry => entry.WasFallback && entry.ItemType == PlayoutItemType.Track)
-            .GroupBy(entry => entry.ItemId)
-            .Select(group => new { ItemId = group.Key, LastFallbackAt = group.Max(entry => entry.PlayedAt) })
-            .ToDictionaryAsync(row => row.ItemId, row => row.LastFallbackAt, ct);
-
         var candidates = await db.Tracks.AsNoTracking()
             .Where(track => !track.IsRetired && track.DurationSeconds > 0)
             .OrderBy(track => track.PlayCount)
@@ -73,6 +68,20 @@ public sealed class EmergencyFallbackTrackService(
                 track.PlayCount,
                 track.CreatedAt))
             .ToListAsync(ct);
+
+        // Group only over the shortlisted candidates within a recent window instead
+        // of the station's whole play-log history; anything older than the window
+        // ranks as "long ago" (DateTime.MinValue) which is all the ordering needs.
+        var candidateIds = candidates.Select(candidate => candidate.Id).ToList();
+        var fallbackWindowStart = DateTime.UtcNow - FallbackHistoryWindow;
+        var lastFallbackByTrack = await db.PlayLog.AsNoTracking()
+            .Where(entry => entry.WasFallback
+                && entry.ItemType == PlayoutItemType.Track
+                && entry.PlayedAt >= fallbackWindowStart
+                && candidateIds.Contains(entry.ItemId))
+            .GroupBy(entry => entry.ItemId)
+            .Select(group => new { ItemId = group.Key, LastFallbackAt = group.Max(entry => entry.PlayedAt) })
+            .ToDictionaryAsync(row => row.ItemId, row => row.LastFallbackAt, ct);
 
         var queuedTrackIds = queueTracker.Snapshot()
             .Where(item => item.ItemType == PlayoutItemType.Track)

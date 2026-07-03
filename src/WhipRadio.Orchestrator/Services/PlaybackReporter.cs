@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Api;
@@ -48,15 +49,15 @@ public class PlaybackReporter(
     {
         var delay = TimeSpan.FromSeconds(Math.Max(0, streamOptions.Value.DisplayLatencySeconds));
         var epoch = Volatile.Read(ref _epoch);
-        _ = DelayedReportAsync(item, delay, epoch);
+        DelayedReportAsync(item, delay, epoch, ct).Forget();
         return Task.CompletedTask;
     }
 
-    private async Task DelayedReportAsync(PlayoutItem item, TimeSpan delay, int epoch)
+    private async Task DelayedReportAsync(PlayoutItem item, TimeSpan delay, int epoch, CancellationToken ct)
     {
         try
         {
-            await Task.Delay(delay);
+            await Task.Delay(delay, ct);
             await _reportGate.WaitAsync();
             try
             {
@@ -71,6 +72,10 @@ public class PlaybackReporter(
             {
                 _reportGate.Release();
             }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // session ended before the flip became visible — nothing to report
         }
         catch (Exception ex)
         {
@@ -206,7 +211,7 @@ public class PlaybackReporter(
     {
         Interlocked.Increment(ref _epoch); // cancel pending delayed flips
         nowPlaying.SetCurrent(null);
-        _ = hub.Clients.All.SendAsync("NowPlayingChanged", (NowPlayingDto?)null);
+        hub.Clients.All.SendAsync("NowPlayingChanged", (NowPlayingDto?)null).Forget();
     }
 
     private async Task PublishAsync(NowPlayingDto dto, CancellationToken ct)

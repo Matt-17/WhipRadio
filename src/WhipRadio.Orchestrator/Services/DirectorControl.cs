@@ -16,7 +16,16 @@ public class DirectorControl
     public async Task WaitForNextCycleAsync(TimeSpan delay, CancellationToken ct)
     {
         var current = _trigger;
-        await Task.WhenAny(current.Task, Task.Delay(delay, ct));
+        // Linked CTS cancels the delay timer when the trigger wins, so frequent
+        // admin triggers don't leave orphaned timers running to completion.
+        using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var delayTask = Task.Delay(delay, delayCts.Token);
+        var finished = await Task.WhenAny(current.Task, delayTask);
+        if (finished != delayTask)
+        {
+            delayCts.Cancel();
+        }
+
         ct.ThrowIfCancellationRequested();
         if (current.Task.IsCompleted)
         {

@@ -30,7 +30,7 @@ public class ServerStatsCollector(
     public async Task<ServerStatsDto> CollectAsync(CancellationToken ct)
     {
         var (memoryTotalMb, memoryUsedMb) = GetMemory();
-        var process = Process.GetCurrentProcess();
+        using var process = Process.GetCurrentProcess();
         var dataRoot = radioOptions.Value.DataRoot;
 
         double diskTotalGb = 0, diskFreeGb = 0;

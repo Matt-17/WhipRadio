@@ -27,6 +27,7 @@ public class PlayoutService(
     IStationMetrics metrics,
     IStationStatusReporter statusReporter,
     IDbContextFactory<RadioDbContext> dbFactory,
+    StationSettingsCache settingsCache,
     IOptions<StreamOptions> streamOptions,
     IOptions<IcecastOptions> icecastOptions,
     IOptions<RadioOptions> radioOptions,
@@ -272,13 +273,13 @@ public class PlayoutService(
         try
         {
             var now = DateTime.UtcNow;
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var settings = await settingsCache.GetAsync(ct);
             if (!settings.NewsEnabled && !settings.WeatherEnabled)
             {
                 return false;
             }
 
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
             var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
             var minTarget = now.AddSeconds(-lateWindow);
@@ -308,13 +309,13 @@ public class PlayoutService(
         try
         {
             var now = DateTime.UtcNow;
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+            var settings = await settingsCache.GetAsync(ct);
             if (!settings.NewsEnabled && !settings.WeatherEnabled)
             {
                 return false;
             }
 
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
             var minTarget = now.AddSeconds(-lateWindow);
             return await db.NewsPackages.AsNoTracking()
@@ -335,12 +336,15 @@ public class PlayoutService(
         }
     }
 
+    // Both toggles read through the shared StationSettingsCache: the loop checks
+    // them about twice per second, and settings writes invalidate the cache via
+    // StationSettingsCacheInvalidationInterceptor so the switches still react
+    // within one loop pass.
     private async Task<bool> IsMixerEnabledAsync(CancellationToken ct)
     {
         try
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            return (await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct)).MixerEnabled;
+            return (await settingsCache.GetAsync(ct)).MixerEnabled;
         }
         catch (OperationCanceledException)
         {
@@ -356,9 +360,7 @@ public class PlayoutService(
     {
         try
         {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-            return settings.PlayoutEnabled;
+            return (await settingsCache.GetAsync(ct)).PlayoutEnabled;
         }
         catch (OperationCanceledException)
         {

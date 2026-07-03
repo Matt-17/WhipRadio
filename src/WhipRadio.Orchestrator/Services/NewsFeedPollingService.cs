@@ -38,6 +38,20 @@ public sealed class NewsFeedPollingService(
             try
             {
                 var entries = await reader.ReadAsync(feed, Math.Clamp(feed.MaxItemsPerPoll, 1, 100), ct);
+
+                // One round-trip dedupes the whole batch instead of an AnyAsync per entry.
+                var candidateUrls = entries
+                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Title) && !string.IsNullOrWhiteSpace(entry.Url))
+                    .Select(entry => entry.Url.Trim())
+                    .Distinct()
+                    .ToList();
+                var knownUrls = candidateUrls.Count == 0
+                    ? []
+                    : await db.NewsItems.AsNoTracking()
+                        .Where(item => item.FeedId == feed.Id && candidateUrls.Contains(item.Url))
+                        .Select(item => item.Url)
+                        .ToHashSetAsync(ct);
+
                 var inserted = 0;
                 foreach (var entry in entries)
                 {
@@ -47,7 +61,7 @@ public sealed class NewsFeedPollingService(
                     }
 
                     var url = entry.Url.Trim();
-                    if (await db.NewsItems.AnyAsync(item => item.FeedId == feed.Id && item.Url == url, ct))
+                    if (!knownUrls.Add(url))
                     {
                         continue;
                     }

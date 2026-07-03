@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Orchestrator.Configuration;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -21,6 +22,9 @@ public sealed class PlayoutStateStore(
     };
 
     private readonly Lock _lock = new();
+    private readonly Lock _saveGate = new();
+    private int _savePending;
+    private Task _flushTask = Task.CompletedTask;
     private readonly string _statePath = Path.Combine(radioOptions.Value.DataRoot, "state", "playout-state.json");
     private StateDocument _state = LoadState(
         Path.Combine(radioOptions.Value.DataRoot, "state", "playout-state.json"),
@@ -184,15 +188,51 @@ public sealed class PlayoutStateStore(
         }
     }
 
+    /// <summary>Awaits every save scheduled so far; used by tests and graceful shutdown.</summary>
+    public Task FlushAsync()
+    {
+        lock (_saveGate)
+        {
+            return _flushTask;
+        }
+    }
+
+    // Queue mutations fire from the mixer/encoder thread; writing the state file
+    // inline (and under the lock) would stall playout on a slow disk. Each save
+    // marks the state dirty and chains a flush onto a single background writer;
+    // back-to-back saves coalesce because the first flush consumes the dirty
+    // flag and the chained follow-ups no-op.
     private void SaveLocked()
     {
-        _state.SavedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
+        Volatile.Write(ref _savePending, 1);
+        lock (_saveGate)
+        {
+            _flushTask = _flushTask
+                .ContinueWith(_ => FlushPendingSaveAsync(), TaskScheduler.Default)
+                .Unwrap();
+            _flushTask.Forget();
+        }
+    }
+
+    private async Task FlushPendingSaveAsync()
+    {
+        if (Interlocked.Exchange(ref _savePending, 0) == 0)
+        {
+            return;
+        }
 
         try
         {
+            string json;
+            lock (_lock)
+            {
+                _state.SavedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
+                json = JsonSerializer.Serialize(_state, JsonOptions);
+            }
+
             Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
             var tempPath = _statePath + ".tmp";
-            File.WriteAllText(tempPath, JsonSerializer.Serialize(_state, JsonOptions));
+            await File.WriteAllTextAsync(tempPath, json);
             File.Move(tempPath, _statePath, overwrite: true);
         }
         catch (Exception ex)

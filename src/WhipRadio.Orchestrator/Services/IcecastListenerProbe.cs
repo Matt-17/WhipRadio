@@ -47,14 +47,20 @@ public sealed class IcecastListenerProbe : BackgroundService
     {
         // Don't block startup: the probe is best-effort and the gauge returns 0
         // until the first successful poll.
-        _ = Task.Run(async () =>
+        await Task.Yield();
+
+        try
         {
             while (!stoppingToken.IsCancellationRequested)
             {
                 await PollOnceAsync(stoppingToken);
                 await Task.Delay(PollInterval, stoppingToken).ConfigureAwait(false);
             }
-        }, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // shutdown
+        }
     }
 
     private async Task PollOnceAsync(CancellationToken ct)

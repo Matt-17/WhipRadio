@@ -40,7 +40,8 @@ public class AudioMixerEngineTests
         public static Fixture Create(
             Func<PlayoutItem, double>? audioDuration = null,
             bool collectLogs = false,
-            IDbContextFactory<RadioDbContext>? dbFactory = null)
+            IDbContextFactory<RadioDbContext>? dbFactory = null,
+            IMixPlanner? plannerOverride = null)
         {
             var root = Path.Combine(Path.GetTempPath(), "whipradio-mixer-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -52,7 +53,7 @@ public class AudioMixerEngineTests
                 NullLogger<PlayoutStateStore>.Instance);
             var trackDeletions = new TrackDeletionService(dbFactory, radioOptions,
                 NullLogger<TrackDeletionService>.Instance);
-            var planner = new MixPlanner(new SystemRandomSource(seed: 42));
+            var planner = plannerOverride ?? new MixPlanner(new SystemRandomSource(seed: 42));
             var diagnostics = new MixerDiagnostics();
             var mixerUpdates = new NoOpMixerUpdatePublisher();
             var timedInterrupts = new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance);
@@ -401,7 +402,64 @@ public class AudioMixerEngineTests
         Assert.True(pace.NonZeroBytes > 0, "the top-of-hour package produced no audio");
     }
 
+    [TestMethod]
+    public async Task BeatAlignedFadePlan_WithoutBeatData_FallsBackToPlainCrossfade_InsteadOfCrashing()
+    {
+        // Regression: the engine trusted the planner's contract with null-forgiving
+        // operators (Analysis!.BeatGridJson!) — a BeatAlignedFade plan meeting an item
+        // without beat data threw inside RunSessionAsync and took the encoder down.
+        var fix = Fixture.Create(
+            collectLogs: true,
+            plannerOverride: new FixedPlanPlanner(MixStrategy.BeatAlignedFade, overlapSeconds: 1));
+        var first = Track("no-beats-a", seconds: 2);
+        var second = Track("no-beats-b", seconds: 2);
+        fix.Queue.Enqueue(first);
+        fix.Queue.Enqueue(second);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 260, delayMs: 1);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == first.ItemId);
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == second.ItemId);
+        Assert.Contains(fix.Logger.Entries,
+            e => e.Level == LogLevel.Warning && e.Message.Contains("plain crossfade"));
+    }
+
+    [TestMethod]
+    public async Task OutroTalkOverPlan_WithoutOutroData_FallsBackToHardCut_InsteadOfCrashing()
+    {
+        var fix = Fixture.Create(
+            collectLogs: true,
+            plannerOverride: new FixedPlanPlanner(MixStrategy.OutroTalkOver, overlapSeconds: 1));
+        var song = Track("no-outro-song", seconds: 2);
+        var talk = new PlayoutItem(
+            PlayoutItemType.Announcement, Guid.NewGuid(), "library/announcements/talk.wav", "talk", 2);
+        fix.Queue.Enqueue(song);
+        fix.Queue.Enqueue(talk);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var sink = new FakeEncoderSink(hasExited: false);
+        var pace = new PacingStream(cts, cancelAfterWrites: 260, delayMs: 1);
+
+        await fix.Mixer.RunSessionAsync(sink, pace, _ => Task.FromResult(true), cts.Token);
+
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == song.ItemId);
+        Assert.Contains(fix.Reporter.Starts, item => item.ItemId == talk.ItemId);
+        Assert.Contains(fix.Logger.Entries,
+            e => e.Level == LogLevel.Warning && e.Message.Contains("hard cut"));
+    }
+
     // --- fakes -----------------------------------------------------------------
+
+    /// <summary>Forces one strategy regardless of analysis data, simulating a plan
+    /// that outlives the analysis row it was based on.</summary>
+    private sealed class FixedPlanPlanner(MixStrategy strategy, double overlapSeconds) : IMixPlanner
+    {
+        public TransitionPlan Plan(ItemInfo outgoing, ItemInfo incoming, MixerSettings settings)
+            => new(strategy, overlapSeconds, GapMs: 0, IncomingStartOffsetSeconds: null,
+                DuckLevelDb: settings.DuckLevelDb, ReasonTrace: "forced-by-test");
+    }
 
     private sealed class FakeQueue : IPlayoutQueue
     {

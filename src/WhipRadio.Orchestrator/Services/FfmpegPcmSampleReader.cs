@@ -23,6 +23,11 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
     private volatile bool _eof;
     private volatile bool _disposed;
 
+    // stderr is drained continuously (bounded) so a chatty decoder can never
+    // fill the pipe buffer and deadlock the filler thread mid-mix.
+    private const int StderrCaptureLimit = 4000;
+    private readonly System.Text.StringBuilder _stderr = new();
+
     public bool EndOfStream
     {
         get
@@ -70,6 +75,22 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
             },
         };
         _process.Start();
+        _process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is null)
+            {
+                return;
+            }
+
+            lock (_stderr)
+            {
+                if (_stderr.Length < StderrCaptureLimit)
+                {
+                    _stderr.AppendLine(e.Data);
+                }
+            }
+        };
+        _process.BeginErrorReadLine();
         _registry?.Register(_process);
 
         _filler = new Thread(FillLoop) { IsBackground = true, Name = "pcm-filler" };
@@ -112,7 +133,12 @@ public sealed class FfmpegPcmSampleReader : IPcmSampleReader, IDisposable
                 try
                 {
                     _process.WaitForExit(100);
-                    var stderr = _process.StandardError.ReadToEnd();
+                    string stderr;
+                    lock (_stderr)
+                    {
+                        stderr = _stderr.ToString();
+                    }
+
                     _logger.LogWarning(ex,
                         "FfmpegPcmSampleReader decoder exited ({ExitCode}) for \"{Path}\": {Stderr}",
                         _process.ExitCode, _process.StartInfo.Arguments, stderr);

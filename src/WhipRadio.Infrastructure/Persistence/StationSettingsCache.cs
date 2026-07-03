@@ -8,32 +8,49 @@ namespace WhipRadio.Infrastructure.Persistence;
 public class StationSettingsCache(IDbContextFactory<RadioDbContext> dbFactory, TimeProvider timeProvider)
 {
     private static readonly TimeSpan Ttl = TimeSpan.FromSeconds(15);
-    private StationSettings _cached = new();
-    private DateTimeOffset _loadedAt = DateTimeOffset.MinValue;
+
+    // Settings + load time travel together in one immutable snapshot so the
+    // lock-free fast path can never observe a torn timestamp/value pair.
+    private sealed record Snapshot(StationSettings Settings, DateTimeOffset LoadedAt);
+
+    private Snapshot _snapshot = new(new StationSettings(), DateTimeOffset.MinValue);
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<StationSettings> GetAsync(CancellationToken ct)
     {
-        if (timeProvider.GetUtcNow() - _loadedAt < Ttl)
+        var snapshot = Volatile.Read(ref _snapshot);
+        if (timeProvider.GetUtcNow() - snapshot.LoadedAt < Ttl)
         {
-            return _cached;
+            return snapshot.Settings;
         }
 
         await _gate.WaitAsync(ct);
         try
         {
-            if (timeProvider.GetUtcNow() - _loadedAt >= Ttl)
+            snapshot = Volatile.Read(ref _snapshot);
+            if (timeProvider.GetUtcNow() - snapshot.LoadedAt >= Ttl)
             {
                 await using var db = await dbFactory.CreateDbContextAsync(ct);
-                _cached = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-                _loadedAt = timeProvider.GetUtcNow();
+                var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+                snapshot = new Snapshot(settings, timeProvider.GetUtcNow());
+                Volatile.Write(ref _snapshot, snapshot);
             }
 
-            return _cached;
+            return snapshot.Settings;
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>Forces the next read to hit the database. Called by
+    /// <see cref="StationSettingsCacheInvalidationInterceptor"/> after a save that
+    /// touched StationSettings, so toggles like On Air react immediately instead
+    /// of after the TTL.</summary>
+    public void Invalidate()
+    {
+        var snapshot = Volatile.Read(ref _snapshot);
+        Volatile.Write(ref _snapshot, snapshot with { LoadedAt = DateTimeOffset.MinValue });
     }
 }

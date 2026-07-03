@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
@@ -227,7 +228,7 @@ public sealed class AudioMixerEngine(
                 masterPos += PcmFormat.FrameSamples;
 
                 await EmitDueEventsAsync(actives, masterPos, ct);
-                await FlushDueLogsAsync(core, pendingLogs, masterPos, ct);
+                FlushDueLogs(core, pendingLogs, masterPos);
 
                 // Cleanup: finished (EOF) or envelope-complete sources.
                 for (var i = actives.Count - 1; i >= 0; i--)
@@ -345,11 +346,20 @@ public sealed class AudioMixerEngine(
 
             if (plan.Strategy == MixStrategy.IntroTalkOver)
             {
-                var song = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
-                if (song is not null)
+                if (songInfo.Analysis?.IntroEndSeconds is { } introEnd)
                 {
-                    ScheduleIntroTalkOver(item, talkInfo, song, songInfo, plan, masterPos, actives, settings);
-                    return;
+                    var song = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
+                    if (song is not null)
+                    {
+                        ScheduleIntroTalkOver(item, talkInfo, song, songInfo, introEnd, plan, masterPos, actives, settings);
+                        return;
+                    }
+                }
+                else
+                {
+                    logger.LogWarning(
+                        "IntroTalkOver planned for \"{Talk}\" over \"{Song}\" but IntroEnd is missing; playing the talk in full instead",
+                        item.Title, peeked.Title);
                 }
             }
         }
@@ -363,10 +373,9 @@ public sealed class AudioMixerEngine(
     }
 
     private void ScheduleIntroTalkOver(
-        PlayoutItem talk, ItemInfo talkInfo, PlayoutItem song, ItemInfo songInfo,
+        PlayoutItem talk, ItemInfo talkInfo, PlayoutItem song, ItemInfo songInfo, double introEnd,
         TransitionPlan plan, long masterPos, List<ActiveSource> actives, MixerSettings settings)
     {
-        var introEnd = songInfo.Analysis!.IntroEndSeconds!.Value;
         var talkStartOffset = plan.IncomingStartOffsetSeconds ?? 0;
         var songStartOffsetSeconds = PlaybackStartSeconds(song, songInfo);
         var talkPlaybackStartSeconds = PlaybackStartSeconds(talk, talkInfo);
@@ -455,18 +464,19 @@ public sealed class AudioMixerEngine(
                 var fadeStart = outgoingEnd - overlapSamples;
                 var fadeEnd = outgoingEnd;
 
-                if (plan.Strategy == MixStrategy.BeatAlignedFade)
+                if (plan.Strategy == MixStrategy.BeatAlignedFade
+                    && outgoingInfo.Analysis is { Bpm: { } bpmOut, BeatGridJson: { } beatGridOutJson }
+                    && incomingInfo.Analysis is { BeatGridJson: { } beatGridInJson }
+                    && TryParseBeatGrid(beatGridOutJson, out var beatsOut)
+                    && TryParseBeatGrid(beatGridInJson, out var beatsIn))
                 {
-                    var beatsOut = JsonSerializer.Deserialize<double[]>(outgoingInfo.Analysis!.BeatGridJson!) ?? [];
-                    var beatsIn = JsonSerializer.Deserialize<double[]>(incomingInfo.Analysis!.BeatGridJson!) ?? [];
                     var anchorSeconds = outgoingInfo.Analysis.OutroConfidence >= 0.5
                             && outgoingInfo.Analysis.OutroStartSeconds is { } outro
                         ? outro
                         : outgoingInfo.DurationSeconds - settings.DefaultCrossfadeSeconds;
                     var beatOut = TransitionMath.NearestBeat(beatsOut, anchorSeconds);
-                    var beats = TransitionMath.CrossfadeBeats(
-                        settings.DefaultCrossfadeSeconds, outgoingInfo.Analysis.Bpm!.Value);
-                    var overlapSeconds = beats * 60.0 / outgoingInfo.Analysis.Bpm.Value;
+                    var beats = TransitionMath.CrossfadeBeats(settings.DefaultCrossfadeSeconds, bpmOut);
+                    var overlapSeconds = beats * 60.0 / bpmOut;
 
                     var outgoingItemStart = outgoing.EndAtMaster - Format.SecondsToSamples(outgoingInfo.DurationSeconds);
                     fadeStart = outgoingItemStart + Format.SecondsToSamples(beatOut);
@@ -477,6 +487,13 @@ public sealed class AudioMixerEngine(
                 }
                 else
                 {
+                    if (plan.Strategy == MixStrategy.BeatAlignedFade)
+                    {
+                        logger.LogWarning(
+                            "BeatAlignedFade planned for \"{Out}\" → \"{In}\" but beat data is missing or invalid; using a plain crossfade",
+                            outgoing.Item.Title, incoming.Title);
+                    }
+
                     incomingStart = fadeStart;
                 }
 
@@ -495,9 +512,16 @@ public sealed class AudioMixerEngine(
 
             case MixStrategy.OutroTalkOver:
             {
+                if (outgoingInfo.Analysis?.OutroStartSeconds is not { } outroStartSeconds)
+                {
+                    logger.LogWarning(
+                        "OutroTalkOver planned for \"{Out}\" → \"{In}\" but OutroStart is missing; using a hard cut",
+                        outgoing.Item.Title, incoming.Title);
+                    goto default;
+                }
+
                 var outgoingItemStart = outgoing.EndAtMaster - Format.SecondsToSamples(outgoingInfo.DurationSeconds);
-                var talkStart = outgoingItemStart + Format.SecondsToSamples(
-                    outgoingInfo.Analysis!.OutroStartSeconds!.Value);
+                var talkStart = outgoingItemStart + Format.SecondsToSamples(outroStartSeconds);
                 var duckRamp = Format.SecondsToSamples(settings.DuckRampMs / 1000.0);
                 var duckGain = TransitionMath.DbToLinear(settings.DuckLevelDb);
 
@@ -891,7 +915,10 @@ public sealed class AudioMixerEngine(
         }
     }
 
-    private async Task FlushDueLogsAsync(MixerCore core, List<PendingLog> logs, long masterPos, CancellationToken ct)
+    // Runs on the frame-cadence master-clock thread: only snapshot the counters
+    // here and hand the DB write to a background task so a slow query at a
+    // transition point cannot stall the mix clock.
+    private void FlushDueLogs(MixerCore core, List<PendingLog> logs, long masterPos)
     {
         for (var i = logs.Count - 1; i >= 0; i--)
         {
@@ -902,36 +929,57 @@ public sealed class AudioMixerEngine(
             }
 
             logs.RemoveAt(i);
-            try
+            WriteTransitionLogAsync(entry, core.ClipCount - entry.ClipBaseline, core.UnderrunCount).Forget();
+        }
+    }
+
+    private async Task WriteTransitionLogAsync(PendingLog entry, int clipCount, int underruns)
+    {
+        try
+        {
+            // Deliberately not tied to the session token: a transition that already
+            // aired should still be recorded even while the session is tearing down.
+            await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
+            db.TransitionLog.Add(new TransitionLogEntry
             {
-                await using var db = await dbFactory.CreateDbContextAsync(ct);
-                db.TransitionLog.Add(new TransitionLogEntry
+                OccurredAt = DateTime.UtcNow,
+                OutgoingType = entry.Outgoing.ItemType,
+                OutgoingId = entry.Outgoing.ItemId,
+                IncomingType = entry.Incoming.ItemType,
+                IncomingId = entry.Incoming.ItemId,
+                Strategy = entry.Plan.Strategy.ToString(),
+                OverlapSeconds = entry.Plan.OverlapSeconds,
+                GapMs = entry.Plan.GapMs,
+                ParametersJson = JsonSerializer.Serialize(new
                 {
-                    OccurredAt = DateTime.UtcNow,
-                    OutgoingType = entry.Outgoing.ItemType,
-                    OutgoingId = entry.Outgoing.ItemId,
-                    IncomingType = entry.Incoming.ItemType,
-                    IncomingId = entry.Incoming.ItemId,
-                    Strategy = entry.Plan.Strategy.ToString(),
-                    OverlapSeconds = entry.Plan.OverlapSeconds,
-                    GapMs = entry.Plan.GapMs,
-                    ParametersJson = JsonSerializer.Serialize(new
-                    {
-                        reasonTrace = entry.Plan.ReasonTrace,
-                        duckLevelDb = entry.Plan.DuckLevelDb,
-                        incomingStartOffsetSeconds = entry.Plan.IncomingStartOffsetSeconds,
-                        underruns = core.UnderrunCount,
-                    }),
-                    ClipCount = core.ClipCount - entry.ClipBaseline,
-                });
-                await db.SaveChangesAsync(ct);
-                mixerUpdates.Publish();
-                metrics.MixerTransition(entry.Plan.Strategy.ToString(), core.ClipCount - entry.ClipBaseline);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to write transition log entry");
-            }
+                    reasonTrace = entry.Plan.ReasonTrace,
+                    duckLevelDb = entry.Plan.DuckLevelDb,
+                    incomingStartOffsetSeconds = entry.Plan.IncomingStartOffsetSeconds,
+                    underruns,
+                }),
+                ClipCount = clipCount,
+            });
+            await db.SaveChangesAsync(CancellationToken.None);
+            mixerUpdates.Publish();
+            metrics.MixerTransition(entry.Plan.Strategy.ToString(), clipCount);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to write transition log entry");
+        }
+    }
+
+    private static bool TryParseBeatGrid(string json, out double[] beats)
+    {
+        try
+        {
+            beats = JsonSerializer.Deserialize<double[]>(json) ?? [];
+            return true;
+        }
+        catch (JsonException)
+        {
+            beats = [];
+            return false;
         }
     }
 

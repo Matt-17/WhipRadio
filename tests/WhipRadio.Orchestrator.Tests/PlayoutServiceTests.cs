@@ -130,7 +130,8 @@ public class PlayoutServiceTests
             var service = new PlayoutService(
                 queue, stateStore, reporter, trackDeletions, fallback, mixer, launcher,
                 new EncoderHeartbeat(TimeProvider.System), NullStationMetrics.Instance,
-                statusReporter, dbFactory, streamOptions, icecastOptions, radioOptions,
+                statusReporter, dbFactory, new StationSettingsCache(dbFactory, TimeProvider.System),
+                streamOptions, icecastOptions, radioOptions,
                 NullLogger<PlayoutService>.Instance);
 
             return new Fixture(service, queue, reporter);

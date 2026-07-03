@@ -21,7 +21,9 @@ public static class PersistenceServiceCollectionExtensions
                 + "'radio' Postgres database; for a standalone run set ConnectionStrings__radio "
                 + "(e.g. Host=localhost;Port=5432;Database=radio;Username=postgres;Password=...).");
 
-        services.AddDbContextFactory<RadioDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContextFactory<RadioDbContext>((sp, options) => options
+            .UseNpgsql(connectionString)
+            .AddInterceptors(new StationSettingsCacheInvalidationInterceptor(sp)));
         services.AddScoped<ITrackRepository, EfTrackRepository>();
         services.AddScoped<ITrackSelector>(sp => new WeightedTrackSelector(sp.GetRequiredService<ITrackRepository>()));
         return services;
