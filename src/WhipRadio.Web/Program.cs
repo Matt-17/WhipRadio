@@ -83,7 +83,7 @@ app.MapGet("/media/live", (IHttpClientFactory factory, IConfiguration config, Ht
     ProxyMediaAsync(
         context,
         factory.CreateClient("live-stream"),
-        config["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3",
+        config["Stream:PublicUrl"] ?? WhipRadio.Core.Configuration.ServiceEndpointDefaults.PublicStream,
         live: true));
 
 app.MapGet("/media/voice-preview/{handle}", (string handle, IHttpClientFactory factory, HttpContext context) =>

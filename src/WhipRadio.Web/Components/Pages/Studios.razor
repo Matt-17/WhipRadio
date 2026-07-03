@@ -1,5 +1,6 @@
 @page "/studios"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Configuration
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
@@ -293,9 +294,9 @@ else
     private static string DefaultUrl(string kind)
         => kind switch
         {
-            "WriterRoom" => "http://localhost:11434",
-            "VoiceBooth" => "http://localhost:8201",
-            _ => "http://127.0.0.1:8101",
+            "WriterRoom" => ServiceEndpointDefaults.WriterRoom,
+            "VoiceBooth" => ServiceEndpointDefaults.VoiceBooth,
+            _ => ServiceEndpointDefaults.RecordingStudioLoopback,
         };
 
     private static string KindTitle(string kind)

@@ -74,7 +74,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
@@ -95,7 +95,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 45, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
@@ -117,7 +117,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
@@ -138,7 +138,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
@@ -158,7 +158,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
@@ -178,7 +178,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 3, 0, 0, TimeSpan.FromHours(2)),
@@ -197,7 +197,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 15, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
@@ -217,7 +217,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 20, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPackagePlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, BothContributors);
 
         Assert.Equal(
             new DateTimeOffset(2026, 6, 21, 2, 30, 0, TimeSpan.FromHours(2)),
@@ -238,7 +238,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 21, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPreparationPlan(settings, localNow, BothContributors);
 
         Assert.NotNull(plan);
         Assert.Equal(
@@ -260,7 +260,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 20, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPreparationPlan(settings, localNow, BothContributors);
 
         Assert.Null(plan);
     }
@@ -277,7 +277,7 @@ public class NewsPackageProductionServiceTests
         };
         var localNow = new DateTimeOffset(2026, 6, 21, 2, 52, 0, TimeSpan.FromHours(2));
 
-        var plan = NewsPackageProductionService.ResolveNextPreparationPlan(settings, localNow, BothContributors);
+        var plan = TopOfHourPackagePlanner.ResolveNextPreparationPlan(settings, localNow, BothContributors);
 
         Assert.NotNull(plan);
         Assert.Equal(

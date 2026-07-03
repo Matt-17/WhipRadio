@@ -1,4 +1,5 @@
 using WhipRadio.Core.Api;
+using WhipRadio.Core.Configuration;
 using WhipRadio.Infrastructure.Privacy;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -48,12 +49,12 @@ public class PrivacyReportService(
                 + "station metadata is stored in a local PostgreSQL database."),
             EndpointService(
                 "Ollama Writer Room",
-                configuration["Llm:Endpoint"] ?? "http://localhost:11434",
+                configuration["Llm:Endpoint"] ?? ServiceEndpointDefaults.WriterRoom,
                 "local",
                 "Local text generation endpoint unless configured otherwise."),
             EndpointService(
                 "Icecast stream",
-                configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3",
+                configuration["Stream:PublicUrl"] ?? ServiceEndpointDefaults.PublicStream,
                 "stream endpoint",
                 "Listener stream URL. Source credentials are never shown here."),
         };

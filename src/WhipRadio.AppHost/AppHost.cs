@@ -32,6 +32,8 @@ static string RequiredSecret(string key) =>
 // processes in dev, so a plain folder under the repo root works on Windows.
 // The relational store lives in Postgres (below), not under this folder.
 var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
+// Aspire project references are resource declarations, not compile references, so
+// Core's ServiceEndpointDefaults.WriterRoom is not available here — keep in sync.
 var writerRoomEndpoint = builder.Configuration["Llm:Endpoint"] ?? "http://localhost:11434";
 
 // --- PostgreSQL: relational store ---------------------------------------------

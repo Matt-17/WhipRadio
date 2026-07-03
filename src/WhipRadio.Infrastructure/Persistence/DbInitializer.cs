@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Configuration;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
@@ -26,8 +27,8 @@ public static class DbInitializer
     private const int PreviousDefaultMaxTrackDurationSeconds = 480;
     private const string LegacyNewsPresenterName = "Maya Current";
     private const string SeedNewsPresenterName = "Maya Vale";
-    private const string LocalhostAceStepUrl = "http://localhost:8101";
-    private const string LoopbackAceStepUrl = "http://127.0.0.1:8101";
+    private const string LocalhostAceStepUrl = ServiceEndpointDefaults.RecordingStudio;
+    private const string LoopbackAceStepUrl = ServiceEndpointDefaults.RecordingStudioLoopback;
 
     public static async Task EnsureSeededAsync(RadioDbContext db, CancellationToken ct = default)
     {
@@ -77,7 +78,7 @@ public static class DbInitializer
                     Id = Guid.NewGuid(),
                     Name = "Writer Room #1",
                     Kind = StudioKind.WriterRoom,
-                    Url = "http://localhost:11434",
+                    Url = ServiceEndpointDefaults.WriterRoom,
                     Provider = TextProviders.Ollama,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
@@ -97,7 +98,7 @@ public static class DbInitializer
                     Id = Guid.NewGuid(),
                     Name = "Booth #1",
                     Kind = StudioKind.VoiceBooth,
-                    Url = "http://localhost:8201",
+                    Url = ServiceEndpointDefaults.VoiceBooth,
                     Provider = "local-tts",
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,
@@ -115,7 +116,7 @@ public static class DbInitializer
                     Id = Guid.NewGuid(),
                     Name = "Writer Room #1",
                     Kind = StudioKind.WriterRoom,
-                    Url = "http://localhost:11434",
+                    Url = ServiceEndpointDefaults.WriterRoom,
                     Provider = TextProviders.Ollama,
                     IsActive = true,
                     CreatedAt = DateTime.UtcNow,

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Configuration;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Llm;
@@ -41,7 +42,7 @@ public static class HttpClientsServiceCollectionExtensions
         // so it is removed; the production services own their retry loops.
         services.AddHttpClient(TextGenerationRouter.OllamaClientName, client =>
             {
-                client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", "http://localhost:11434");
+                client.BaseAddress = ResolveEndpoint(configuration, "Llm:Endpoint", "ollama", ServiceEndpointDefaults.WriterRoom);
                 client.Timeout = TimeSpan.FromMinutes(10); // small models on CPU can be slow
             })
             .RemoveAllResilienceHandlers()
@@ -106,7 +107,7 @@ public static class HttpClientsServiceCollectionExtensions
         // Mixer audio analysis sidecar (CPU-only; started by start-studios.ps1).
         services.AddHttpClient<IAudioAnalysisClient, HttpAudioAnalysisClient>(client =>
             {
-                client.BaseAddress = new Uri(configuration["Analysis:Endpoint"] ?? "http://localhost:8301");
+                client.BaseAddress = new Uri(configuration["Analysis:Endpoint"] ?? ServiceEndpointDefaults.Analysis);
                 client.Timeout = TimeSpan.FromSeconds(60);
             })
             .RemoveAllResilienceHandlers();

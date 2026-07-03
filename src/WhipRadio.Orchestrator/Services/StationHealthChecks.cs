@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Configuration;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
@@ -136,7 +137,7 @@ public sealed class OllamaHealthCheck(IHttpClientFactory httpClientFactory, ICon
 {
     public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct = default)
     {
-        var endpoint = (configuration["Llm:Endpoint"] ?? "http://localhost:11434").TrimEnd('/');
+        var endpoint = (configuration["Llm:Endpoint"] ?? ServiceEndpointDefaults.WriterRoom).TrimEnd('/');
         var client = httpClientFactory.CreateClient("health-ollama");
         client.Timeout = TimeSpan.FromSeconds(3);
         try

@@ -164,7 +164,7 @@ else
 
     protected override void OnInitialized()
     {
-        _streamUrl = Configuration["Stream:PublicUrl"] ?? "http://localhost:8000/radio.mp3";
+        _streamUrl = Configuration["Stream:PublicUrl"] ?? WhipRadio.Core.Configuration.ServiceEndpointDefaults.PublicStream;
         Live.Changed += OnChanged;
     }
 
