@@ -133,6 +133,13 @@ public static class DbInitializer
                 && s.Provider == MusicBackends.AceStep
                 && s.Url == LocalhostAceStepUrl)
             .ExecuteUpdateAsync(s => s.SetProperty(studio => studio.Url, LoopbackAceStepUrl), ct);
+
+        // Writer room moved from Ollama's native 11434 to host port 8001 so all
+        // studio ports share the 8x01 layout; migrate previously seeded rows.
+        await db.Studios
+            .Where(s => s.Kind == StudioKind.WriterRoom
+                && s.Url == ServiceEndpointDefaults.LegacyWriterRoom)
+            .ExecuteUpdateAsync(s => s.SetProperty(studio => studio.Url, ServiceEndpointDefaults.WriterRoom), ct);
     }
 
     private static async Task MarkAbandonedStudioHistoryAsync(RadioDbContext db, CancellationToken ct)

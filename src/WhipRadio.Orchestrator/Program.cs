@@ -10,10 +10,6 @@ using WhipRadio.Orchestrator.Api;
 using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
 
-// Note: the Npgsql legacy-timestamp mapping (DateTime -> `timestamp without time zone`)
-// is configured by a module initializer in WhipRadio.Infrastructure
-// (NpgsqlConfiguration), so it applies to both the app and `dotnet ef` tooling.
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();

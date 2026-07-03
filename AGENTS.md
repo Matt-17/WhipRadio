@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-WhipRadio is a .NET 10 Aspire solution. The solution file is `WhipRadio.slnx` (XML solution format — there is no `.sln`). Core domain logic lives in `src/WhipRadio.Core` (no infrastructure dependencies), infrastructure integrations and EF Core persistence in `src/WhipRadio.Infrastructure`, long-running radio services, API endpoints, and the SignalR hub in `src/WhipRadio.Orchestrator`, and the Blazor Server console in `src/WhipRadio.Web`. `src/WhipRadio.AppHost` wires Aspire resources together (PostgreSQL, Icecast, Orchestrator, Web); `src/WhipRadio.ServiceDefaults` holds shared telemetry/health/resilience defaults. Tests are under `tests/` (`WhipRadio.Core.Tests`, `WhipRadio.Infrastructure.Tests`, `WhipRadio.Orchestrator.Tests`, shared helpers in `tests/TestSupport`). Python/FastAPI sidecars live in `sidecars/` (`tts`, `musicgen`, `analysis`, `acestep`). `tools/` contains `WhipRadio.DbMigrator` and DB backup scripts. Deployment support is in `deploy/`; phase planning documents are at the repository root.
+WhipRadio is a .NET 10 Aspire solution. The solution file is `WhipRadio.slnx` (XML solution format — there is no `.sln`). Core domain logic lives in `src/WhipRadio.Core` (no infrastructure dependencies), infrastructure integrations and EF Core persistence in `src/WhipRadio.Infrastructure`, long-running radio services, API endpoints, and the SignalR hub in `src/WhipRadio.Orchestrator`, and the Blazor Server console in `src/WhipRadio.Web`. `src/WhipRadio.AppHost` wires Aspire resources together (PostgreSQL, Icecast, Orchestrator, Web); `src/WhipRadio.ServiceDefaults` holds shared telemetry/health/resilience defaults. Tests are under `tests/` (`WhipRadio.Core.Tests`, `WhipRadio.Infrastructure.Tests`, `WhipRadio.Orchestrator.Tests`, shared helpers in `tests/TestSupport`). Python/FastAPI sidecars live in `sidecars/` (`tts`, `musicgen`, `analysis`, `acestep`). `tools/` contains `WhipRadio.DbMigrator` and DB backup scripts. Deployment support is in `deploy/`; phase planning documents and design briefs live in `docs/plans/`.
 
 Before larger changes, read `ARCHITECTURE.md` (runtime map, main flows, concurrency/resource ownership) and, for UI work, `DESIGN-GUIDE.md`.
 
@@ -70,4 +70,4 @@ Maintain `docs/licenses/` whenever adding, removing, or upgrading third-party de
 
 ## Architecture Decision Notes
 
-When changing model defaults, studio ownership, images, voices, or audio behavior, update `Phase-0-Tech-Decisions.md` and, if work remains, `Phase-0-Deferred.md`.
+When changing model defaults, studio ownership, images, voices, or audio behavior, update `docs/plans/Phase-0-Tech-Decisions.md` and, if work remains, `docs/plans/Phase-0-Deferred.md`.

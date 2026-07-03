@@ -83,7 +83,15 @@ public sealed class ChatService(
 
         if (beforeUtc is { } before)
         {
-            query = query.Where(message => message.CreatedAtUtc < before);
+            // Query-string binding yields Local/Unspecified kinds; timestamptz
+            // parameters must be Kind=Utc (the value already represents UTC).
+            var beforeAsUtc = before.Kind switch
+            {
+                DateTimeKind.Utc => before,
+                DateTimeKind.Local => before.ToUniversalTime(),
+                _ => DateTime.SpecifyKind(before, DateTimeKind.Utc),
+            };
+            query = query.Where(message => message.CreatedAtUtc < beforeAsUtc);
         }
 
         List<ChatMessage> page = await query

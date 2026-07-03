@@ -17,7 +17,7 @@ AppHost (Aspire)
 `-- web           Blazor Server broadcast console
 
 Studio services (start-studios.ps1)
-|-- writer-room   Ollama + gemma4:e4b (:11434)
+|-- writer-room   Ollama + gemma4:e4b (:8001)
 |-- tts           Python/FastAPI + Kokoro/Piper (:8201)
 |-- acestep       ACE-Step 1.5 official API (:8101)
 `-- analysis      audio analysis API (:8301)
@@ -72,7 +72,7 @@ Key settings:
 
 | Key | Default | Meaning |
 |---|---|---|
-| `Llm__Endpoint` | `http://localhost:11434` | Ollama Writer Room endpoint |
+| `Llm__Endpoint` | `http://localhost:8001` | Ollama Writer Room endpoint (host 8001 → container 11434) |
 | `Llm__Model` | `gemma4:e4b` | Ollama chat model |
 | `Llm__ContextSize` | `16384` | Ollama `num_ctx` working context |
 | `Weather__Latitude/Longitude` | 51.05 / 13.74 | Open-Meteo location |

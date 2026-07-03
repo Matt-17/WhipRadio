@@ -3,7 +3,7 @@ param(
     [int]$Count = 1,
     [switch]$IncludeMusicGen,
     [string]$OllamaModel = "gemma4:e4b",
-    [int]$OllamaPort = 11434,
+    [int]$OllamaPort = 8001,
     [switch]$SkipWriterRoomChat
 )
 

@@ -34,7 +34,7 @@ static string RequiredSecret(string key) =>
 var dataRoot = Path.GetFullPath(Path.Combine(builder.AppHostDirectory, "..", "..", "data"));
 // Aspire project references are resource declarations, not compile references, so
 // Core's ServiceEndpointDefaults.WriterRoom is not available here — keep in sync.
-var writerRoomEndpoint = builder.Configuration["Llm:Endpoint"] ?? "http://localhost:11434";
+var writerRoomEndpoint = builder.Configuration["Llm:Endpoint"] ?? "http://localhost:8001";
 
 // --- PostgreSQL: relational store ---------------------------------------------
 // Persistent container with a named data volume so the station's library, play

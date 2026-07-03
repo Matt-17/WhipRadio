@@ -131,8 +131,9 @@ the safety net.
 **Firm decision:** the default local text model is **Gemma 4 E4B via Ollama**. Runtime
 defaults, docs, and seed/config examples should use the `gemma4:e4b` Ollama tag.
 Ollama is a long-lived operator-owned Writer Room service, started with
-`start-studios.ps1` on `http://localhost:11434` by default. The Aspire AppHost
-consumes `Llm__Endpoint`; it does not create or own the Ollama container.
+`start-studios.ps1` on `http://localhost:8001` by default (host port 8001 maps to
+the container's native 11434, matching the 8x01 studio port layout). The Aspire
+AppHost consumes `Llm__Endpoint`; it does not create or own the Ollama container.
 
 Provider routing must stay behind `ITextGenerationService` so roles can later use
 different providers or models. Per-role model selection is still encouraged:

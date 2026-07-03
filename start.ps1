@@ -23,10 +23,10 @@ if (-not (Test-Path -LiteralPath $envFile)) {
 }
 
 try {
-    Invoke-RestMethod -Uri "http://localhost:11434/api/version" -TimeoutSec 2 | Out-Null
+    Invoke-RestMethod -Uri "http://localhost:8001/api/version" -TimeoutSec 2 | Out-Null
 }
 catch {
-    Write-Host "Writer Room is not reachable at http://localhost:11434. Run .\start-studios.ps1 first." -ForegroundColor Yellow
+    Write-Host "Writer Room is not reachable at http://localhost:8001. Run .\start-studios.ps1 first." -ForegroundColor Yellow
 }
 
 Write-Host "Building..." -ForegroundColor Cyan

@@ -8,8 +8,13 @@ namespace WhipRadio.Core.Configuration;
 /// </summary>
 public static class ServiceEndpointDefaults
 {
-    /// <summary>Ollama / writer room.</summary>
-    public const string WriterRoom = "http://localhost:11434";
+    /// <summary>Ollama / writer room. Host port 8001 maps to the container's
+    /// native 11434 (see start-studios.ps1).</summary>
+    public const string WriterRoom = "http://localhost:8001";
+
+    /// <summary>Pre-move writer room default (Ollama's native port); only used to
+    /// migrate seeded studio rows to <see cref="WriterRoom"/>.</summary>
+    public const string LegacyWriterRoom = "http://localhost:11434";
 
     /// <summary>Music recording studio (ACE-Step / MusicGen sidecar).</summary>
     public const string RecordingStudio = "http://localhost:8101";

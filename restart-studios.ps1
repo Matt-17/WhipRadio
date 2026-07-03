@@ -5,7 +5,7 @@ param(
     [switch]$IncludeMusicGen,
     [switch]$SkipWriterRoom,
     [string]$OllamaModel = "gemma4:e4b",
-    [int]$OllamaPort = 11434,
+    [int]$OllamaPort = 8001,
     [switch]$RecreateWriterRoom
 )
 

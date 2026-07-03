@@ -5,7 +5,7 @@ param(
     [switch]$IncludeMusicGen,        # also start a MusicGen studio on port 8111
     [switch]$SkipWriterRoom,         # skip the local Ollama Writer Room
     [string]$OllamaModel = "gemma4:e4b",
-    [int]$OllamaPort = 11434
+    [int]$OllamaPort = 8001          # host port; the container keeps Ollama's native 11434 inside
 )
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -77,12 +77,21 @@ function Test-ContainerMatchesRuntimeConfig($Name, $Volumes, $Environment) {
     return (Test-ContainerHasVolumes $Name $Volumes) -and (Test-ContainerHasEnvironment $Name $Environment)
 }
 
+function Test-ContainerHostPort($Name, $HostPort, $TargetPort) {
+    # Port mappings are fixed at container creation; a changed default (e.g. the
+    # writer room moving 11434 -> 8001) must recreate the container to apply.
+    $template = '{{ (index (index .HostConfig.PortBindings "' + "$TargetPort/tcp" + '") 0).HostPort }}'
+    $bound = docker inspect --format $template $Name 2>$null
+    return ($LASTEXITCODE -eq 0) -and ("$bound" -eq "$HostPort")
+}
+
 function Ensure-Container($Name, $Image, $HostPort, $TargetPort, $Volumes, [bool]$UseGpu = $false, $Environment = @()) {
     $volumeList = @($Volumes | Where-Object { $_ })
     $environmentList = @($Environment | Where-Object { $_ })
     $running = docker ps --filter "name=^$Name$" --format "{{.Names}}"
     if ($running) {
-        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList)) {
+        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList) -or
+            -not (Test-ContainerHostPort $Name $HostPort $TargetPort)) {
             Write-Host "  $Name uses older runtime settings; recreating container and keeping mounted volumes" -ForegroundColor Yellow
             docker rm -f $Name | Out-Null
         } else {
@@ -93,7 +102,8 @@ function Ensure-Container($Name, $Image, $HostPort, $TargetPort, $Volumes, [bool
 
     $existing = docker ps -a --filter "name=^$Name$" --format "{{.Names}}"
     if ($existing) {
-        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList)) {
+        if (-not (Test-ContainerMatchesRuntimeConfig $Name $volumeList $environmentList) -or
+            -not (Test-ContainerHostPort $Name $HostPort $TargetPort)) {
             Write-Host "  $Name uses older runtime settings; recreating container and keeping mounted volumes" -ForegroundColor Yellow
             docker rm -f $Name | Out-Null
         } else {

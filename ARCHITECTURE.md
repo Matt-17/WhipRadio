@@ -22,7 +22,7 @@ AppHost (src/WhipRadio.AppHost/AppHost.cs)
 `-- web           Blazor Server console and same-origin media proxy
 
 Studio services (start-studios.ps1)
-|-- writer room   Ollama + gemma4:e4b, http://localhost:11434
+|-- writer room   Ollama + gemma4:e4b, http://localhost:8001 (container-internal 11434)
 |-- studio        ACE-Step 1.5 music generation, http://localhost:8101
 |-- booth         local TTS service, http://localhost:8201
 `-- analysis      audio analysis service, http://localhost:8301
