@@ -1,5 +1,6 @@
 @page "/stats"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Helpers
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
@@ -15,7 +16,7 @@
 }
 else if (_stats is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> counting everything…</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> counting everything...</div></div>
 }
 else
 {
@@ -92,6 +93,7 @@ else
 @code {
     private StatsDto? _stats;
     private Timer? _timer;
+    private int _refreshing;
     private string? _loadError;
 
     protected override async Task OnInitializedAsync()
@@ -99,16 +101,41 @@ else
         _stats = await Api.GetStatsAsync();
         _loadError = _stats is null ? "Failed to load station statistics — backend unreachable." : null;
 
-        _timer = new Timer(async _ =>
+        _timer = new Timer(_ => RefreshTickAsync().Forget(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    // Timer callbacks are void: run the refresh on the renderer's dispatcher, skip
+    // overlapping ticks, and never let a failed fetch surface as an unobserved
+    // exception — the next tick simply retries.
+    private async Task RefreshTickAsync()
+    {
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1)
+        {
+            return;
+        }
+
+        try
         {
             var fresh = await Api.GetStatsAsync();
-            if (fresh is not null)
+            await InvokeAsync(() =>
             {
-                _stats = fresh;
-                _loadError = null;
-            }
-            await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+                if (fresh is not null)
+                {
+                    _stats = fresh;
+                    _loadError = null;
+                }
+
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // backend unreachable — retry on the next tick
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshing, 0);
+        }
     }
 
     public void Dispose() => _timer?.Dispose();

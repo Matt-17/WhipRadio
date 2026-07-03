@@ -236,7 +236,6 @@ else
     private string _formApiKey = "";
     private StudioTestResultDto? _testResult;
     private string? _saveError;
-    private CancellationTokenSource? _refreshLoopCancel;
 
     private StudioDto? _restartTarget;
     private bool _restartBusy;
@@ -259,7 +258,6 @@ else
         if (firstRender)
         {
             await StudioLive.EnsureStartedAsync();
-            StartRefreshLoop();
             SyncStudios();
             _loading = false;
             StateHasChanged();
@@ -270,33 +268,6 @@ else
     {
         await StudioLive.RefreshSnapshotAsync();
         SyncStudios();
-    }
-
-    private void StartRefreshLoop()
-    {
-        if (_refreshLoopCancel is not null)
-        {
-            return;
-        }
-
-        _refreshLoopCancel = new CancellationTokenSource();
-        _ = RefreshLoopAsync(_refreshLoopCancel.Token);
-    }
-
-    private async Task RefreshLoopAsync(CancellationToken ct)
-    {
-        try
-        {
-            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-            while (await timer.WaitForNextTickAsync(ct))
-            {
-                await InvokeAsync(LoadAsync);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Page disposed.
-        }
     }
 
     private void OnStudiosChanged()
@@ -545,7 +516,7 @@ else
 
         _restartTarget = null;
         _restartBusy = true;
-        _restartNotice = $"restarting {target.Name}…";
+        _restartNotice = $"restarting {target.Name}...";
         _restartOk = true;
         StateHasChanged();
 
@@ -599,8 +570,6 @@ else
 
     public void Dispose()
     {
-        _refreshLoopCancel?.Cancel();
-        _refreshLoopCancel?.Dispose();
         StudioLive.Changed -= OnStudiosChanged;
     }
 }

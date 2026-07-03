@@ -1,5 +1,6 @@
 @page "/server"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Helpers
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
@@ -46,7 +47,7 @@ else
         }
         else
         {
-            <div class="dim" style="font-family:var(--font-mono); font-size:12px">no NVIDIA GPU detected (nvidia-smi unavailable)</div>
+            <div class="dim micro-copy">no NVIDIA GPU detected (nvidia-smi unavailable)</div>
         }
     </div>
 
@@ -155,6 +156,7 @@ else
 
     private ServerStatsDto? _stats;
     private Timer? _timer;
+    private int _refreshing;
     private string? _loadError;
     private MediaCleanupPlanDto? _cleanupPlan;
     private MediaCleanupStatusDto? _cleanupStatus;
@@ -255,18 +257,42 @@ else
             SeedAverages(_stats, DateTimeOffset.UtcNow);
         }
 
-        _timer = new Timer(async _ =>
+        _timer = new Timer(_ => RefreshTickAsync().Forget(), null, PollInterval, PollInterval);
+    }
+
+    // Timer callbacks are void: run the refresh on the renderer's dispatcher, skip
+    // overlapping ticks, and never let a failed fetch surface as an unobserved
+    // exception — the next tick simply retries.
+    private async Task RefreshTickAsync()
+    {
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1)
+        {
+            return;
+        }
+
+        try
         {
             var fresh = await Api.GetServerStatsAsync();
-            if (fresh is not null)
+            await InvokeAsync(() =>
             {
-                _stats = fresh;
-                _loadError = null;
-                UpdateAverages(_stats, DateTimeOffset.UtcNow);
-            }
+                if (fresh is not null)
+                {
+                    _stats = fresh;
+                    _loadError = null;
+                    UpdateAverages(_stats, DateTimeOffset.UtcNow);
+                }
 
-            await InvokeAsync(StateHasChanged);
-        }, null, PollInterval, PollInterval);
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // backend unreachable — retry on the next tick
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshing, 0);
+        }
     }
 
     private void SeedAverages(ServerStatsDto stats, DateTimeOffset at)

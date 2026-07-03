@@ -21,7 +21,7 @@
 
     @if (_posts.Count == 0 && _loading)
     {
-        <div class="empty-state"><span class="blink">&#x25AE;</span> tuning the artist wire...</div>
+        <div class="empty-state"><span class="blink">▮</span> tuning the artist wire...</div>
     }
     else if (_loadError is not null)
     {
@@ -53,7 +53,7 @@
         <div class="artist-feed-footer">
             @if (HasMore)
             {
-                <button class="btn small" disabled="@_loadingOlder" @onclick="LoadOlderAsync">
+                <button class="btn small @(_loadingOlder ? "working-button" : null)" disabled="@_loadingOlder" @onclick="LoadOlderAsync">
                     @(_loadingOlder ? "loading..." : "load older")
                 </button>
             }

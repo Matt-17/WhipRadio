@@ -15,7 +15,7 @@
 
 @if (_moderators is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> waking up the hosts…</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> waking up the hosts...</div></div>
 }
 else
 {
@@ -63,7 +63,7 @@ else
                     <div class="host-photo-col">
                         <PersonAvatar PhotoUrl="@host.PhotoUrl" Name="@host.Name" Size="portrait" />
                         <div class="host-photo-edit">
-                            <input @bind="_photoUrlEdit" placeholder="photo url…" />
+                            <input @bind="_photoUrlEdit" placeholder="photo url..." />
                             <button class="btn small" title="set photo" @onclick="() => SetPhotoAsync(host.Id)">set</button>
                         </div>
                     </div>
@@ -198,7 +198,7 @@ else
                     <option value="elevenlabs">elevenlabs (cloud, needs key)</option>
                 </select>
             </div>
-            <div class="field"><label>Style</label><input @bind="_newStyle" placeholder="fast-energetic / slow-thoughtful / …" /></div>
+            <div class="field"><label>Style</label><input @bind="_newStyle" placeholder="fast-energetic / slow-thoughtful / ..." /></div>
             <div class="field">
                 <label>Weather specialist</label>
                 <UiSwitch Value="@_newWeatherSpecialist"
@@ -268,22 +268,22 @@ else
                 </select>
             </div>
             <div class="field"><label>Preferred Genres (csv)</label><input @bind="_newGenres" placeholder="electronic,lofi" /></div>
-            <div class="field"><label>Photo URL (optional)</label><input @bind="_newPhotoUrl" placeholder="https://… or /images/host.jpg" /></div>
+            <div class="field"><label>Photo URL (optional)</label><input @bind="_newPhotoUrl" placeholder="https://... or /images/host.jpg" /></div>
         </div>
         <div class="field" style="margin-bottom:16px">
             <label>Persona (how they talk, what they love)</label>
-            <input @bind="_newPersona" placeholder="You are a warm late-night host who loves vinyl stories …" />
+            <input @bind="_newPersona" placeholder="You are a warm late-night host who loves vinyl stories ..." />
         </div>
         @if (false && _newEngine == "qwen")
         {
             <div class="field" style="margin-bottom:16px">
                 <label>Voice description (Qwen designs the voice from this)</label>
                 <input @bind="_newVoiceDescription"
-                       placeholder="Deep, warm, slightly raspy late-night voice with a calm pace …" />
+                       placeholder="Deep, warm, slightly raspy late-night voice with a calm pace ..." />
             </div>
             <div class="btn-row">
                 <button class="btn" disabled="@_designing" @onclick="DesignNewVoiceAsync">
-                    @(_designing ? "designing… (first run downloads the model)" : "🎙 Design & preview voice")
+                    @(_designing ? "designing... (first run downloads the model)" : "🎙 Design & preview voice")
                 </button>
                 @if (_newDesigned is not null)
                 {

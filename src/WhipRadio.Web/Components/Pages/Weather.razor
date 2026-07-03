@@ -110,7 +110,6 @@ else
 
     protected override async Task OnInitializedAsync()
     {
-        Live.NewsChanged += OnWeatherChanged;
         Live.WeatherChanged += OnWeatherChanged;
         await Live.EnsureStartedAsync();
         _moderators = await Api.GetModeratorsAsync();
@@ -229,7 +228,6 @@ else
 
     public ValueTask DisposeAsync()
     {
-        Live.NewsChanged -= OnWeatherChanged;
         Live.WeatherChanged -= OnWeatherChanged;
         return ValueTask.CompletedTask;
     }

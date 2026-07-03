@@ -1,6 +1,7 @@
 @page "/library"
 @page "/library/artists/{ArtistSlug}"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Helpers
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
@@ -20,7 +21,7 @@
                 <Icon Name="inbox" /> Create Artist
             </button>
         </div>
-        <input class="library-search" type="text" placeholder="search artist or song…"
+        <input class="library-search" type="text" placeholder="search artist or song..."
                value="@_search" @oninput="OnSearchChangedAsync" />
         <div class="artist-list">
             <button class="artist-item @(_selectedArtistId is null ? "active" : null)" @onclick="() => SelectArtistAsync(null)">
@@ -105,7 +106,7 @@
                             <div class="artist-bio">
                                 @if (_artistDetail is null)
                                 {
-                                    <span class="dim"><span class="blink">▮</span> pulling the press file…</span>
+                                    <span class="dim"><span class="blink">▮</span> pulling the press file...</span>
                                 }
                                 else
                                 {
@@ -202,7 +203,7 @@
         <div class="panel reveal">
             @if (_tracks is null)
             {
-                <div class="empty-state"><span class="blink">▮</span> loading the shelves…</div>
+                <div class="empty-state"><span class="blink">▮</span> loading the shelves...</div>
             }
             else
             {
@@ -251,8 +252,8 @@
                                         <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
                                     </span>
                                 </div>
-                                <div class="library-title-line" title="@(_status?.TrackTitle ?? "Recording a new song…")">
-                                    <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "Recording a new song…")</span>
+                                <div class="library-title-line" title="@(_status?.TrackTitle ?? "Recording a new song...")">
+                                    <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "Recording a new song...")</span>
                                 </div>
                                 <div class="library-recording-status">
                                     @if (_selectedArtistId is null && _status?.ArtistName is { } genName)
@@ -433,6 +434,7 @@
     private bool _loaded;
     private string? _currentRouteArtistSlug;
     private Timer? _statusTimer;
+    private int _polling;
 
     protected override async Task OnInitializedAsync()
     {
@@ -441,8 +443,32 @@
         _loaded = true;
         await ApplyArtistRouteAsync(ArtistSlug);
 
-        _statusTimer = new Timer(async _ => await PollStatusAsync(), null,
+        _statusTimer = new Timer(_ => StatusTickAsync().Forget(), null,
             TimeSpan.FromSeconds(4), TimeSpan.FromSeconds(4));
+    }
+
+    // Timer callbacks are void: run the poll on the renderer's dispatcher, skip
+    // overlapping ticks, and never let a failed fetch surface as an unobserved
+    // exception — the next tick simply retries.
+    private async Task StatusTickAsync()
+    {
+        if (Interlocked.Exchange(ref _polling, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(PollStatusAsync);
+        }
+        catch
+        {
+            // backend unreachable — retry on the next tick
+        }
+        finally
+        {
+            Volatile.Write(ref _polling, 0);
+        }
     }
 
     protected override async Task OnParametersSetAsync()

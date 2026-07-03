@@ -1,5 +1,6 @@
 @page "/messages"
 @using WhipRadio.Core.Api
+@using WhipRadio.Core.Helpers
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
@@ -25,7 +26,7 @@
 
     @if (_page is null)
     {
-        <div class="empty-state"><span class="blink">▮</span> opening the mailbag…</div>
+        <div class="empty-state"><span class="blink">▮</span> opening the mailbag...</div>
     }
     else if (_page.Items.Count == 0)
     {
@@ -91,7 +92,8 @@
                             }
                             @if (message.Status == "Queued")
                             {
-                                <button class="btn small vote-down" @onclick="() => DismissAsync(message.Id)">remove</button>
+                                <button class="btn small vote-down" title="remove from the on-air queue"
+                                        @onclick="() => _dismissTarget = message"><Icon Name="trash" /></button>
                             }
                         </td>
                     </tr>
@@ -108,24 +110,64 @@
     }
 </div>
 
+<ConfirmDialog Visible="@(_dismissTarget is not null)"
+               Title="Remove message"
+               ConfirmText="Remove"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DismissConfirmedAsync"
+               OnCancel="() => _dismissTarget = null">
+    @if (_dismissTarget is { } doomed)
+    {
+        <text>Remove the @(doomed.Kind == "Request" ? "request" : "greeting") from <strong>@doomed.SenderName</strong>
+        from the on-air queue? The host will not read it out.</text>
+    }
+</ConfirmDialog>
+
 @code {
     private const int PageSize = 25;
 
     private PagedListenerMessagesDto? _page;
     private int _pageNumber = 1;
     private string? _kindFilter;
+    private ListenerMessageDto? _dismissTarget;
     private Timer? _timer;
+    private int _refreshing;
 
     private int TotalPages => _page is null ? 1 : Math.Max(1, (int)Math.Ceiling(_page.TotalCount / (double)PageSize));
 
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        _timer = new Timer(async _ =>
+        _timer = new Timer(_ => RefreshTickAsync().Forget(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+    }
+
+    // Timer callbacks are void: run the refresh on the renderer's dispatcher, skip
+    // overlapping ticks, and never let a failed fetch surface as an unobserved
+    // exception — the next tick simply retries.
+    private async Task RefreshTickAsync()
+    {
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1)
         {
-            await LoadAsync();
-            await InvokeAsync(StateHasChanged);
-        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+            return;
+        }
+
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadAsync();
+                StateHasChanged();
+            });
+        }
+        catch
+        {
+            // backend unreachable — retry on the next tick
+        }
+        finally
+        {
+            Volatile.Write(ref _refreshing, 0);
+        }
     }
 
     private static string ShortTime(DateTime utc)
@@ -156,9 +198,15 @@
         await LoadAsync();
     }
 
-    private async Task DismissAsync(Guid id)
+    private async Task DismissConfirmedAsync()
     {
-        await Api.DismissGreetingAsync(id);
+        if (_dismissTarget is not { } target)
+        {
+            return;
+        }
+
+        _dismissTarget = null;
+        await Api.DismissGreetingAsync(target.Id);
         await LoadAsync();
     }
 

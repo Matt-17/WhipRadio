@@ -11,17 +11,12 @@ public class ConsoleLiveClient(
     RadioApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
-    ILogger<ConsoleLiveClient> logger)
-    : IAsyncDisposable
+    ILogger<ConsoleLiveClient> logger) : LiveClientBase(configuration, environment, logger)
 {
     private const int MaxLines = 300;
-    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _stateLock = new();
-    private HubConnection? _connection;
     private List<ConsoleLineDto> _lines = [];
     private List<StudioDto> _studios = [];
-    private bool _started;
-    private bool _disposed;
 
     public IReadOnlyList<ConsoleLineDto> Lines
     {
@@ -49,80 +44,13 @@ public class ConsoleLiveClient(
 
     public event Action? Changed;
 
-    public async Task EnsureStartedAsync()
+    protected override void RegisterHandlers(HubConnection connection)
     {
-        if (_started)
-        {
-            return;
-        }
-
-        await _gate.WaitAsync();
-        try
-        {
-            if (_started)
-            {
-                return;
-            }
-
-            await RefreshSnapshotAsync();
-
-            var baseUrl = configuration["services:orchestrator:http:0"]
-                ?? configuration["Orchestrator:Endpoint"]
-                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
-
-            _connection = new HubConnectionBuilder()
-                .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
-                .WithAutomaticReconnect()
-                .Build();
-
-            _connection.On<ConsoleLineDto>("ConsoleLineAdded", AddLine);
-            _connection.On("StudiosChanged", async () => await RefreshStudiosAsync());
-            _connection.Reconnected += async _ => await RefreshSnapshotAsync();
-
-            _connection.Closed += async _ =>
-            {
-                while (!_disposed)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-                    try
-                    {
-                        if (_connection is null)
-                        {
-                            return;
-                        }
-
-                        await _connection.StartAsync();
-                        await RefreshSnapshotAsync();
-                        return;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        return;
-                    }
-                    catch
-                    {
-                        // orchestrator still rebooting - try again
-                    }
-                }
-            };
-
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                await _connection.StartAsync(timeout.Token);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SignalR console connect failed; falling back to snapshot only");
-            }
-
-            _started = true;
-        }
-        finally
-        {
-            _gate.Release();
-        }
+        connection.On<ConsoleLineDto>("ConsoleLineAdded", AddLine);
+        connection.On("StudiosChanged", async () => await RefreshStudiosAsync());
     }
+
+    protected override Task RefreshCoreAsync() => RefreshSnapshotAsync();
 
     public async Task RefreshSnapshotAsync()
     {
@@ -135,7 +63,7 @@ public class ConsoleLiveClient(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Console snapshot failed; showing an empty console snapshot");
+            Logger.LogWarning(ex, "Console snapshot failed; showing an empty console snapshot");
         }
 
         lock (_stateLock)
@@ -181,7 +109,7 @@ public class ConsoleLiveClient(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Studio refresh failed after SignalR update");
+            Logger.LogWarning(ex, "Studio refresh failed after SignalR update");
             return;
         }
 
@@ -191,16 +119,5 @@ public class ConsoleLiveClient(
         }
 
         Changed?.Invoke();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _disposed = true;
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-        }
-
-        _gate.Dispose();
     }
 }

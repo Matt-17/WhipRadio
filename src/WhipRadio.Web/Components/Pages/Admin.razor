@@ -16,7 +16,7 @@
 }
 else if (_settings is null)
 {
-    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> unlocking the control room…</div></div>
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> unlocking the control room...</div></div>
 }
 else
 {
@@ -56,7 +56,7 @@ else
                 <strong>Program Director</strong>
                 <div class="dim">Plans the weekly schedule in the background — or kick it manually.</div>
             </div>
-            <button class="btn" @onclick="RunDirectorAsync">@(_directorKicked ? "✓ running…" : "Run now")</button>
+            <button class="btn @(_directorKicked ? "working-button" : null)" disabled="@_directorKicked" @onclick="RunDirectorAsync">@(_directorKicked ? "✓ running..." : "Run now")</button>
         </div>
             <div class="dim note-copy top-gap">
             Real-time transitions, crossfades and talk-overs are managed on the <a href="/mixer">Mixer page</a>.

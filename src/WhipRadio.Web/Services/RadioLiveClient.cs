@@ -12,13 +12,8 @@ public class RadioLiveClient(
     RadioApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
-    ILogger<RadioLiveClient> logger) : IAsyncDisposable
+    ILogger<RadioLiveClient> logger) : LiveClientBase(configuration, environment, logger)
 {
-    private HubConnection? _connection;
-    private bool _started;
-    private bool _disposed;
-    private readonly SemaphoreSlim _gate = new(1, 1);
-
     public NowPlayingDto? NowPlaying { get; private set; }
 
     public StationStatusDto? StationStatus { get; private set; }
@@ -40,127 +35,65 @@ public class RadioLiveClient(
 
     public event Action? ScheduleChanged;
 
-    public async Task EnsureStartedAsync()
+    protected override void RegisterHandlers(HubConnection connection)
     {
-        if (_started)
+        connection.On<NowPlayingDto?>("NowPlayingChanged", dto =>
         {
-            return;
-        }
+            NowPlaying = dto;
+            Changed?.Invoke();
+        });
 
-        await _gate.WaitAsync();
-        try
+        connection.On<StationStatusDto>("StationStatusChanged", status =>
         {
-            if (_started)
+            // Non-Online → Online means the encoder reattached to the mount
+            // (crash recovery / re-enable): an in-flight player is draining
+            // stale buffer, so push it to the live edge.
+            var cameOnline = StationStatus is { } prev && !IsOnline(prev.Status) && IsOnline(status.Status);
+            StationStatus = status;
+            Changed?.Invoke();
+            if (cameOnline)
             {
-                return;
+                LiveStreamRestored?.Invoke();
             }
+        });
 
-            await RefreshSnapshotAsync();
-
-            var baseUrl = configuration["services:orchestrator:http:0"]
-                ?? configuration["Orchestrator:Endpoint"]
-                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
-
-            _connection = new HubConnectionBuilder()
-                .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
-                .WithAutomaticReconnect()
-                .Build();
-
-            _connection.On<NowPlayingDto?>("NowPlayingChanged", dto =>
-            {
-                NowPlaying = dto;
-                Changed?.Invoke();
-            });
-
-            _connection.On<StationStatusDto>("StationStatusChanged", status =>
-            {
-                // Non-Online → Online means the encoder reattached to the mount
-                // (crash recovery / re-enable): an in-flight player is draining
-                // stale buffer, so push it to the live edge.
-                var cameOnline = StationStatus is { } prev && !IsOnline(prev.Status) && IsOnline(status.Status);
-                StationStatus = status;
-                Changed?.Invoke();
-                if (cameOnline)
-                {
-                    LiveStreamRestored?.Invoke();
-                }
-            });
-
-            _connection.On<VoteResultDto>("VotesChanged", votes =>
-            {
-                if (NowPlaying?.ItemId == votes.TrackId)
-                {
-                    NowPlaying = NowPlaying with { UpVotes = votes.UpVotes, DownVotes = votes.DownVotes };
-                    Changed?.Invoke();
-                }
-            });
-
-            _connection.On<List<QueueItemDto>>("QueueChanged", queue =>
-            {
-                Queue = queue;
-                Changed?.Invoke();
-            });
-
-            _connection.On("JinglesChanged", () => JinglesChanged?.Invoke());
-            _connection.On("ScheduleChanged", () => ScheduleChanged?.Invoke());
-
-            _connection.On<MediaCleanupStatusDto>("MediaCleanupChanged", status =>
-            {
-                MediaCleanupStatus = status;
-                Changed?.Invoke();
-            });
-
-            _connection.Reconnected += async _ => await RefreshSnapshotAsync();
-
-            // WithAutomaticReconnect gives up after ~30 s. Orchestrator restarts
-            // (AI model loads) can take minutes — keep knocking until the studio
-            // answers, or every open page stays frozen on stale data forever.
-            _connection.Closed += async _ =>
-            {
-                while (!_disposed)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-                    try
-                    {
-                        await _connection.StartAsync();
-                        await RefreshSnapshotAsync();
-                        // Auto-reconnect already gave up (~30 s) before Closed fired,
-                        // so this was a real studio outage — the orchestrator (and its
-                        // ffmpeg encoder) restarted and replaced the Icecast source.
-                        // Re-tune any open player off its now-stale buffer.
-                        if (IsOnline(StationStatus?.Status))
-                        {
-                            LiveStreamRestored?.Invoke();
-                        }
-
-                        return;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        return;
-                    }
-                    catch
-                    {
-                        // studio still rebooting — try again
-                    }
-                }
-            };
-
-            try
-            {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-                await _connection.StartAsync(timeout.Token);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SignalR connect failed; falling back to snapshot only");
-            }
-
-            _started = true;
-        }
-        finally
+        connection.On<VoteResultDto>("VotesChanged", votes =>
         {
-            _gate.Release();
+            if (NowPlaying?.ItemId == votes.TrackId)
+            {
+                NowPlaying = NowPlaying with { UpVotes = votes.UpVotes, DownVotes = votes.DownVotes };
+                Changed?.Invoke();
+            }
+        });
+
+        connection.On<List<QueueItemDto>>("QueueChanged", queue =>
+        {
+            Queue = queue;
+            Changed?.Invoke();
+        });
+
+        connection.On("JinglesChanged", () => JinglesChanged?.Invoke());
+        connection.On("ScheduleChanged", () => ScheduleChanged?.Invoke());
+
+        connection.On<MediaCleanupStatusDto>("MediaCleanupChanged", status =>
+        {
+            MediaCleanupStatus = status;
+            Changed?.Invoke();
+        });
+    }
+
+    protected override Task RefreshCoreAsync() => RefreshSnapshotAsync();
+
+    protected override async Task OnManualReconnectedAsync()
+    {
+        await RefreshSnapshotAsync();
+        // Auto-reconnect already gave up (~30 s) before Closed fired, so this
+        // was a real studio outage — the orchestrator (and its ffmpeg encoder)
+        // restarted and replaced the Icecast source. Re-tune any open player
+        // off its now-stale buffer.
+        if (IsOnline(StationStatus?.Status))
+        {
+            LiveStreamRestored?.Invoke();
         }
     }
 
@@ -175,16 +108,5 @@ public class RadioLiveClient(
         StationStatus = await api.GetStationStatusAsync();
         MediaCleanupStatus = await api.GetMediaCleanupStatusAsync();
         Changed?.Invoke();
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        _disposed = true;
-        if (_connection is not null)
-        {
-            await _connection.DisposeAsync();
-        }
-
-        _gate.Dispose();
     }
 }

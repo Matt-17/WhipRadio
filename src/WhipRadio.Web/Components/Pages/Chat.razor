@@ -39,7 +39,7 @@
 
             @if (Live.Channels.Count == 0 && _loadingChannels)
             {
-                <div class="empty-state compact"><span class="blink">&#x25AE;</span> opening lines...</div>
+                <div class="empty-state compact"><span class="blink">▮</span> opening lines...</div>
             }
             else if (Live.Channels.Count == 0)
             {
@@ -107,7 +107,7 @@
                 <div class="chat-messages" @ref="_messagePane">
                     @if (_loadingMessages)
                     {
-                        <div class="empty-state"><span class="blink">&#x25AE;</span> loading history...</div>
+                        <div class="empty-state"><span class="blink">▮</span> loading history...</div>
                     }
                     else
                     {

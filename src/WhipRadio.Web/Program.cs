@@ -96,9 +96,7 @@ app.MapGet("/media/artist-member-voice/{id:guid}", (Guid id, IHttpClientFactory 
 app.Run();
 
 static string GetOrchestratorEndpoint(IConfiguration configuration, IHostEnvironment environment)
-    => configuration["services:orchestrator:http:0"]
-        ?? configuration["Orchestrator:Endpoint"]
-        ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
+    => OrchestratorEndpoint.Resolve(configuration, environment);
 
 static async Task ProxyMediaAsync(HttpContext context, HttpClient client, string upstreamUrl, bool live = false)
 {

@@ -7,13 +7,8 @@ public class ChatLiveClient(
     RadioApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
-    ILogger<ChatLiveClient> logger) : IAsyncDisposable
+    ILogger<ChatLiveClient> logger) : LiveClientBase(configuration, environment, logger)
 {
-    private readonly SemaphoreSlim gate = new(1, 1);
-    private HubConnection? connection;
-    private bool started;
-    private bool disposed;
-
     public IReadOnlyList<ChatChannelDto> Channels { get; private set; } = [];
 
     public event Action? Changed;
@@ -22,94 +17,28 @@ public class ChatLiveClient(
 
     public event Action<ChatAgentThinkingDto>? ThinkingChanged;
 
-    public async Task EnsureStartedAsync()
+    protected override void RegisterHandlers(HubConnection connection)
     {
-        if (started)
+        connection.On<ChatMessageDto>("ChatMessageAdded", message =>
         {
-            return;
-        }
+            MessageAdded?.Invoke(message);
+            Changed?.Invoke();
+        });
 
-        await gate.WaitAsync();
-        try
+        connection.On<ChatChannelDto>("ChatChannelUpdated", channel =>
         {
-            if (started)
-            {
-                return;
-            }
+            UpsertChannel(channel);
+            Changed?.Invoke();
+        });
 
-            await RefreshSnapshotAsync();
-
-            string baseUrl = configuration["services:orchestrator:http:0"]
-                ?? configuration["Orchestrator:Endpoint"]
-                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
-
-            connection = new HubConnectionBuilder()
-                .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
-                .WithAutomaticReconnect()
-                .Build();
-
-            connection.On<ChatMessageDto>("ChatMessageAdded", message =>
-            {
-                MessageAdded?.Invoke(message);
-                Changed?.Invoke();
-            });
-
-            connection.On<ChatChannelDto>("ChatChannelUpdated", channel =>
-            {
-                UpsertChannel(channel);
-                Changed?.Invoke();
-            });
-
-            connection.On<ChatAgentThinkingDto>("ChatAgentThinking", thinking =>
-            {
-                ThinkingChanged?.Invoke(thinking);
-                Changed?.Invoke();
-            });
-
-            connection.Reconnected += async _ => await RefreshSnapshotAsync();
-            connection.Closed += async _ =>
-            {
-                while (!disposed)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-                    try
-                    {
-                        if (connection is null)
-                        {
-                            return;
-                        }
-
-                        await connection.StartAsync();
-                        await RefreshSnapshotAsync();
-                        return;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        return;
-                    }
-                    catch
-                    {
-                    }
-                }
-            };
-
-            try
-            {
-                using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(3));
-                await connection.StartAsync(timeout.Token);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SignalR chat connect failed; falling back to snapshot only");
-            }
-
-            started = true;
-        }
-        finally
+        connection.On<ChatAgentThinkingDto>("ChatAgentThinking", thinking =>
         {
-            gate.Release();
-        }
+            ThinkingChanged?.Invoke(thinking);
+            Changed?.Invoke();
+        });
     }
+
+    protected override Task RefreshCoreAsync() => RefreshSnapshotAsync();
 
     public async Task RefreshSnapshotAsync()
     {
@@ -139,15 +68,4 @@ public class ChatLiveClient(
             "HostDm" => 2,
             _ => 3,
         };
-
-    public async ValueTask DisposeAsync()
-    {
-        disposed = true;
-        if (connection is not null)
-        {
-            await connection.DisposeAsync();
-        }
-
-        gate.Dispose();
-    }
 }

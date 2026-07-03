@@ -7,95 +7,22 @@ public class AgentLogLiveClient(
     RadioApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
-    ILogger<AgentLogLiveClient> logger) : IAsyncDisposable
+    ILogger<AgentLogLiveClient> logger) : LiveClientBase(configuration, environment, logger)
 {
     private const int MaxEntries = 300;
-
-    private readonly SemaphoreSlim gate = new(1, 1);
-    private HubConnection? connection;
-    private bool started;
-    private bool disposed;
 
     public IReadOnlyList<AgentLogEntryDto> Entries { get; private set; } = [];
 
     public event Action? Changed;
 
-    public async Task EnsureStartedAsync()
-    {
-        if (started)
+    protected override void RegisterHandlers(HubConnection connection)
+        => connection.On<AgentLogEntryDto>("AgentActionLogged", entry =>
         {
-            return;
-        }
+            PrependEntry(entry);
+            Changed?.Invoke();
+        });
 
-        await gate.WaitAsync();
-        try
-        {
-            if (started)
-            {
-                return;
-            }
-
-            await RefreshSnapshotAsync();
-
-            string baseUrl = configuration["services:orchestrator:http:0"]
-                ?? configuration["Orchestrator:Endpoint"]
-                ?? (environment.IsDevelopment() ? "http://localhost:5151" : "http://orchestrator");
-
-            connection = new HubConnectionBuilder()
-                .WithUrl($"{baseUrl.TrimEnd('/')}/hubs/radio")
-                .WithAutomaticReconnect()
-                .Build();
-
-            connection.On<AgentLogEntryDto>("AgentActionLogged", entry =>
-            {
-                PrependEntry(entry);
-                Changed?.Invoke();
-            });
-
-            connection.Reconnected += async _ => await RefreshSnapshotAsync();
-            connection.Closed += async _ =>
-            {
-                while (!disposed)
-                {
-                    await Task.Delay(TimeSpan.FromSeconds(5));
-                    try
-                    {
-                        if (connection is null)
-                        {
-                            return;
-                        }
-
-                        await connection.StartAsync();
-                        await RefreshSnapshotAsync();
-                        return;
-                    }
-                    catch (ObjectDisposedException)
-                    {
-                        return;
-                    }
-                    catch
-                    {
-                    }
-                }
-            };
-
-            try
-            {
-                using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(3));
-                await connection.StartAsync(timeout.Token);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "SignalR agent log connect failed; falling back to snapshot only");
-            }
-
-            started = true;
-        }
-        finally
-        {
-            gate.Release();
-        }
-    }
+    protected override Task RefreshCoreAsync() => RefreshSnapshotAsync();
 
     public async Task RefreshSnapshotAsync()
     {
@@ -112,16 +39,5 @@ public class AgentLogLiveClient(
         }
 
         Entries = updated;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        disposed = true;
-        if (connection is not null)
-        {
-            await connection.DisposeAsync();
-        }
-
-        gate.Dispose();
     }
 }

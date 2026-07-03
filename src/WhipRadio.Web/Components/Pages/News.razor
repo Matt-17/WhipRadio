@@ -158,7 +158,7 @@ else
     <Footer>
         @if (_editFeedId is not null)
         {
-            <button class="btn small danger feed-delete-action" @onclick="AskDeleteCurrentFeed">Delete</button>
+            <button class="btn small danger feed-delete-action icon-only" title="delete feed" @onclick="AskDeleteCurrentFeed"><Icon Name="trash" /></button>
         }
         <button class="btn small" @onclick="CloseFeedModal">Cancel</button>
         <button class="btn small primary @(_savingFeed ? "working-button" : null)" disabled="@_savingFeed" @onclick="SaveFeedAsync">@(_editFeedId is null ? "Add Feed" : "Save Feed")</button>
@@ -221,7 +221,6 @@ else
     protected override async Task OnInitializedAsync()
     {
         Live.NewsChanged += OnNewsChanged;
-        Live.WeatherChanged += OnNewsChanged;
         await Live.EnsureStartedAsync();
         _moderators = await Api.GetModeratorsAsync();
         await LoadAsync();
@@ -487,7 +486,6 @@ else
     public ValueTask DisposeAsync()
     {
         Live.NewsChanged -= OnNewsChanged;
-        Live.WeatherChanged -= OnNewsChanged;
         return ValueTask.CompletedTask;
     }
 }

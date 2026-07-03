@@ -2012,7 +2012,11 @@ table.console-table {
 .library-plays-cell { grid-area: plays; }
 .library-votes-cell { grid-area: votes; }
 .library-created-cell { grid-area: created; }
-.library-delete-cell { grid-area: delete; }
+
+.library-delete-cell {
+    grid-area: delete;
+    justify-self: end;
+}
 
 .library-length-cell,
 .library-plays-cell,
@@ -2026,10 +2030,6 @@ table.console-table {
 
 .library-votes-cell {
     justify-self: start;
-}
-
-.library-delete-cell {
-    justify-self: end;
 }
 
 .library-action-cell .btn.small,
@@ -2258,12 +2258,12 @@ table.console-table {
     animation: artist-feed-arrival 2.4s ease-out;
 }
 
-.artist-feed-post,
-.artist-feed-meta {
+.artist-feed-post {
     min-width: 0;
 }
 
 .artist-feed-meta {
+    min-width: 0;
     display: flex;
     align-items: baseline;
     gap: 7px;
@@ -3186,11 +3186,6 @@ table.console-table {
 }
 
 /* ---------- footer player (persists across pages) ---------- */
-
-.console {
-    grid-template-rows: var(--masthead-height) 1fr;
-    grid-template-areas: "masthead masthead" "rack stage";
-}
 
 .player-area {
     position: fixed;
