@@ -114,7 +114,13 @@ else
                     @foreach (var package in _news.RecentPackages)
                     {
                         <tr title="@PackageTitle(package)">
-                            <td>@package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")</td>
+                            <td>
+                                @package.TargetUtc.ToLocalTime().ToString("ddd HH:mm")
+                                @if (package.Kind == "LongFormat")
+                                {
+                                    <span class="tag">long format</span>
+                                }
+                            </td>
                             <td><StatusBadge Text="@package.Status" Title="@PackageTitle(package)" /></td>
                             <td class="dim">@Short(PackageLine(package), 86)</td>
                             <td class="news-package-actions">
@@ -221,7 +227,10 @@ else
                 _news.NewsPresenterModeratorId,
                 _fadeOut,
                 _introGrace,
-                _news.NewsCategoryOrder));
+                _news.NewsCategoryOrder,
+                _news.NewsLongFormatEnabled,
+                _news.NewsLongFormatAirTimes,
+                _news.NewsLongFormatDurationMinutes));
             if (newsError is not null)
             {
                 errors.Add(newsError);
@@ -304,7 +313,10 @@ else
             source?.NewsPresenterModeratorId,
             source?.TopOfHourFadeOutSeconds ?? _fadeOut,
             source?.TopOfHourIntroGraceSeconds ?? _introGrace,
-            source?.NewsCategoryOrder ?? ["general", "business", "technology", "sports", "culture", "regional"]));
+            source?.NewsCategoryOrder ?? ["general", "business", "technology", "sports", "culture", "regional"],
+            source?.NewsLongFormatEnabled ?? false,
+            source?.NewsLongFormatAirTimes ?? "",
+            source?.NewsLongFormatDurationMinutes ?? 30));
     }
 
     private Task<(WeatherProductionDto? Weather, string? Error)> SaveWeatherSettingsCoreAsync(

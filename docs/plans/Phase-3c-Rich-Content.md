@@ -150,17 +150,21 @@ jingles, and short package fade-outs.
 
 ## 6. Definition Of Done
 
-- [ ] News feeds can be configured, polled, deduped, and audited.
-- [ ] News scripts are rewritten original radio copy, never article text playback.
-- [ ] News can be voiced by a host or configured news presenter.
-- [ ] Top-of-hour package can include station ID/jingle, news, weather, and a Phase 9
+- [x] News feeds can be configured, polled, deduped, and audited.
+- [x] News scripts are rewritten original radio copy, never article text playback.
+- [x] News can be voiced by a host or configured news presenter.
+- [x] Top-of-hour package can include station ID/jingle, news, weather, and a Phase 9
       traffic placeholder.
-- [ ] Short packages can run up to 5 minutes without stalling the live stream.
-- [ ] A scheduled news format can run as a longer block, target 30 minutes.
-- [ ] TimingPlanner lands the package at :00 within about +/-2 seconds when feasible.
-- [ ] TimingPlanner never time-stretches music.
-- [ ] If exact timing is impossible, the system chooses a clean fallback and logs why.
-- [ ] Everything remains English-first by default and configurable for international
+- [x] Short packages can run up to 5 minutes without stalling the live stream.
+- [x] A scheduled news format can run as a longer block, target 30 minutes.
+      (Implemented as a program-grid block seeded from the News page settings,
+      chaptered production, mixed over an instrumental news bed.)
+- [x] TimingPlanner lands the package at :00 within about +/-2 seconds when feasible.
+      (Enqueue-time duration-aware track capping + station-ID jingle fill; the
+      dispatcher/mixer timed-interrupt fade performs the final landing.)
+- [x] TimingPlanner never time-stretches music.
+- [x] If exact timing is impossible, the system chooses a clean fallback and logs why.
+- [x] Everything remains English-first by default and configurable for international
       deployments.
 
 ---

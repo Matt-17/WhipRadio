@@ -19,6 +19,7 @@ public class ShowRunnerService(
     ScheduleService schedule,
     IPlayoutQueue playoutQueue,
     PriorityTalkBreakDispatcher priorityTalkBreakDispatcher,
+    PlayoutStateStore stateStore,
     TimeProvider timeProvider,
     INotificationBus notifications,
     ILogger<ShowRunnerService> logger) : BackgroundService
@@ -33,10 +34,12 @@ public class ShowRunnerService(
     private static readonly TimeSpan SyncProductionBudget = TimeSpan.FromSeconds(150);
 
     private readonly Queue<Guid> _recentlyEnqueued = new();
+    private readonly Queue<Guid> _recentlyEnqueuedJingleIds = new();
     private int _recentlyEnqueuedCap = 3;
     private int _tracksSinceAnnouncement;
     private int _previousModeratorId = -1;
     private Track? _lastEnqueuedTrack;
+    private string? _lastTimingLogKey;
 
     private sealed record ReadyDedication(ListenerMessage Message, Track Track);
 
@@ -109,7 +112,68 @@ public class ShowRunnerService(
 
         // A fulfilled music request takes over the next slot: dedication talk + THE track.
         var dedication = await FindReadyDedicationAsync(ct);
+
+        // Timing plan for the approach to the next scheduled package (news/weather):
+        // cap the track pick, bridge with a station ID, or stop enqueueing and let
+        // the dispatcher land the package. Dedications outrank timing — the mixer's
+        // interrupt fade covers any overshoot.
+        var (timing, timingInput) = await ComputeTimingDecisionAsync(settings, ct);
+        if (timing.Action == TimingAction.NoConstraint)
+        {
+            _recentlyEnqueuedJingleIds.Clear(); // approach is over — next gap may reuse any jingle
+        }
+
+        if (dedication is null && playoutQueue.Count < MaxQueueDepth)
+        {
+            switch (timing.Action)
+            {
+                case TimingAction.WaitForPackage:
+                    LogTimingDecision(timing);
+                    return IdleDelay;
+
+                case TimingAction.EnqueueJingleFill when timing.Jingle is { } fill:
+                    LogTimingDecision(timing);
+                    EnqueueJingleFill(fill);
+                    return TimeSpan.Zero;
+
+                case TimingAction.EnqueueTrackCapped:
+                    LogTimingDecision(timing);
+                    context = context with
+                    {
+                        Selection = (context.Selection ?? SelectionSettings.Default) with
+                        {
+                            MaxTrackDurationSeconds = timing.MaxTrackDurationSeconds,
+                        },
+                    };
+                    break;
+            }
+        }
+
         var track = dedication?.Track ?? await PickTrackAsync(selector, context, ct);
+
+        // The selector's duration cap is soft: when even the relaxed pick overruns
+        // the gap, the track option is off the table for this cycle — bridge with a
+        // jingle or hand the boundary to the dispatcher (clean fallback, logged).
+        if (dedication is null
+            && timing.Action == TimingAction.EnqueueTrackCapped
+            && timing.MaxTrackDurationSeconds is { } cap
+            && track is not null
+            && track.DurationSeconds > cap
+            && playoutQueue.Count < MaxQueueDepth
+            && timingInput is not null)
+        {
+            var fallback = TimingPlanner.DecideAfterUnfitTrackPick(timingInput);
+            logger.LogInformation(
+                "Timing: no track fits the {Cap:F0}s cap (best pick {Duration:F0}s) — {Reason}",
+                cap, track.DurationSeconds, fallback.Reason);
+            if (fallback.Action == TimingAction.EnqueueJingleFill && fallback.Jingle is { } bridge)
+            {
+                EnqueueJingleFill(bridge);
+                return TimeSpan.Zero;
+            }
+
+            return IdleDelay;
+        }
 
         var action = ShowPlanner.Decide(new ShowPlannerInput(
             playoutQueue.Count,
@@ -251,6 +315,101 @@ public class ShowRunnerService(
         }
     }
 
+    /// <summary>
+    /// Evaluates the enqueue-time timing strategy against the nearest scheduled
+    /// package. Failures degrade to NoConstraint — timing must never stall the show.
+    /// </summary>
+    private async Task<(TimingDecision Decision, TimingPlannerInput? Input)> ComputeTimingDecisionAsync(
+        StationSettings settings, CancellationToken ct)
+    {
+        try
+        {
+            var nowUtc = timeProvider.GetUtcNow().UtcDateTime;
+            DateTime? target;
+            List<JingleCandidate> jingles = [];
+            await using (var db = await dbFactory.CreateDbContextAsync(ct))
+            {
+                var horizon = nowUtc.AddSeconds(
+                    -TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
+                target = await db.NewsPackages.AsNoTracking()
+                    .Where(package => package.TargetUtc >= horizon
+                        && (package.Status == NewsPackageStatus.Pending
+                            || package.Status == NewsPackageStatus.Retrying
+                            || package.Status == NewsPackageStatus.Ready
+                            || package.Status == NewsPackageStatus.Queued))
+                    .OrderBy(package => package.TargetUtc)
+                    .Select(package => (DateTime?)package.TargetUtc)
+                    .FirstOrDefaultAsync(ct);
+
+                if (target is not null)
+                {
+                    jingles = await db.Jingles.AsNoTracking()
+                        .Where(jingle => jingle.IsActive
+                            && jingle.Status == JingleStatus.Ready
+                            && jingle.Kind == JingleKind.StationId)
+                        .Select(jingle => new JingleCandidate(
+                            jingle.Id, jingle.FilePath, jingle.Label, jingle.DurationSeconds, jingle.LastUsedAtUtc))
+                        .ToListAsync(ct);
+                    // A jingle just enqueued as fill must not repeat within the same gap.
+                    jingles.RemoveAll(jingle => _recentlyEnqueuedJingleIds.Contains(jingle.Id));
+                }
+            }
+
+            if (target is null)
+            {
+                return (new TimingDecision(TimingAction.NoConstraint, Reason: "no scheduled package within reach"), null);
+            }
+
+            var input = new TimingPlannerInput(
+                nowUtc,
+                target,
+                stateStore.SnapshotTimeline().TotalSecondsAhead,
+                settings.MaxTrackDurationSeconds,
+                settings.MinTrackDurationSeconds,
+                jingles,
+                settings.TopOfHourIntroGraceSeconds);
+            return (TimingPlanner.Decide(input), input);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogDebug(ex, "Timing evaluation failed; enqueueing without a timing constraint");
+            return (new TimingDecision(TimingAction.NoConstraint, Reason: "timing evaluation failed"), null);
+        }
+    }
+
+    /// <summary>Logs each distinct timing decision once (Information), repeats at Debug.</summary>
+    private void LogTimingDecision(TimingDecision timing)
+    {
+        var key = $"{timing.Action}|{timing.Reason}";
+        if (key == _lastTimingLogKey)
+        {
+            logger.LogDebug("Timing: {Action} — {Reason}", timing.Action, timing.Reason);
+            return;
+        }
+
+        _lastTimingLogKey = key;
+        logger.LogInformation("Timing: {Action} — {Reason}", timing.Action, timing.Reason);
+    }
+
+    private void EnqueueJingleFill(JingleCandidate jingle)
+    {
+        playoutQueue.Enqueue(new PlayoutItem(
+            PlayoutItemType.Jingle,
+            jingle.Id,
+            jingle.FilePath,
+            string.IsNullOrWhiteSpace(jingle.Label) ? "Station ID" : $"Station ID — {jingle.Label}",
+            jingle.DurationSeconds));
+
+        _recentlyEnqueuedJingleIds.Enqueue(jingle.Id);
+        while (_recentlyEnqueuedJingleIds.Count > 2)
+        {
+            _recentlyEnqueuedJingleIds.Dequeue();
+        }
+
+        logger.LogInformation(
+            "Enqueued station-ID fill \"{Label}\" ({Duration:F0}s)", jingle.Label, jingle.DurationSeconds);
+    }
+
     private async Task<Track?> PickTrackAsync(ITrackSelector selector, ShowContext context, CancellationToken ct)
     {
         Track? track = null;
@@ -317,8 +476,7 @@ public class ShowRunnerService(
             var localNow = timeProvider.GetLocalNow();
             var windowStartUtc = WeatherScheduler.CurrentWindowStart(localNow, settings.WeatherCadenceMinutes).UtcDateTime;
             var hasScheduledPackage = await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc == windowStartUtc
+                .AnyAsync(package => package.TargetUtc == windowStartUtc
                     && (package.Status == NewsPackageStatus.Ready
                         || package.Status == NewsPackageStatus.Queued
                         || package.Status == NewsPackageStatus.Played), ct);

@@ -237,7 +237,8 @@ public static partial class RadioApiEndpoints
         jingle.IsActive,
         jingle.CreatedAtUtc,
         jingle.LastUsedAtUtc,
-        jingle.PlayCount);
+        jingle.PlayCount,
+        jingle.Kind.ToString());
 
     private static StationSettingsDto ToDto(StationSettings s) => new(
         s.StationName, s.StationSlogan, s.StationVision, s.StationMission,

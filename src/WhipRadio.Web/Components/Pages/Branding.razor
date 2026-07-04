@@ -50,7 +50,14 @@ else
         <div class="panel-label">Jingle Generator</div>
         <div class="form-grid">
             <div class="field"><label>Label</label><input @bind="_jingleLabel" placeholder="Top of hour ID" /></div>
-            <div class="field"><label>Duration (s)</label><input type="number" min="5" max="20" @bind="_jingleDuration" /></div>
+            <div class="field">
+                <label>Type</label>
+                <select @bind="_jingleKind">
+                    <option value="StationId">Station ID (sung sting)</option>
+                    <option value="NewsBed">News bed (instrumental loop)</option>
+                </select>
+            </div>
+            <div class="field"><label>Duration (s)</label><input type="number" min="5" max="120" @bind="_jingleDuration" /></div>
             <div class="field">
                 <label>Style</label>
                 <input @bind="_jingleStyle" placeholder="warm analog FM, short sonic logo" />
@@ -135,6 +142,10 @@ else
                         </div>
                         <div class="library-title-line" title="@jingle.Label">
                             <span class="track-title">@jingle.Label</span>
+                            @if (jingle.Kind == "NewsBed")
+                            {
+                                <span class="tag">news bed</span>
+                            }
                         </div>
                         <div class="library-song-meta">
                             <span>@jingle.Style</span>
@@ -193,6 +204,7 @@ else
     private string _jingleLabel = "Station ID";
     private string _jingleStyle = "warm analog FM, memorable sonic logo, tight drums, bright synth tag";
     private int _jingleDuration = 10;
+    private string _jingleKind = "StationId";
 
     private int QueuedJingleCount => _jingleQueue.Count(item => item.State == JingleQueueState.Queued);
 
@@ -256,11 +268,15 @@ else
     private Task QueueJingleAsync()
     {
         _jingleError = null;
+        var isBed = _jingleKind == "NewsBed";
         _jingleQueue.Add(new QueuedJingle(
             ++_nextJingleQueueId,
             CleanLabel(_jingleLabel),
-            string.IsNullOrWhiteSpace(_jingleStyle) ? "radio station ID jingle" : _jingleStyle.Trim(),
-            Math.Clamp(_jingleDuration, 5, 20)));
+            string.IsNullOrWhiteSpace(_jingleStyle)
+                ? (isBed ? "broadcast news underscore" : "radio station ID jingle")
+                : _jingleStyle.Trim(),
+            isBed ? Math.Clamp(_jingleDuration, 30, 120) : Math.Clamp(_jingleDuration, 5, 20),
+            _jingleKind));
 
         if (!_queueWorkerRunning)
         {
@@ -289,7 +305,8 @@ else
                 var (jingle, error) = await Api.CreateJingleAsync(new CreateJingleDto(
                     next.Label,
                     next.Style,
-                    next.DurationSeconds));
+                    next.DurationSeconds,
+                    next.Kind));
 
                 if (_disposed)
                 {
@@ -411,7 +428,8 @@ else
         int id,
         string label,
         string style,
-        int durationSeconds)
+        int durationSeconds,
+        string kind = "StationId")
     {
         public int Id { get; } = id;
 
@@ -420,6 +438,8 @@ else
         public string Style { get; } = style;
 
         public int DurationSeconds { get; } = durationSeconds;
+
+        public string Kind { get; } = kind;
 
         public JingleQueueState State { get; set; } = JingleQueueState.Queued;
 

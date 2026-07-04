@@ -134,6 +134,17 @@ public class PlaybackReporter(
             downVotes = track?.DownVotes ?? 0;
             lyrics = track?.Lyrics;
         }
+        else if (item.ItemType == PlayoutItemType.Jingle)
+        {
+            if (!alreadyLogged)
+            {
+                await db.Jingles
+                    .Where(j => j.Id == item.ItemId)
+                    .ExecuteUpdateAsync(s => s
+                        .SetProperty(j => j.PlayCount, j => j.PlayCount + 1)
+                        .SetProperty(j => j.LastUsedAtUtc, nowUtc), ct);
+            }
+        }
         else
         {
             await db.Announcements
@@ -237,9 +248,12 @@ public class PlaybackReporter(
         try
         {
             var icecast = icecastOptions.Value;
-            var song = item.ItemType == PlayoutItemType.Track
-                ? $"{artistName ?? "WhipRadio"} - {item.Title}"
-                : $"{moderatorName ?? "WhipRadio"} (talk)";
+            var song = item.ItemType switch
+            {
+                PlayoutItemType.Track => $"{artistName ?? "WhipRadio"} - {item.Title}",
+                PlayoutItemType.Jingle => item.Title,
+                _ => $"{moderatorName ?? "WhipRadio"} (talk)",
+            };
 
             var client = httpClientFactory.CreateClient("icecast-admin");
             var url = $"http://{icecast.Host}:{icecast.Port}/admin/metadata" +

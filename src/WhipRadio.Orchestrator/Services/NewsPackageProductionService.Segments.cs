@@ -33,7 +33,7 @@ public sealed partial class NewsPackageProductionService
                 package = await db.NewsPackages.FirstOrDefaultAsync(candidate => candidate.Id == packageId, ct)
                     ?? throw new KeyNotFoundException("News package was not found.");
                 producedSegments = reuseSegments ? DeserializeSegments(package.ProducedSegmentsJson) : [];
-                package.Kind = NewsPackageKind.TopOfHour;
+                package.Kind = plan.Kind;
                 package.Status = NewsPackageStatus.Pending;
                 package.TargetUtc = targetUtc;
                 package.TargetDurationSeconds = TargetDurationSeconds(settings, plan);
@@ -55,7 +55,7 @@ public sealed partial class NewsPackageProductionService
                 package = new NewsPackage
                 {
                     Id = Guid.NewGuid(),
-                    Kind = NewsPackageKind.TopOfHour,
+                    Kind = plan.Kind,
                     Status = NewsPackageStatus.Pending,
                     TargetUtc = targetUtc,
                     TargetDurationSeconds = TargetDurationSeconds(settings, plan),
@@ -87,7 +87,11 @@ public sealed partial class NewsPackageProductionService
             await UpdateStepAsync(package.Id, 1, totalSteps, "Loading show context.", ct);
             var context = await schedule.GetCurrentAsync(ct);
 
-            var expiresAt = targetUtc.AddMinutes(15);
+            // A long block must stay valid until it has fully aired; short packages keep
+            // the tight 15-minute expiry so stale bulletins can never resurface.
+            var expiresAt = plan.Kind == NewsPackageKind.LongFormat
+                ? targetUtc.AddSeconds(TargetDurationSeconds(settings, plan)).AddMinutes(15)
+                : targetUtc.AddMinutes(15);
             var targetEnd = targetUtc.AddSeconds(
                 TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds));
             var localNow = timeProvider.GetLocalNow();
@@ -203,14 +207,7 @@ public sealed partial class NewsPackageProductionService
                     firstSegmentHost ??= reused.Host;
                     fallbackModerator ??= reused.Host;
                     producedAnnouncements.Add(reused.Intro);
-                    if (reused.Body is not null)
-                    {
-                        producedAnnouncements.Add(reused.Body);
-                    }
-                    if (reused.GapLine is not null)
-                    {
-                        producedAnnouncements.Add(reused.GapLine);
-                    }
+                    producedAnnouncements.AddRange(reused.Bodies);
                     if (reused.Outro is not null)
                     {
                         producedAnnouncements.Add(reused.Outro);
@@ -234,14 +231,7 @@ public sealed partial class NewsPackageProductionService
                 {
                     producedAnnouncements.Add(result.Intro);
                 }
-                if (result.Body is not null)
-                {
-                    producedAnnouncements.Add(result.Body);
-                }
-                if (result.GapLine is not null)
-                {
-                    producedAnnouncements.Add(result.GapLine);
-                }
+                producedAnnouncements.AddRange(result.Bodies);
                 if (result.Outro is not null)
                 {
                     producedAnnouncements.Add(result.Outro);
@@ -266,9 +256,23 @@ public sealed partial class NewsPackageProductionService
             step = "rendering package audio";
             await UpdateStepAsync(package.Id, stepTotal - 1, stepTotal, "Rendering package audio.", ct);
             var fallback = fallbackModerator ?? context.Moderator;
-            var composite = producedAnnouncements.Count == 1
+
+            // The long news show gets an instrumental bed under the whole block; missing
+            // bed audio degrades to a plain spoken block with a logged reason.
+            byte[]? bedWav = null;
+            if (plan.Kind == NewsPackageKind.LongFormat)
+            {
+                bedWav = await LoadNewsBedAsync(ct);
+                if (bedWav is null)
+                {
+                    degradationReasons.Add("No active news bed available; the block airs without a music bed.");
+                    logger.LogInformation("Long news block for {Target:u} renders without a bed (none available)", targetUtc);
+                }
+            }
+
+            var composite = producedAnnouncements.Count == 1 && bedWav is null
                 ? producedAnnouncements[0]
-                : await renderer.RenderAsync(producedAnnouncements, fallback, ct);
+                : await renderer.RenderAsync(producedAnnouncements, fallback, ct, bedWav);
             step = "finalizing package";
             await UpdateStepAsync(package.Id, stepTotal, stepTotal, "Finalizing package.", ct);
             await FinalizePackageAsync(
@@ -347,6 +351,39 @@ public sealed partial class NewsPackageProductionService
         }
     }
 
+    /// <summary>
+    /// Loads the least recently used active news bed (rotating like station IDs) and
+    /// stamps its usage. Null when no bed exists or its audio is missing on disk.
+    /// </summary>
+    private async Task<byte[]?> LoadNewsBedAsync(CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var beds = await db.Jingles
+            .Where(jingle => jingle.Kind == JingleKind.NewsBed
+                && jingle.IsActive
+                && jingle.Status == JingleStatus.Ready)
+            .OrderBy(jingle => jingle.LastUsedAtUtc ?? DateTime.MinValue)
+            .Take(5)
+            .ToListAsync(ct);
+
+        foreach (var bed in beds)
+        {
+            var absolutePath = Path.Combine(radioOptions.Value.DataRoot, bed.FilePath);
+            if (!File.Exists(absolutePath))
+            {
+                logger.LogWarning("News bed \"{Label}\" audio missing at {Path}; skipping", bed.Label, bed.FilePath);
+                continue;
+            }
+
+            var wav = await File.ReadAllBytesAsync(absolutePath, ct);
+            bed.LastUsedAtUtc = timeProvider.GetUtcNow().UtcDateTime;
+            await db.SaveChangesAsync(ct);
+            return wav;
+        }
+
+        return null;
+    }
+
     private async Task<ReusedSegment?> TryLoadSavedSegmentAsync(NewsPackageSegmentState saved, CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -357,24 +394,24 @@ public sealed partial class NewsPackageProductionService
             return null;
         }
 
-        Announcement? body = null;
-        if (saved.BodyAnnouncementId is { } bodyId)
+        // Chaptered state carries the ordered body list; state persisted by older builds
+        // only has the legacy single Body/GapLine pair. Any missing audio → reproduce.
+        var bodyIds = saved.BodyAnnouncementIds.Count > 0
+            ? saved.BodyAnnouncementIds
+            : new[] { saved.BodyAnnouncementId, saved.GapLineAnnouncementId }
+                .Where(id => id is not null)
+                .Select(id => id!.Value)
+                .ToList();
+        var bodies = new List<Announcement>();
+        foreach (var bodyId in bodyIds)
         {
-            body = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == bodyId, ct);
+            var body = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == bodyId, ct);
             if (body is null)
             {
                 return null;
             }
-        }
 
-        Announcement? gapLine = null;
-        if (saved.GapLineAnnouncementId is { } gapId)
-        {
-            gapLine = await db.Announcements.AsNoTracking().FirstOrDefaultAsync(a => a.Id == gapId, ct);
-            if (gapLine is null)
-            {
-                return null;
-            }
+            bodies.Add(body);
         }
 
         Announcement? outro = null;
@@ -401,7 +438,7 @@ public sealed partial class NewsPackageProductionService
                 .Where(item => saved.SelectedItemIds.Contains(item.Id))
                 .ToListAsync(ct);
 
-        return new ReusedSegment(host, intro, body, gapLine, items, outro);
+        return new ReusedSegment(host, intro, bodies, items, outro);
     }
 
     /// <summary>
@@ -418,13 +455,17 @@ public sealed partial class NewsPackageProductionService
         List<NewsPackageSegmentState> producedSegments,
         CancellationToken ct)
     {
+        // Task.WhenAll preserves input order, so `slots` matches the job order the
+        // contributor planned — that order IS the air order of the body chapters.
+        var orderedJobs = plan.Jobs.OrderBy(job => job.Order).ToList();
         var slots = await Task.WhenAll(
-            plan.Jobs.Select(job => RunSlotAsync(plan, job, packageId, stepTotal, stepCounter, dbGate, ct)));
+            orderedJobs.Select(job => RunSlotAsync(plan, job, packageId, stepTotal, stepCounter, dbGate, ct)));
 
         Announcement? intro = null;
-        Announcement? body = null;
-        Announcement? gapLine = null;
         Announcement? outro = null;
+        var bodies = new List<Announcement>();
+        var singleBodyIsGap = false;
+        var bodySlotCount = 0;
         var degradations = new List<string>();
         foreach (var slot in slots)
         {
@@ -441,13 +482,14 @@ public sealed partial class NewsPackageProductionService
             {
                 outro = slot.Announcement;
             }
-            else if (slot.IsGap)
-            {
-                gapLine = slot.Announcement;
-            }
             else
             {
-                body = slot.Announcement;
+                bodySlotCount++;
+                if (slot.Announcement is not null)
+                {
+                    bodies.Add(slot.Announcement);
+                    singleBodyIsGap = slot.IsGap;
+                }
             }
         }
 
@@ -458,13 +500,18 @@ public sealed partial class NewsPackageProductionService
             try
             {
                 producedSegments.RemoveAll(s => s.Key == plan.SegmentKey);
+                // Single-body segments keep writing the legacy Body/GapLine fields so state
+                // persisted by this build stays readable by older readers; chaptered segments
+                // use the ordered list.
+                var isSingle = bodySlotCount <= 1;
                 producedSegments.Add(new NewsPackageSegmentState
                 {
                     Key = plan.SegmentKey,
                     Done = true,
                     IntroAnnouncementId = intro.Id,
-                    BodyAnnouncementId = body?.Id,
-                    GapLineAnnouncementId = gapLine?.Id,
+                    BodyAnnouncementId = isSingle && !singleBodyIsGap ? bodies.FirstOrDefault()?.Id : null,
+                    GapLineAnnouncementId = isSingle && singleBodyIsGap ? bodies.FirstOrDefault()?.Id : null,
+                    BodyAnnouncementIds = bodies.Select(body => body.Id).ToList(),
                     OutroAnnouncementId = outro?.Id,
                     SegmentHostModeratorId = plan.Host.Id,
                     DegradationReason = degradations.FirstOrDefault(),
@@ -479,7 +526,7 @@ public sealed partial class NewsPackageProductionService
             }
         }
 
-        return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, body, gapLine, plan.Items, degradations, outro);
+        return new SegmentRunResult(plan.SegmentKey, plan.Host, intro, bodies, plan.Items, degradations, outro);
     }
 
     /// <summary>Write one slot's script (its own DI scope), then voice it. The production state is
@@ -571,12 +618,13 @@ public sealed partial class NewsPackageProductionService
             => new(null, reused, degradation);
     }
 
+    /// <summary>Bodies are the segment's body-slot audio in air order — one entry for a
+    /// short bulletin, several chapters (gap stand-ins included) for the long format.</summary>
     private sealed record SegmentRunResult(
         string SegmentKey,
         Moderator Host,
         Announcement? Intro,
-        Announcement? Body,
-        Announcement? GapLine,
+        IReadOnlyList<Announcement> Bodies,
         IReadOnlyList<NewsItem> Items,
         IReadOnlyList<string> DegradationReasons,
         Announcement? Outro = null);
@@ -594,8 +642,7 @@ public sealed partial class NewsPackageProductionService
     private sealed record ReusedSegment(
         Moderator Host,
         Announcement Intro,
-        Announcement? Body,
-        Announcement? GapLine,
+        IReadOnlyList<Announcement> Bodies,
         IReadOnlyList<NewsItem> Items,
         Announcement? Outro = null);
 }

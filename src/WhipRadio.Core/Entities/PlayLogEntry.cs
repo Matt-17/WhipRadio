@@ -4,6 +4,7 @@ public enum PlayoutItemType
 {
     Track,
     Announcement,
+    Jingle,
 }
 
 /// <summary>One row per item that went on air.</summary>

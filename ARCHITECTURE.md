@@ -154,6 +154,11 @@ provider IDs; `ace-step` is only an accepted alias that normalizes to
 ### Playout
 
 1. `ShowRunnerService` chooses tracks, talk, jingles, and special segments.
+   Approaching a scheduled news/weather package it consults the pure
+   `TimingPlanner`: cap the track pick to the remaining gap, bridge small gaps
+   with a station-ID jingle, or stop enqueueing and let the dispatcher land the
+   package (the mixer's timed-interrupt fade is the last resort; music is never
+   time-stretched).
 2. Items are queued through `IPlayoutQueue`.
 3. `PlayoutService` decodes each item to raw PCM through short-lived ffmpeg
    readers.

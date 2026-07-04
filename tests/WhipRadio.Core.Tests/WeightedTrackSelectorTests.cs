@@ -22,6 +22,61 @@ public class WeightedTrackSelectorTests
     private static ShowContext Context(string genre, string subgenre = "", bool? prefersVocals = null)
         => new(genre, subgenre, new Moderator { Name = "Test Host", PrefersVocals = prefersVocals });
 
+    private static Track NewTrackWithDuration(string genre, double durationSeconds)
+    {
+        var track = NewTrack(genre);
+        track.DurationSeconds = durationSeconds;
+        return track;
+    }
+
+    [TestMethod]
+    public void Pick_DurationCap_FiltersToFittingTracks()
+    {
+        var shortTrack = NewTrackWithDuration("lofi", 120);
+        var longTrack = NewTrackWithDuration("lofi", 280);
+        var selection = SelectionSettings.Default with { MaxTrackDurationSeconds = 180 };
+
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [shortTrack, longTrack], Context("lofi"), [], [], [],
+                FormatSelectionRules.Default, selection, new Random(i));
+            Assert.Equal(shortTrack.Id, picked!.Id);
+        }
+    }
+
+    [TestMethod]
+    public void Pick_DurationCap_SoftRelaxesWhenNothingFits()
+    {
+        var longTrack = NewTrackWithDuration("lofi", 280);
+        var selection = SelectionSettings.Default with { MaxTrackDurationSeconds = 180 };
+
+        var picked = WeightedTrackSelector.Pick(
+            [longTrack], Context("lofi"), [], [], [],
+            FormatSelectionRules.Default, selection, Seeded);
+
+        // Soft filter: never returns null just because of timing — the caller re-checks.
+        Assert.Equal(longTrack.Id, picked!.Id);
+    }
+
+    [TestMethod]
+    public void Pick_DurationCap_AppliesBeforeGenreChain()
+    {
+        // The fitting track has the wrong genre; the cap must still win because the
+        // genre chain is a preference while the cap protects the package boundary.
+        var fittingWrongGenre = NewTrackWithDuration("indie rock", 100);
+        var overlongRightGenre = NewTrackWithDuration("lofi", 280);
+        var selection = SelectionSettings.Default with { MaxTrackDurationSeconds = 180 };
+
+        for (var i = 0; i < 20; i++)
+        {
+            var picked = WeightedTrackSelector.Pick(
+                [fittingWrongGenre, overlongRightGenre], Context("lofi"), [], [], [],
+                FormatSelectionRules.Default, selection, new Random(i));
+            Assert.Equal(fittingWrongGenre.Id, picked!.Id);
+        }
+    }
+
     [TestMethod]
     public void Pick_EmptyLibrary_ReturnsNull()
     {

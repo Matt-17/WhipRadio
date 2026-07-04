@@ -175,7 +175,10 @@ public sealed class NewsSegmentContributor(
     /// news running order, then capped overall. The writer curates this pool down to air.
     /// </summary>
     internal static IReadOnlyList<NewsItem> SelectBalancedCandidates(
-        IEnumerable<NewsItem> candidates, IReadOnlyList<string> categoryOrder)
+        IEnumerable<NewsItem> candidates,
+        IReadOnlyList<string> categoryOrder,
+        int maxPerCategory = MaxCandidatesPerCategory,
+        int maxTotal = MaxCandidateItems)
     {
         var perCategory = candidates
             .GroupBy(item => NormalizeCategory(item.Feed?.Category))
@@ -183,7 +186,7 @@ public sealed class NewsSegmentContributor(
                 group => group.Key,
                 group => group
                     .OrderByDescending(item => item.PublishedAtUtc)
-                    .Take(MaxCandidatesPerCategory)
+                    .Take(maxPerCategory)
                     .ToList());
 
         // Emit categories in the station's priority order first, then any remaining categories.
@@ -201,10 +204,10 @@ public sealed class NewsSegmentContributor(
             }
         }
 
-        return selected.Take(MaxCandidateItems).ToList();
+        return selected.Take(maxTotal).ToList();
     }
 
-    private static string NormalizeCategory(string? category)
+    internal static string NormalizeCategory(string? category)
         => string.IsNullOrWhiteSpace(category) ? "general" : category.Trim().ToLowerInvariant();
 
     private async Task<SlotDraft> WriteBodyAsync(
@@ -330,9 +333,19 @@ public sealed class NewsSegmentContributor(
         }
     }
 
-    private async Task<Moderator> ResolveNewsModeratorAsync(
+    private Task<Moderator> ResolveNewsModeratorAsync(
         StationSettings settings,
         SpecialistHostCreationService specialistHosts,
+        CancellationToken ct)
+        => ResolveNewsModeratorAsync(dbFactory, settings, specialistHosts, logger, ct);
+
+    /// <summary>Shared news-anchor resolution (short bulletin + long format): the configured
+    /// presenter, else any active news specialist, else create one — never skip the segment.</summary>
+    internal static async Task<Moderator> ResolveNewsModeratorAsync(
+        IDbContextFactory<RadioDbContext> dbFactory,
+        StationSettings settings,
+        SpecialistHostCreationService specialistHosts,
+        ILogger logger,
         CancellationToken ct)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);

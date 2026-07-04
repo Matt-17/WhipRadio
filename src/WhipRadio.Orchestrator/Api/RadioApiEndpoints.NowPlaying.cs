@@ -54,7 +54,7 @@ public static partial class RadioApiEndpoints
                 downVotes = track?.DownVotes ?? 0;
                 lyrics = track?.Lyrics;
             }
-            else
+            else if (current.ItemType == PlayoutItemType.Announcement)
             {
                 var announcement = await db.Announcements.AsNoTracking()
                     .FirstOrDefaultAsync(a => a.Id == current.ItemId, ct);

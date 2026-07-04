@@ -60,8 +60,7 @@ public static partial class RadioApiEndpoints
             var nextPlan = TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, timeProvider.GetLocalNow(), contributors);
             var nextTargetUtc = nextPlan.TargetLocal.UtcDateTime;
             var nextPackageStatus = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc == nextTargetUtc
+                .Where(package => package.TargetUtc == nextTargetUtc
                     && package.Status != NewsPackageStatus.Failed)
                 .OrderByDescending(package => package.CreatedAtUtc)
                 .Select(package => package.Status.ToString())
@@ -86,13 +85,18 @@ public static partial class RadioApiEndpoints
                     package,
                     package.AnnouncementId is { } announcementId
                         ? packageTranscripts.GetValueOrDefault(announcementId)
-                        : null)).ToList()));
+                        : null)).ToList(),
+                settings.NewsLongFormatEnabled,
+                LongFormatNewsScheduler.FormatAirTimes(
+                    LongFormatNewsScheduler.ParseAirTimes(settings.NewsLongFormatAirTimes)),
+                LongFormatNewsScheduler.NormalizeDurationMinutes(settings.NewsLongFormatDurationMinutes)));
         });
 
         api.MapPut("/production/news/settings", async (
             SaveNewsProductionSettingsDto request,
             RadioDbContext db,
             IProductionUpdatePublisher productionUpdates,
+            NewsShowScheduleSeeder scheduleSeeder,
             CancellationToken ct) =>
         {
             var settings = await db.StationSettings.FindStationSettingsAsync(ct);
@@ -115,7 +119,19 @@ public static partial class RadioApiEndpoints
                     ? presenterId
                     : null;
 
+            var airTimes = LongFormatNewsScheduler.ParseAirTimes(request.NewsLongFormatAirTimes);
+            if (request.NewsLongFormatEnabled && airTimes.Count == 0)
+            {
+                return Results.BadRequest("Long news format needs at least one valid HH:mm air time.");
+            }
+
+            settings.NewsLongFormatEnabled = request.NewsLongFormatEnabled;
+            settings.NewsLongFormatAirTimes = LongFormatNewsScheduler.FormatAirTimes(airTimes);
+            settings.NewsLongFormatDurationMinutes =
+                LongFormatNewsScheduler.NormalizeDurationMinutes(request.NewsLongFormatDurationMinutes);
+
             await db.SaveChangesAsync(ct);
+            await scheduleSeeder.SyncAsync(ct);
             await productionUpdates.PublishNewsChangedAsync(ct);
             await productionUpdates.PublishWeatherChangedAsync(ct);
             return Results.NoContent();

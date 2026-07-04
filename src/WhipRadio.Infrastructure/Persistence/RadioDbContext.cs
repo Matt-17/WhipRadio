@@ -155,6 +155,7 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
         modelBuilder.Entity<Jingle>(jingle =>
         {
             jingle.Property(j => j.Status).HasConversion<string>();
+            jingle.Property(j => j.Kind).HasConversion<string>().HasDefaultValue(JingleKind.StationId);
             jingle.HasIndex(j => j.IsActive);
             jingle.HasIndex(j => j.CreatedAtUtc);
         });

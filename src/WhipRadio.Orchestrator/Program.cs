@@ -107,6 +107,7 @@ builder.Services.AddSingleton<IStationMetrics, StationMetrics>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 builder.Services.AddSingleton<EmergencyFallbackTrackService>();
+builder.Services.AddSingleton<NewsShowScheduleSeeder>();
 
 builder.Services.AddSignalR();
 
@@ -123,6 +124,7 @@ builder.Services.AddHostedService<MusicProductionService>();
 builder.Services.AddHostedService<AnnouncementProductionService>();
         builder.Services.AddSingleton<NewsFeedPollingService>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, NewsSegmentContributor>();
+        builder.Services.AddSingleton<ITopOfHourSegmentContributor, NewsLongFormatSegmentContributor>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, WeatherSegmentContributor>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, ShowReturnSegmentContributor>();
         builder.Services.AddSingleton<NewsPackageProductionService>();
@@ -183,5 +185,8 @@ app.Services.GetRequiredService<ILoggerFactory>()
 
 // The station language is the main language: hosts in another language are aligned.
 await app.Services.GetRequiredService<HostLanguageAligner>().AlignAsync();
+
+// Long-news-format settings own their grid slots; re-sync them on every start.
+await app.Services.GetRequiredService<NewsShowScheduleSeeder>().SyncAsync(CancellationToken.None);
 
 app.Run();

@@ -285,8 +285,7 @@ public class PlayoutService(
             var minTarget = now.AddSeconds(-lateWindow);
             var maxTarget = now.AddSeconds(introGrace);
             return await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc >= minTarget
+                .AnyAsync(package => package.TargetUtc >= minTarget
                     && package.TargetUtc <= maxTarget
                     && (package.Status == NewsPackageStatus.Pending
                         || package.Status == NewsPackageStatus.Retrying
@@ -319,8 +318,7 @@ public class PlayoutService(
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
             var minTarget = now.AddSeconds(-lateWindow);
             return await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc <= now
+                .AnyAsync(package => package.TargetUtc <= now
                     && package.TargetUtc >= minTarget
                     && (package.Status == NewsPackageStatus.Ready
                         || package.Status == NewsPackageStatus.Queued), ct);

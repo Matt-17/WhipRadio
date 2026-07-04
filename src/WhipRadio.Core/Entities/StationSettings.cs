@@ -114,6 +114,18 @@ public class StationSettings
 
     public int TopOfHourIntroGraceSeconds { get; set; } = TopOfHourScheduler.DefaultIntroGraceSeconds;
 
+    // --- Long news format (scheduled news show blocks) ----------------------------
+
+    public bool NewsLongFormatEnabled { get; set; }
+
+    /// <summary>CSV of local HH:mm air times; each seeds a daily news-show slot in the grid.</summary>
+    public string NewsLongFormatAirTimes { get; set; } = "08:00,20:00";
+
+    public int NewsLongFormatDurationMinutes { get; set; } = 30;
+
+    /// <summary>The seeded news-show Format; lets the seeder update/remove its own slots only.</summary>
+    public Guid? NewsShowFormatId { get; set; }
+
     // --- Mixer (Phase 3a) — hot-reloadable, read once per transition -------------
 
     /// <summary>Master flag for the real-time mixer; off = legacy sequential playout.</summary>

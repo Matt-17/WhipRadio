@@ -64,6 +64,10 @@
                             {
                                 <span class="tag">track</span>
                             }
+                            else if (entry.ItemType == "Jingle")
+                            {
+                                <span class="tag">jingle</span>
+                            }
                             else if (entry.IsNews)
                             {
                                 <span class="tag green">news</span>
@@ -118,7 +122,7 @@
                             @if (CanPlay(entry))
                             {
                                 <button class="btn small icon-btn" title="play in player"
-                                            aria-label="@(entry.ItemType == "Track" ? "play song" : entry.IsNews ? "play news" : "play talk")"
+                                            aria-label="@(entry.ItemType == "Track" ? "play song" : entry.ItemType == "Jingle" ? "play jingle" : entry.IsNews ? "play news" : "play talk")"
                                         @onclick="() => PlayAsync(entry)">
                                     <Icon Name="play" Size="16" />
                                 </button>
@@ -235,6 +239,10 @@
             {
                 Player.PlayTrack(track);
             }
+        }
+        else if (entry.ItemType == "Jingle")
+        {
+            Player.PlayVoice(entry.Title, Api.JingleAudioUrl(entry.ItemId), entry.DurationSeconds);
         }
         else
         {

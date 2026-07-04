@@ -244,6 +244,18 @@ public static class DbInitializer
             patched = true;
         }
 
+        if (string.IsNullOrWhiteSpace(settings.NewsLongFormatAirTimes))
+        {
+            settings.NewsLongFormatAirTimes = defaults.NewsLongFormatAirTimes;
+            patched = true;
+        }
+
+        if (settings.NewsLongFormatDurationMinutes <= 0)
+        {
+            settings.NewsLongFormatDurationMinutes = defaults.NewsLongFormatDurationMinutes;
+            patched = true;
+        }
+
         if (settings.ChatMaxAgentHops <= 0)
         {
             settings.ChatMaxAgentHops = defaults.ChatMaxAgentHops;

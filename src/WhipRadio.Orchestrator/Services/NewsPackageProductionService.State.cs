@@ -90,11 +90,13 @@ public sealed partial class NewsPackageProductionService
         var isMultiSegment = plan.Segments.Count > 1;
         var singleLabel = plan.Segments.Count == 1 ? plan.Segments[0].Label : null;
 
-        var (kind, purpose, title) = isMultiSegment
-            ? (AnnouncementKind.News, "TopOfHourPackage", "Top of hour")
-            : singleLabel is not null
-                ? (singleLabel.Kind, singleLabel.Purpose, singleLabel.Title)
-                : (AnnouncementKind.News, "TopOfHourPackage", "Top of hour");
+        var (kind, purpose, title) = plan.Kind == NewsPackageKind.LongFormat
+            ? (AnnouncementKind.News, "LongFormatNews", "News block")
+            : isMultiSegment
+                ? (AnnouncementKind.News, "TopOfHourPackage", "Top of hour")
+                : singleLabel is not null
+                    ? (singleLabel.Kind, singleLabel.Purpose, singleLabel.Title)
+                    : (AnnouncementKind.News, "TopOfHourPackage", "Top of hour");
 
         var hasDegradation = degradationReasons.Count > 0;
         var sourceSummary = BuildSourceSummary(plan, items, degradationReasons);
@@ -159,7 +161,7 @@ public sealed partial class NewsPackageProductionService
                 : "news unavailable";
             var weatherSummary = plan.Segments.Any(s => s.Key == "weather") ? "Weather forecast" : "";
             var parts = new List<string>();
-            if (plan.Segments.Any(s => s.Key == "news"))
+            if (plan.Segments.Any(s => s.Key is "news" or NewsLongFormatSegmentContributor.SegmentKey))
             {
                 parts.Add(hasNewsItems ? newsSummary : "News unavailable");
             }
@@ -173,9 +175,10 @@ public sealed partial class NewsPackageProductionService
 
         if (plan.Segments.Count == 1)
         {
-            return plan.Segments[0].Key == "news" && hasNewsItems
+            var isNews = plan.Segments[0].Key is "news" or NewsLongFormatSegmentContributor.SegmentKey;
+            return isNews && hasNewsItems
                 ? string.Join("; ", items.Select(item => $"{item.Feed?.Label}: {item.Title}"))
-                : plan.Segments[0].Key == "news"
+                : isNews
                     ? "News update (no items available)"
                     : "Weather forecast";
         }
@@ -262,7 +265,7 @@ public sealed partial class NewsPackageProductionService
                 segment.BodyAnnouncementId,
                 segment.GapLineAnnouncementId,
                 segment.OutroAnnouncementId,
-            })
+            }.Concat(segment.BodyAnnouncementIds.Select(id => (Guid?)id)))
             .Where(id => id is not null)
             .Select(id => id!.Value)
             .Distinct()

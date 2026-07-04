@@ -54,6 +54,37 @@ public sealed class PlayoutStateStore(
         }
     }
 
+    /// <summary>
+    /// Encoder-time view of how much audio is committed ahead of "now": the rest of
+    /// the active item plus everything queued behind it. Used by the TimingPlanner —
+    /// deliberately not the latency-delayed now-playing state. Crossfade overlap makes
+    /// the sum pessimistic by at most the crossfade length, well inside the grace windows.
+    /// </summary>
+    public PlayoutTimelineSnapshot SnapshotTimeline()
+    {
+        lock (_lock)
+        {
+            var queued = _state.QueuedItems
+                .Select(NormalizeQueueItem)
+                .ToList();
+
+            double activeRemaining = 0;
+            if (_state.ActiveItem is not null && _state.ActiveStartedAtUtc is not null)
+            {
+                var active = NormalizeActiveItem(_state.ActiveItem);
+                queued.RemoveAll(item => SameIdentity(item, active));
+                var elapsed = Math.Max(
+                    0,
+                    (timeProvider.GetUtcNow().UtcDateTime - _state.ActiveStartedAtUtc.Value).TotalSeconds);
+                activeRemaining = Math.Max(0, active.DurationSeconds - elapsed);
+            }
+
+            var queuedSeconds = queued.Sum(
+                item => Math.Max(0, item.DurationSeconds - item.StartOffsetSeconds));
+            return new PlayoutTimelineSnapshot(activeRemaining, queuedSeconds);
+        }
+    }
+
     public void ResetForRestore()
     {
         lock (_lock)
@@ -266,6 +297,11 @@ public sealed class PlayoutStateStore(
 
         public List<PlayoutItem> QueuedItems { get; set; } = [];
     }
+}
+
+public sealed record PlayoutTimelineSnapshot(double ActiveRemainingSeconds, double QueuedSecondsAhead)
+{
+    public double TotalSecondsAhead => ActiveRemainingSeconds + QueuedSecondsAhead;
 }
 
 public sealed record PlayoutResumePlan(

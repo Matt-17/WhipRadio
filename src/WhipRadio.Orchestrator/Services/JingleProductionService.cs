@@ -18,27 +18,41 @@ public sealed class JingleProductionService(
 {
     public async Task<Jingle> GenerateAsync(CreateJingleDto request, CancellationToken ct)
     {
-        var label = string.IsNullOrWhiteSpace(request.Label) ? "Station ID" : request.Label.Trim();
+        var kind = Enum.TryParse<JingleKind>(request.Kind, ignoreCase: true, out var parsedKind)
+            ? parsedKind
+            : JingleKind.StationId;
+        var isBed = kind == JingleKind.NewsBed;
+        var label = string.IsNullOrWhiteSpace(request.Label)
+            ? (isBed ? "News Bed" : "Station ID")
+            : request.Label.Trim();
         var style = string.IsNullOrWhiteSpace(request.Style)
-            ? "warm analog FM, memorable sonic logo, tight drums, bright synth tag"
+            ? (isBed
+                ? "broadcast news underscore, steady pulse, subtle synth arpeggio, unobtrusive, loopable"
+                : "warm analog FM, memorable sonic logo, tight drums, bright synth tag")
             : request.Style.Trim();
-        var duration = Math.Clamp(request.DurationSeconds, 5, 20);
+        // Beds are longer loopable underscores; station IDs stay short sung stings.
+        var duration = isBed
+            ? Math.Clamp(request.DurationSeconds is > 0 and <= 20 ? 90 : request.DurationSeconds, 30, 120)
+            : Math.Clamp(request.DurationSeconds, 5, 20);
 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-        var prompt = BuildPrompt(settings, label, style, duration);
-        var lyrics = BuildLyrics(settings);
+        var prompt = isBed
+            ? BuildBedPrompt(settings, label, style, duration)
+            : BuildPrompt(settings, label, style, duration);
+        var lyrics = isBed ? null : BuildLyrics(settings);
 
-        logger.LogInformation("Generating jingle {Label} ({Duration}s) through ACE-Step", label, duration);
+        logger.LogInformation(
+            "Generating {Kind} {Label} ({Duration}s) through ACE-Step", kind, label, duration);
 
         var result = await musicGenerator.GenerateAsync(
-            new MusicRequest(prompt, "jingle", WantVocals: true, Lyrics: lyrics, duration)
+            new MusicRequest(prompt, "jingle", WantVocals: !isBed, Lyrics: lyrics, duration)
             {
                 Provider = MusicBackends.AceStep,
-                SubGenre = "radio identity",
-                LyricsMode = LyricsMode.Provided,
+                SubGenre = isBed ? "news underscore" : "radio identity",
+                LyricsMode = isBed ? LyricsMode.Instrumental : LyricsMode.Provided,
                 Language = settings.DefaultLanguage,
-                VocalStyle = "short sung radio hook",
+                VocalStyle = isBed ? null : "short sung radio hook",
                 ArtistName = settings.StationName,
                 AllowProviderFallback = false,
             },
@@ -53,6 +67,7 @@ public sealed class JingleProductionService(
         var jingle = new Jingle
         {
             Id = id,
+            Kind = kind,
             Label = label,
             Prompt = prompt,
             Style = style,
@@ -86,6 +101,14 @@ public sealed class JingleProductionService(
             $"Style: {Trim(style, 80)}.",
             "Sung station ID and slogan hook, sonic logo, clean ending.");
     }
+
+    private static string BuildBedPrompt(StationSettings settings, string label, string style, int durationSeconds)
+        => string.Join(
+            " ",
+            $"Instrumental {durationSeconds}s news underscore bed for {Trim(settings.StationName, 40)}.",
+            $"Label: {Trim(label, 30)}.",
+            $"Style: {Trim(style, 80)}.",
+            "No vocals, steady even energy, designed to loop seamlessly and sit quietly under a news reader.");
 
     private static string BuildLyrics(StationSettings settings)
     {

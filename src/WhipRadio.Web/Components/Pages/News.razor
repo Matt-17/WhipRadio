@@ -79,6 +79,36 @@ else
     </div>
 
     <div class="panel reveal">
+        <div class="admin-row">
+            <div>
+                <strong>Long news show</strong>
+                <div class="dim">A scheduled news block in the program grid: chaptered headlines and weather read by the news desk.</div>
+            </div>
+            <UiSwitch Value="@_longFormatEnabled"
+                      ValueChanged="ToggleLongFormatEnabledAsync"
+                      Size="SwitchSize.Big"
+                      Title="@(_longFormatEnabled ? "Long news show enabled" : "Long news show off")" />
+        </div>
+        <div class="form-grid">
+            <div class="field">
+                <label>Air times (local, daily)</label>
+                <input @bind="_longFormatAirTimes" placeholder="08:00,20:00" />
+            </div>
+            <div class="field">
+                <label>Show length (minutes)</label>
+                <input type="number" min="30" max="60" @bind="_longFormatDuration" />
+            </div>
+        </div>
+        <div class="btn-row">
+            <button class="btn primary" @onclick="SaveSettingsAsync">Apply</button>
+            @if (_settingsSaved)
+            {
+                <span class="flash">applied</span>
+            }
+        </div>
+    </div>
+
+    <div class="panel reveal">
         <div class="news-feed-head">
             <div class="panel-label">Feeds</div>
             <button class="btn small primary" @onclick="OpenAddFeed">+ Add Feed</button>
@@ -204,6 +234,9 @@ else
     private bool _extractEnabled = true;
     private string _presenterId = "";
     private string _categoryOrderText = "general,business,technology,sports,culture,regional";
+    private bool _longFormatEnabled;
+    private string _longFormatAirTimes = "08:00,20:00";
+    private int _longFormatDuration = 30;
 
     private string _feedLabel = "";
     private string _feedUrl = "";
@@ -240,6 +273,11 @@ else
         _extractEnabled = _news.NewsExtractionEnabled;
         _presenterId = _news.NewsPresenterModeratorId?.ToString() ?? "";
         _categoryOrderText = string.Join(",", _news.NewsCategoryOrder);
+        _longFormatEnabled = _news.NewsLongFormatEnabled;
+        _longFormatAirTimes = string.IsNullOrWhiteSpace(_news.NewsLongFormatAirTimes)
+            ? "08:00,20:00"
+            : _news.NewsLongFormatAirTimes;
+        _longFormatDuration = _news.NewsLongFormatDurationMinutes;
     }
 
     private async Task SaveSettingsAsync()
@@ -253,7 +291,10 @@ else
             int.TryParse(_presenterId, out var presenterId) ? presenterId : null,
             _news?.TopOfHourFadeOutSeconds ?? 1.0,
             _news?.TopOfHourIntroGraceSeconds ?? 10,
-            ParseCategoryOrder(_categoryOrderText)));
+            ParseCategoryOrder(_categoryOrderText),
+            _longFormatEnabled,
+            _longFormatAirTimes,
+            _longFormatDuration));
         _settingsSaved = _error is null;
         await LoadAsync();
     }
@@ -266,9 +307,18 @@ else
         await LoadAsync();
     }
 
+    private async Task ToggleLongFormatEnabledAsync(bool enabled)
+    {
+        _longFormatEnabled = enabled;
+        _error = await SaveProductionSettingsCoreAsync(longFormatEnabled: enabled);
+        _settingsSaved = _error is null;
+        await LoadAsync();
+    }
+
     private Task<string?> SaveProductionSettingsCoreAsync(
         bool? newsEnabled = null,
-        bool? newsExtractionEnabled = null)
+        bool? newsExtractionEnabled = null,
+        bool? longFormatEnabled = null)
     {
         var source = _news;
         return Api.SaveNewsProductionSettingsAsync(new SaveNewsProductionSettingsDto(
@@ -279,7 +329,10 @@ else
             source?.NewsPresenterModeratorId,
             source?.TopOfHourFadeOutSeconds ?? 1.0,
             source?.TopOfHourIntroGraceSeconds ?? 10,
-            source?.NewsCategoryOrder ?? ParseCategoryOrder(_categoryOrderText)));
+            source?.NewsCategoryOrder ?? ParseCategoryOrder(_categoryOrderText),
+            longFormatEnabled ?? source?.NewsLongFormatEnabled ?? _longFormatEnabled,
+            string.IsNullOrWhiteSpace(source?.NewsLongFormatAirTimes) ? _longFormatAirTimes : source!.NewsLongFormatAirTimes,
+            source?.NewsLongFormatDurationMinutes ?? _longFormatDuration));
     }
 
     private async Task SaveFeedAsync()

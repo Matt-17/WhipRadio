@@ -286,6 +286,120 @@ public class NewsPackageProductionServiceTests
         Assert.Equal(2, plan.Segments.Count);
     }
 
+    private static ITopOfHourSegmentContributor LongFormatContributor
+        => new NewsLongFormatSegmentContributor(
+            null!, null!, null!, Microsoft.Extensions.Logging.Abstractions.NullLogger<NewsLongFormatSegmentContributor>.Instance);
+
+    private static StationSettings LongFormatSettings(string airTimes = "08:00,20:00") => new()
+    {
+        NewsPackageCadenceMinutes = 60,
+        WeatherEnabled = true,
+        WeatherCadenceMinutes = 60,
+        NewsLongFormatEnabled = true,
+        NewsLongFormatAirTimes = airTimes,
+        NewsLongFormatDurationMinutes = 30,
+    };
+
+    [TestMethod]
+    public void BuildPackagePlan_LongFormatAirTime_ReplacesShortNewsAndSetsKind()
+    {
+        var settings = LongFormatSettings();
+        var target = new DateTimeOffset(2026, 7, 4, 8, 0, 0, TimeSpan.FromHours(2));
+
+        var plan = TopOfHourPackagePlanner.BuildPackagePlan(
+            settings, target, [NewsContributor, WeatherContributor, LongFormatContributor]);
+
+        Assert.Equal(NewsPackageKind.LongFormat, plan.Kind);
+        Assert.Equal(
+            new[] { NewsLongFormatSegmentContributor.SegmentKey, "weather" },
+            plan.Segments.Select(s => s.Key).ToArray());
+    }
+
+    [TestMethod]
+    public void BuildPackagePlan_OrdinaryBoundary_StaysTopOfHour()
+    {
+        var settings = LongFormatSettings();
+        var target = new DateTimeOffset(2026, 7, 4, 9, 0, 0, TimeSpan.FromHours(2)); // not an air time
+
+        var plan = TopOfHourPackagePlanner.BuildPackagePlan(
+            settings, target, [NewsContributor, WeatherContributor, LongFormatContributor]);
+
+        Assert.Equal(NewsPackageKind.TopOfHour, plan.Kind);
+        Assert.Equal(new[] { "news", "weather" }, plan.Segments.Select(s => s.Key).ToArray());
+    }
+
+    [TestMethod]
+    public void ResolvePreparationPlans_SurfacesLongBlockAlongsideNearerShortTarget()
+    {
+        // 07:10: the 08:00 short boundary is 50 min out (outside the 30-min short window)
+        // but 08:00 is a long air time inside its 60-min runway → only the long plan.
+        var settings = LongFormatSettings(airTimes: "08:00");
+        var localNow = new DateTimeOffset(2026, 7, 4, 7, 10, 0, TimeSpan.FromHours(2));
+
+        var plans = TopOfHourPackagePlanner.ResolvePreparationPlans(
+            settings, localNow, [NewsContributor, WeatherContributor, LongFormatContributor]);
+
+        Assert.Equal(1, plans.Count);
+        Assert.Equal(NewsPackageKind.LongFormat, plans[0].Kind);
+        Assert.Equal(new DateTimeOffset(2026, 7, 4, 8, 0, 0, TimeSpan.FromHours(2)), plans[0].TargetLocal);
+    }
+
+    [TestMethod]
+    public void ResolvePreparationPlans_ListsShortTargetBeforeLaterLongBlock()
+    {
+        // 07:40 with 30-min weather: short weather-only 08:00? No — 08:00 is the long air
+        // time. Use 20:00 long with a 19:30 weather boundary: at 19:20 both windows are open.
+        var settings = LongFormatSettings(airTimes: "20:00");
+        settings.WeatherCadenceMinutes = 30;
+        var localNow = new DateTimeOffset(2026, 7, 4, 19, 20, 0, TimeSpan.FromHours(2));
+
+        var plans = TopOfHourPackagePlanner.ResolvePreparationPlans(
+            settings, localNow, [NewsContributor, WeatherContributor, LongFormatContributor]);
+
+        Assert.Equal(2, plans.Count);
+        Assert.Equal(new DateTimeOffset(2026, 7, 4, 19, 30, 0, TimeSpan.FromHours(2)), plans[0].TargetLocal);
+        Assert.Equal(NewsPackageKind.TopOfHour, plans[0].Kind);
+        Assert.Equal(new DateTimeOffset(2026, 7, 4, 20, 0, 0, TimeSpan.FromHours(2)), plans[1].TargetLocal);
+        Assert.Equal(NewsPackageKind.LongFormat, plans[1].Kind);
+    }
+
+    [TestMethod]
+    public void ResolveNextPackagePlan_HonorsOffCadenceAirTimes()
+    {
+        // 08:15 is never a cadence boundary — NextOwnTarget must carry it anyway.
+        var settings = LongFormatSettings(airTimes: "08:15");
+        settings.WeatherEnabled = false;
+        var localNow = new DateTimeOffset(2026, 7, 4, 7, 50, 0, TimeSpan.FromHours(2));
+
+        var plan = TopOfHourPackagePlanner.ResolveNextPackagePlan(
+            settings, localNow, [NewsContributor, LongFormatContributor]);
+
+        // The hourly bulletin still owns 08:00; the long block follows at 08:15.
+        Assert.Equal(new DateTimeOffset(2026, 7, 4, 8, 0, 0, TimeSpan.FromHours(2)), plan.TargetLocal);
+
+        var afterEight = TopOfHourPackagePlanner.ResolveNextPackagePlan(
+            settings, localNow.AddMinutes(11), [NewsContributor, LongFormatContributor]);
+        Assert.Equal(new DateTimeOffset(2026, 7, 4, 8, 15, 0, TimeSpan.FromHours(2)), afterEight.TargetLocal);
+        Assert.Equal(NewsPackageKind.LongFormat, afterEight.Kind);
+    }
+
+    [TestMethod]
+    public void SegmentState_LegacySingleBodyJson_StillLoads()
+    {
+        var legacyJson = """
+            [{"Key":"news","Done":true,
+              "IntroAnnouncementId":"11111111-1111-1111-1111-111111111111",
+              "BodyAnnouncementId":"22222222-2222-2222-2222-222222222222",
+              "SegmentHostModeratorId":7,"SourceSummary":"s","SelectedItemIds":[]}]
+            """;
+
+        var segments = System.Text.Json.JsonSerializer.Deserialize<List<NewsPackageSegmentState>>(legacyJson)!;
+
+        Assert.Equal(1, segments.Count);
+        Assert.Equal(Guid.Parse("22222222-2222-2222-2222-222222222222"), segments[0].BodyAnnouncementId!.Value);
+        Assert.Equal(0, segments[0].BodyAnnouncementIds.Count); // new list defaults empty → legacy path
+    }
+
     /// <summary>
     /// Stub contributor for planning tests. Only the planning methods are exercised;
     /// ProduceAsync throws so accidental calls are caught.

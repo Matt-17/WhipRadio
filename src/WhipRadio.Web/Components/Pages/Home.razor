@@ -28,7 +28,7 @@
         {
             <div class="vfd-kind">@FormatClock(Elapsed) / @FormatClock(TimeSpan.FromSeconds(Live.NowPlaying.DurationSeconds))</div>
             <div class="vfd-title">
-                @if (Live.NowPlaying.ItemType == "Track")
+                @if (Live.NowPlaying.ItemType is "Track" or "Jingle")
                 {
                     @Live.NowPlaying.Title
                 }
@@ -50,7 +50,7 @@
                 {
                     <span class="vfd-meta-item">host <strong>@Live.NowPlaying.ModeratorName</strong></span>
                 }
-                @if (Live.NowPlaying.ItemType != "Track")
+                @if (Live.NowPlaying.ItemType is not "Track" and not "Jingle")
                 {
                     <span class="vfd-meta-item">@Live.NowPlaying.Title</span>
                 }
@@ -75,7 +75,7 @@
                 {
                     <tr>
                         <td style="width:90px">
-                            <span class="tag @(item.ItemType == "Track" ? "amber" : "")">@(item.ItemType == "Track" ? "track" : "talk")</span>
+                            <span class="tag @(item.ItemType == "Track" ? "amber" : "")">@(item.ItemType switch { "Track" => "track", "Jingle" => "jingle", _ => "talk" })</span>
                         </td>
                         <td>@item.Title</td>
                         <td class="num dim" style="width:80px">@FormatClock(TimeSpan.FromSeconds(item.DurationSeconds))</td>

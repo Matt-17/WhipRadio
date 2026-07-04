@@ -14,6 +14,9 @@ public class MixPlannerTests
     private static ItemInfo Song(double duration = 240, MediaAnalysis? analysis = null)
         => new(PlayoutItemType.Track, analysis, duration);
 
+    private static ItemInfo Jingle(double duration = 12)
+        => new(PlayoutItemType.Jingle, null, duration);
+
     private static MediaAnalysis FullAnalysis(
         double bpm = 128, double bpmConf = 0.9, double introEnd = 14, double introConf = 0.8,
         double outroStart = 220, double outroConf = 0.7) => new()
@@ -278,6 +281,44 @@ public class MixPlannerTests
 
         // weight 45 × 1.5 ≈ 68 vs HardCut 55 → ~55 %
         Assert.InRange(talkOvers / 2000.0, 0.47, 0.63);
+    }
+
+    [TestMethod]
+    public void Jingle_PairsLikeMusic_NotLikeTalk()
+    {
+        var planner = Planner();
+
+        // Jingle after/before a song is a song pair; jingle after talk is talk→song.
+        Assert.Contains("SongToSong", planner.Plan(Song(analysis: null), Jingle(), Settings).ReasonTrace);
+        Assert.Contains("SongToSong", planner.Plan(Jingle(), Song(analysis: null), Settings).ReasonTrace);
+        Assert.Contains("SongToSong", planner.Plan(Jingle(), Jingle(), Settings).ReasonTrace);
+        Assert.Contains("TalkToSong", planner.Plan(Talk(), Jingle(), Settings).ReasonTrace);
+        Assert.Contains("SongToTalk", planner.Plan(Jingle(), Talk(), Settings).ReasonTrace);
+    }
+
+    [TestMethod]
+    public void SongToJingle_HardCut_HasNoGap()
+    {
+        var planner = Planner();
+        // Short jingle (< 2 × crossfade) with no analysis → only HardCut is eligible.
+        for (var i = 0; i < 50; i++)
+        {
+            var plan = planner.Plan(Song(analysis: null), Jingle(8), Settings);
+            Assert.Equal(MixStrategy.HardCut, plan.Strategy);
+            Assert.Equal(0, plan.GapMs);
+        }
+    }
+
+    [TestMethod]
+    public void TalkToJingle_HardCut_KeepsBreathGap()
+    {
+        var planner = Planner();
+        for (var i = 0; i < 50; i++)
+        {
+            var plan = planner.Plan(Talk(), Jingle(8), Settings);
+            Assert.Equal(MixStrategy.HardCut, plan.Strategy);
+            Assert.InRange(plan.GapMs, Settings.HardCutGapAfterTalkMsMin, Settings.HardCutGapAfterTalkMsMax);
+        }
     }
 
     [TestMethod]

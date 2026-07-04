@@ -23,6 +23,13 @@ public sealed record SelectionSettings
     /// <summary>Short recent-exclusion window (the absolute floor that is never relaxed away).</summary>
     public int RecentExclusionCount { get; init; } = 3;
 
+    /// <summary>
+    /// Soft per-pick duration cap set by the TimingPlanner when a scheduled package
+    /// is near: prefer tracks that fit the remaining gap. Null = uncapped. Soft —
+    /// the filter never empties the pool, so the caller must verify the pick.
+    /// </summary>
+    public double? MaxTrackDurationSeconds { get; init; }
+
     public static SelectionSettings Default => new();
 
     public static SelectionSettings Disabled => new() { DiversityEnabled = false };

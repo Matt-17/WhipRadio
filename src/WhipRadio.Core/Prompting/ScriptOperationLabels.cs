@@ -22,6 +22,8 @@ public static class ScriptOperationLabels
     {
         "NewsHandover" => "news intro",
         "NewsReport" => "news script",
+        "NewsChapter" => "news chapter",
+        "LongFormatNews" => "news block",
         "WeatherHandoff" => "weather handoff",
         "WeatherReport" => "weather script",
         "WeatherReturn" => "weather return",

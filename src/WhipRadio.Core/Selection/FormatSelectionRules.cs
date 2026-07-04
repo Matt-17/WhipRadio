@@ -23,6 +23,13 @@ public enum SelectionMode
 
     /// <summary>No genre/subgenre filter at all; anything fair game.</summary>
     Freeform,
+
+    /// <summary>
+    /// A scheduled long news show block. Pure discriminator: the slot is filled by a
+    /// pre-produced LongFormat news package, not by track selection — the selector
+    /// treats this like StandardRotation for whatever plays around the package.
+    /// </summary>
+    NewsShow,
 }
 
 /// <summary>

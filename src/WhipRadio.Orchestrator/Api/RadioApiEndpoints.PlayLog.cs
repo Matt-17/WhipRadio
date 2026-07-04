@@ -38,10 +38,14 @@ public static partial class RadioApiEndpoints
 
             var trackIds = entries.Where(e => e.ItemType == PlayoutItemType.Track).Select(e => e.ItemId).ToList();
             var announcementIds = entries.Where(e => e.ItemType == PlayoutItemType.Announcement).Select(e => e.ItemId).ToList();
+            var jingleIds = entries.Where(e => e.ItemType == PlayoutItemType.Jingle).Select(e => e.ItemId).ToList();
 
             var tracks = await db.Tracks.AsNoTracking().Include(t => t.Artist)
                 .Where(t => trackIds.Contains(t.Id))
                 .ToDictionaryAsync(t => t.Id, ct);
+            var jingleLabels = await db.Jingles.AsNoTracking()
+                .Where(j => jingleIds.Contains(j.Id))
+                .ToDictionaryAsync(j => j.Id, j => j.Label, ct);
             var announcements = await db.Announcements.AsNoTracking()
                 .Where(a => announcementIds.Contains(a.Id))
                 .ToDictionaryAsync(a => a.Id, ct);
@@ -98,6 +102,12 @@ public static partial class RadioApiEndpoints
                     title = track?.Title ?? "deleted track";
                     artistName = track?.Artist?.Name;
                     artistSlug = track?.Artist?.Slug;
+                }
+                else if (e.ItemType == PlayoutItemType.Jingle)
+                {
+                    title = jingleLabels.TryGetValue(e.ItemId, out var label) && !string.IsNullOrWhiteSpace(label)
+                        ? $"Station ID — {label}"
+                        : "Station ID";
                 }
                 else
                 {

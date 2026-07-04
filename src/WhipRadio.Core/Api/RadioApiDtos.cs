@@ -371,7 +371,10 @@ public sealed record NewsProductionDto(
     IReadOnlyList<string> NewsCategoryOrder,
     string? WarningText,
     IReadOnlyList<NewsFeedDto> Feeds,
-    IReadOnlyList<NewsPackageDto> RecentPackages);
+    IReadOnlyList<NewsPackageDto> RecentPackages,
+    bool NewsLongFormatEnabled = false,
+    string NewsLongFormatAirTimes = "",
+    int NewsLongFormatDurationMinutes = 30);
 
 public sealed record SaveNewsProductionSettingsDto(
     bool NewsEnabled,
@@ -381,7 +384,10 @@ public sealed record SaveNewsProductionSettingsDto(
     int? NewsPresenterModeratorId,
     double TopOfHourFadeOutSeconds,
     int TopOfHourIntroGraceSeconds,
-    IReadOnlyList<string> NewsCategoryOrder);
+    IReadOnlyList<string> NewsCategoryOrder,
+    bool NewsLongFormatEnabled = false,
+    string NewsLongFormatAirTimes = "",
+    int NewsLongFormatDurationMinutes = 30);
 
 public sealed record WeatherProductionDto(
     bool WeatherEnabled,
@@ -427,12 +433,14 @@ public sealed record JingleDto(
     bool IsActive,
     DateTime CreatedAtUtc,
     DateTime? LastUsedAtUtc,
-    int PlayCount);
+    int PlayCount,
+    string Kind = "StationId");
 
 public sealed record CreateJingleDto(
     string Label,
     string Style,
-    int DurationSeconds = 10);
+    int DurationSeconds = 10,
+    string Kind = "StationId");
 
 public sealed record MusicProviderStatusDto(
     string Id,
@@ -590,7 +598,8 @@ public sealed record ProgramSlotDto(
     Guid? FormatId,
     string? FormatName,
     string? ModeratorName,
-    string? Genre);
+    string? Genre,
+    bool IsNewsShow = false);
 
 public sealed record StatsDto(
     int CurrentListeners,

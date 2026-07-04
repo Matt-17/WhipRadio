@@ -88,7 +88,8 @@ public static partial class RadioApiEndpoints
             return Results.Ok(slots.Select(s => new ProgramSlotDto(
                 s.Id, s.DayOfWeek, s.StartMinute, s.DurationMinutes, s.FormatId,
                 s.Format?.Name, s.Format?.Moderator?.Name,
-                s.Format is null ? null : string.IsNullOrEmpty(s.Format.Subgenre) ? s.Format.Genre : s.Format.Subgenre)).ToList());
+                s.Format is null ? null : string.IsNullOrEmpty(s.Format.Subgenre) ? s.Format.Genre : s.Format.Subgenre,
+                s.Format?.SelectionRules.Mode == SelectionMode.NewsShow)).ToList());
         });
     }
 }

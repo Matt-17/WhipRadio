@@ -858,8 +858,7 @@ public sealed class AudioMixerEngine(
             // is pending; the dispatcher + timed interrupt cut it in the instant it
             // becomes Ready (immediately, even past the top of the hour).
             var package = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc >= minTarget
+                .Where(package => package.TargetUtc >= minTarget
                     && package.TargetUtc <= maxTarget
                     && (package.Status == NewsPackageStatus.Ready
                         || package.Status == NewsPackageStatus.Queued))

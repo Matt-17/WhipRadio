@@ -2,12 +2,30 @@ using System.Buffers.Binary;
 
 namespace WhipRadio.Core.Audio;
 
+/// <summary>Parsed 16-bit PCM payload of a WAV file (see <see cref="WavFile.ParsePcm16Audio"/>).</summary>
+public sealed record Pcm16Audio(short Channels, int SampleRate, ReadOnlyMemory<byte> Data)
+{
+    public int BytesPerFrame => Channels * 2;
+
+    public long FrameCount => Data.Length / BytesPerFrame;
+
+    public double DurationSeconds => FrameCount / (double)SampleRate;
+}
+
 /// <summary>Tiny RIFF/WAVE header reader — enough to compute a duration without decoding.</summary>
 public static class WavFile
 {
     private sealed record PcmLayout(short Channels, int SampleRate, short BitsPerSample, ReadOnlyMemory<byte> Data)
     {
         public int BytesPerSampleFrame => Channels * (BitsPerSample / 8);
+    }
+
+    /// <summary>Parses a 16-bit PCM WAV into its raw sample payload (offline mixing).</summary>
+    /// <exception cref="InvalidDataException">Not a parsable 16-bit PCM WAV file.</exception>
+    public static Pcm16Audio ParsePcm16Audio(byte[] wav)
+    {
+        var layout = ParsePcm16(wav);
+        return new Pcm16Audio(layout.Channels, layout.SampleRate, layout.Data);
     }
 
     /// <summary>Computes the duration from the fmt byte rate and the data chunk size.</summary>

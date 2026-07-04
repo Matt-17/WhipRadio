@@ -136,13 +136,17 @@ public sealed class MixPlanner(IRandomSource random) : IMixPlanner
     }
 
     private static PairKind GetPairKind(ItemInfo outgoing, ItemInfo incoming)
-        => (outgoing.ItemType, incoming.ItemType) switch
+        => (NormalizeForPairing(outgoing.ItemType), NormalizeForPairing(incoming.ItemType)) switch
         {
             (PlayoutItemType.Announcement, PlayoutItemType.Announcement) => PairKind.TalkToTalk,
             (PlayoutItemType.Announcement, PlayoutItemType.Track) => PairKind.TalkToSong,
             (PlayoutItemType.Track, PlayoutItemType.Announcement) => PairKind.SongToTalk,
             _ => PairKind.SongToSong,
         };
+
+    /// <summary>Jingles are short music assets: they pair like songs, not like talk.</summary>
+    private static PlayoutItemType NormalizeForPairing(PlayoutItemType itemType)
+        => itemType == PlayoutItemType.Jingle ? PlayoutItemType.Track : itemType;
 
     private static List<MixStrategy> BuildEligibleSet(
         PairKind pairKind, ItemInfo outgoing, ItemInfo incoming, MixerSettings settings, out List<string> notes)

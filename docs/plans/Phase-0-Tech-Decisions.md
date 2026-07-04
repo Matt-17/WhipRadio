@@ -352,3 +352,46 @@ The whole feature ships behind `StationSettings.SelectionDiversityEnabled`
 behavior. The host prompt receives the current and previous show's aired tracks
 with an explicit "do not reintroduce or back-announce these as if new" instruction,
 mirroring the existing `AlreadySpokenContext` anti-repeat pattern.
+
+## Top-Of-Hour Timing And The Long News Format (Phase 3c.1 completion)
+
+**TimingPlanner (enqueue-time strategy).** `ShowRunnerService` consults the pure
+`TimingPlanner` (`src/WhipRadio.Core/Playout/TimingPlanner.cs`) each cycle when a
+scheduled package (any kind) is within reach: (1) cap the next track pick at the
+remaining gap plus the finish grace (soft filter in `WeightedTrackSelector` via
+`SelectionSettings.MaxTrackDurationSeconds` — never empties the pool, the caller
+re-checks the pick), (2) bridge sub-track gaps with a station-ID jingle (best fit,
+least-recently-used rotation), (3) inside the intro grace stop enqueueing and let
+the dispatcher claim the boundary, (4) the mixer's timed-interrupt fade stays the
+last resort. Every non-neutral decision logs its reason. Music is never
+time-stretched. The queue-ahead estimate comes from
+`PlayoutStateStore.SnapshotTimeline()` (encoder-time truth, not the latency-delayed
+now-playing state).
+
+**Jingles air now.** `PlayoutItemType.Jingle` is a first-class playout item
+(pairs like music in the `MixPlanner`, bumps `Jingle.PlayCount`/`LastUsedAtUtc`
+via the `PlaybackReporter`, shows as a "jingle" tag in queue/play log). Jingles
+are exempt from the top-of-hour track holds — a bridge jingle may start inside
+the hold window.
+
+**Long news format.** The scheduled ~30-minute news show is a program-grid block:
+enabling `NewsLongFormatEnabled` (News page: air times CSV + duration 30–60 min)
+makes `NewsShowScheduleSeeder` maintain one "The News Desk" `Format`
+(`SelectionMode.NewsShow`, pure discriminator) plus a daily `ProgramSlot` per air
+time; disabling removes exactly those seeded slots. Production reuses the
+top-of-hour package pipeline: `NewsLongFormatSegmentContributor` selects a larger
+topic-balanced pool (8/category, 48 total) and writes 2–7 topic chapters (~4 min
+each) as independent write+voice jobs; a failed chapter shortens the show instead
+of killing it. `NewsPackageKind.LongFormat` packages replace the short bulletin at
+their boundary, get a 60-minute prepare-ahead runway and a 40-minute production
+budget, and land through the unchanged dispatcher/timed-interrupt machinery.
+
+**News beds.** The long show is mixed over a dedicated instrumental news bed:
+`JingleKind.NewsBed` assets generated through ACE-Step (Branding page, 30–120 s
+loopable underscore, no vocals — same model/license situation as station IDs).
+The offline `BedMixer` (`src/WhipRadio.Core/Audio/BedMixer.cs`) loops the bed
+across the block, ducks it ~−14 dB under speech with linear ramps, lets it
+breathe in the chapter gaps, and streams the composite chunk-wise to disk (a
+30-minute mix never sits in memory). Beds are adapted to the TTS PCM layout by
+channel downmix + linear resampling. No bed available → the block airs spoken-only
+with a logged degradation reason.

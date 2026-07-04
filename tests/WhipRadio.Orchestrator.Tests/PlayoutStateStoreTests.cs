@@ -104,6 +104,85 @@ public class PlayoutStateStoreTests
         }
     }
 
+    [TestMethod]
+    public void SnapshotTimeline_SumsActiveRemainderAndQueuedDurations()
+    {
+        var root = TestRoot();
+        try
+        {
+            var current = Item("current", 180);
+            var next = Item("next", 210);
+            var jingle = Item("sting", 12, PlayoutItemType.Jingle);
+            var time = new MutableTimeProvider(Start);
+            var store = CreateStore(root, time);
+            store.Enqueued(current);
+            store.Enqueued(next);
+            store.Enqueued(jingle);
+            store.MarkStarted(current); // stays in QueuedItems until the visible flip — must not double-count
+
+            var snapshotAtStart = store.SnapshotTimeline();
+            Assert.Equal(180.0, snapshotAtStart.ActiveRemainingSeconds, precision: 3);
+            Assert.Equal(222.0, snapshotAtStart.QueuedSecondsAhead, precision: 3);
+            Assert.Equal(402.0, snapshotAtStart.TotalSecondsAhead, precision: 3);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public void SnapshotTimeline_ElapsedTimeShrinksTheActiveRemainder()
+    {
+        var root = TestRoot();
+        try
+        {
+            var current = Item("current", 180);
+            var time = new MutableTimeProvider(Start);
+            var store = CreateStore(root, time);
+            store.Enqueued(current);
+            store.MarkStarted(current);
+
+            time.Advance(TimeSpan.FromSeconds(60));
+            var snapshot = store.SnapshotTimeline();
+            Assert.Equal(120.0, snapshot.ActiveRemainingSeconds, precision: 3);
+            Assert.Equal(0.0, snapshot.QueuedSecondsAhead, precision: 3);
+
+            time.Advance(TimeSpan.FromSeconds(600)); // long past the end — never negative
+            Assert.Equal(0.0, store.SnapshotTimeline().TotalSecondsAhead, precision: 3);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task BuildResumePlan_RoundTripsJingleItems()
+    {
+        var root = TestRoot();
+        try
+        {
+            var current = Item("current", 180);
+            var jingle = Item("station-id", 12, PlayoutItemType.Jingle);
+            var writer = CreateStore(root, new MutableTimeProvider(Start));
+            writer.Enqueued(current);
+            writer.Enqueued(jingle);
+            writer.MarkStarted(current);
+            await writer.FlushAsync();
+
+            var plan = CreateStore(root, new MutableTimeProvider(Start.AddSeconds(10))).BuildResumePlan();
+
+            Assert.NotNull(plan.CurrentItem);
+            Assert.Equal(new[] { jingle.ItemId }, plan.QueueItems.Select(item => item.ItemId).ToArray());
+            Assert.Equal(PlayoutItemType.Jingle, plan.QueueItems[0].ItemType);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
     private static PlayoutStateStore CreateStore(string root, TimeProvider timeProvider)
         => new(
             Options.Create(new RadioOptions { DataRoot = root }),
@@ -126,8 +205,12 @@ public class PlayoutStateStoreTests
 
     private sealed class MutableTimeProvider(DateTime utcNow) : TimeProvider
     {
+        private DateTime _utcNow = utcNow;
+
         public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
 
-        public override DateTimeOffset GetUtcNow() => new(utcNow, TimeSpan.Zero);
+        public override DateTimeOffset GetUtcNow() => new(_utcNow, TimeSpan.Zero);
+
+        public void Advance(TimeSpan delta) => _utcNow += delta;
     }
 }

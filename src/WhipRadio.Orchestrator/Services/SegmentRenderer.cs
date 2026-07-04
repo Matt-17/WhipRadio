@@ -15,17 +15,24 @@ public sealed class SegmentRenderer(
     TimeProvider timeProvider,
     ILogger<SegmentRenderer> logger)
 {
+    /// <summary>
+    /// Concatenates the ordered parts into one composite WAV; with <paramref name="bedWav"/>
+    /// set (the long news show), a looped instrumental bed is mixed underneath instead —
+    /// ducked during speech, at full level in the gaps — streamed chunk-wise to disk so a
+    /// 30-minute block never holds the whole mix in memory.
+    /// </summary>
     public async Task<Announcement> RenderAsync(
         IReadOnlyList<Announcement> orderedAnnouncements,
         Moderator fallbackModerator,
-        CancellationToken ct)
+        CancellationToken ct,
+        byte[]? bedWav = null)
     {
         if (orderedAnnouncements.Count == 0)
         {
             throw new ArgumentException("At least one announcement is required.", nameof(orderedAnnouncements));
         }
 
-        if (orderedAnnouncements.Count == 1)
+        if (orderedAnnouncements.Count == 1 && bedWav is null)
         {
             return orderedAnnouncements[0];
         }
@@ -38,8 +45,24 @@ public sealed class SegmentRenderer(
             audio.Add(await File.ReadAllBytesAsync(absolutePath, ct));
         }
 
-        var compositeWav = WavFile.ConcatPcm16(audio);
-        var compositeDuration = WavFile.GetDurationSeconds(compositeWav);
+        var id = Guid.NewGuid();
+        var relativePath = Path.Combine("library", "announcements", $"{id}.wav");
+        var compositePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(compositePath)!);
+
+        double compositeDuration;
+        if (bedWav is not null)
+        {
+            await using var compositeFile = File.Create(compositePath);
+            compositeDuration = BedMixer.MixToStream(audio, bedWav, compositeFile);
+        }
+        else
+        {
+            var compositeWav = WavFile.ConcatPcm16(audio);
+            compositeDuration = WavFile.GetDurationSeconds(compositeWav);
+            await File.WriteAllBytesAsync(compositePath, compositeWav, ct);
+        }
+
         if (compositeDuration <= 0)
         {
             logger.LogWarning(
@@ -47,12 +70,6 @@ public sealed class SegmentRenderer(
                 + "package will have zero-length audio source",
                 compositeDuration, orderedAnnouncements.Count);
         }
-
-        var id = Guid.NewGuid();
-        var relativePath = Path.Combine("library", "announcements", $"{id}.wav");
-        var compositePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
-        Directory.CreateDirectory(Path.GetDirectoryName(compositePath)!);
-        await File.WriteAllBytesAsync(compositePath, compositeWav, ct);
 
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await using var db = await dbFactory.CreateDbContextAsync(ct);

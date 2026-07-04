@@ -18,10 +18,16 @@ public sealed partial class NewsPackageProductionService(
     TimeProvider timeProvider,
     IProductionUpdatePublisher productionUpdates,
     IStationMetrics metrics,
+    Microsoft.Extensions.Options.IOptions<Configuration.RadioOptions> radioOptions,
     ILogger<NewsPackageProductionService> logger) : BackgroundService
 {
     private static readonly TimeSpan CycleDelay = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ProductionBudget = TimeSpan.FromMinutes(20);
+    // A long news block writes and voices several chapters — give it double the budget.
+    private static readonly TimeSpan LongFormatProductionBudget = TimeSpan.FromMinutes(40);
+
+    private static TimeSpan BudgetFor(PackagePlan plan)
+        => plan.Kind == NewsPackageKind.LongFormat ? LongFormatProductionBudget : ProductionBudget;
 
     // Package ids currently being produced by this (singleton) service. A manual
     // RecreatePackageAsync sets its package to Pending and produces it inline; without
@@ -59,7 +65,7 @@ public sealed partial class NewsPackageProductionService(
     private async Task RunCycleAsync(CancellationToken ct)
     {
         StationSettings settings;
-        PackagePlan? plan;
+        PackagePlan? plan = null;
         Guid? resumePackageId = null;
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
@@ -74,24 +80,27 @@ public sealed partial class NewsPackageProductionService(
                 return;
             }
 
-            plan = ResolveNextPreparationPlan(settings, timeProvider.GetLocalNow());
-            if (plan is null)
+            // Multiple preparation windows can be open at once (a short package at :30
+            // plus a long block at :00 an hour out) — take the first one that still
+            // needs production; the rest get picked up by later cycles.
+            foreach (var candidate in ResolvePreparationPlans(settings, timeProvider.GetLocalNow()))
             {
-                return;
-            }
+                var targetUtc = candidate.TargetLocal.UtcDateTime;
+                var existing = await db.NewsPackages.AsNoTracking()
+                    .Where(package => package.TargetUtc == targetUtc)
+                    .Select(package => new { package.Id, package.Status })
+                    .FirstOrDefaultAsync(ct);
+                if (existing is null)
+                {
+                    plan = candidate;
+                    break;
+                }
 
-            var targetUtc = plan.TargetLocal.UtcDateTime;
-            var existing = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour && package.TargetUtc == targetUtc)
-                .Select(package => new { package.Id, package.Status })
-                .FirstOrDefaultAsync(ct);
-            if (existing is not null)
-            {
                 // A recreate (or another resume) is already producing this package inline —
                 // never start a rival production for it.
                 if (_producing.ContainsKey(existing.Id))
                 {
-                    return;
+                    continue;
                 }
 
                 // A Ready/Queued/Played package already owns this slot — leave it.
@@ -99,14 +108,21 @@ public sealed partial class NewsPackageProductionService(
                     or NewsPackageStatus.Pending
                     or NewsPackageStatus.Retrying))
                 {
-                    return;
+                    continue;
                 }
 
                 // A leftover incomplete/failed package for an upcoming target: re-attempt it,
                 // reusing whatever segments were already produced. This covers a restart that
                 // lands inside the prep window (after the prepare point, before air time) —
                 // production must pick back up, not stall.
+                plan = candidate;
                 resumePackageId = existing.Id;
+                break;
+            }
+
+            if (plan is null)
+            {
+                return;
             }
         }
 
@@ -119,7 +135,7 @@ public sealed partial class NewsPackageProductionService(
         try
         {
             using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            budget.CancelAfter(ProductionBudget);
+            budget.CancelAfter(BudgetFor(plan));
             await ProducePackageAsync(
                 settings,
                 plan.TargetLocal.UtcDateTime,
@@ -146,8 +162,7 @@ public sealed partial class NewsPackageProductionService(
         await using (var db = await dbFactory.CreateDbContextAsync(ct))
         {
             var expired = await db.NewsPackages
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour
-                    && (package.Status == NewsPackageStatus.Pending
+                .Where(package => (package.Status == NewsPackageStatus.Pending
                         || package.Status == NewsPackageStatus.Retrying)
                     && package.TargetUtc < oldestValidTarget)
                 .ToListAsync(ct);
@@ -173,8 +188,7 @@ public sealed partial class NewsPackageProductionService(
             // Skip any package a recreate/resume is already producing inline.
             var producingIds = _producing.Keys.ToList();
             var pending = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour
-                    && (package.Status == NewsPackageStatus.Pending
+                .Where(package => (package.Status == NewsPackageStatus.Pending
                         || package.Status == NewsPackageStatus.Retrying)
                     && package.TargetUtc >= oldestValidTarget
                     && !producingIds.Contains(package.Id))
@@ -193,9 +207,9 @@ public sealed partial class NewsPackageProductionService(
 
             try
             {
-                using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                budget.CancelAfter(ProductionBudget);
                 var plan = BuildPackagePlan(settings, TopOfHourPackagePlanner.ToLocalTime(pending.TargetUtc, timeProvider.GetLocalNow().Offset));
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                budget.CancelAfter(BudgetFor(plan));
                 await ProducePackageAsync(settings, pending.TargetUtc, plan, ct, budget.Token, pending.Id, reuseSegments: true);
                 return true;
             }
@@ -217,8 +231,7 @@ public sealed partial class NewsPackageProductionService(
             var targetUtc = plan.TargetLocal.UtcDateTime;
 
             var existing = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.Kind == NewsPackageKind.TopOfHour
-                    && package.TargetUtc == targetUtc
+                .Where(package => package.TargetUtc == targetUtc
                     && package.Status != NewsPackageStatus.Failed)
                 .OrderByDescending(package => package.CreatedAtUtc)
                 .FirstOrDefaultAsync(ct);
@@ -229,7 +242,7 @@ public sealed partial class NewsPackageProductionService(
         }
 
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(ProductionBudget);
+        budget.CancelAfter(BudgetFor(plan));
         return await ProducePackageAsync(settings, plan.TargetLocal.UtcDateTime, plan, ct, budget.Token);
     }
 
@@ -317,14 +330,19 @@ public sealed partial class NewsPackageProductionService(
 
         await productionUpdates.PublishNewsChangedAsync(ct);
 
+        var recreatePlan = BuildPackagePlan(
+            settings, TopOfHourPackagePlanner.ToLocalTime(targetUtc, timeProvider.GetLocalNow().Offset));
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(ProductionBudget);
-        return await ProducePackageAsync(settings, targetUtc, plan: BuildPackagePlan(settings, TopOfHourPackagePlanner.ToLocalTime(targetUtc, timeProvider.GetLocalNow().Offset)), ct, budget.Token, packageId);
+        budget.CancelAfter(BudgetFor(recreatePlan));
+        return await ProducePackageAsync(settings, targetUtc, recreatePlan, ct, budget.Token, packageId);
     }
 
     // Thin wrappers binding this service's contributor set to the pure planner.
     internal PackagePlan? ResolveNextPreparationPlan(StationSettings settings, DateTimeOffset localNow)
         => TopOfHourPackagePlanner.ResolveNextPreparationPlan(settings, localNow, contributors);
+
+    internal IReadOnlyList<PackagePlan> ResolvePreparationPlans(StationSettings settings, DateTimeOffset localNow)
+        => TopOfHourPackagePlanner.ResolvePreparationPlans(settings, localNow, contributors);
 
     internal PackagePlan ResolveNextPackagePlan(StationSettings settings, DateTimeOffset localNow)
         => TopOfHourPackagePlanner.ResolveNextPackagePlan(settings, localNow, contributors);
@@ -333,9 +351,11 @@ public sealed partial class NewsPackageProductionService(
         => TopOfHourPackagePlanner.BuildPackagePlan(settings, targetLocal, contributors);
 
     private static int TargetDurationSeconds(StationSettings settings, PackagePlan plan)
-        => plan.Segments.Count == 1 && plan.Segments[0].Key == "weather"
-            ? 60
-            : Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60);
+        => plan.Kind == NewsPackageKind.LongFormat
+            ? LongFormatNewsScheduler.NormalizeDurationMinutes(settings.NewsLongFormatDurationMinutes) * 60
+            : plan.Segments.Count == 1 && plan.Segments[0].Key == "weather"
+                ? 60
+                : Math.Clamp(settings.NewsPackageMaxDurationSeconds, 60, 30 * 60);
 
     private static bool IsCancellationLikeFailure(
         Exception ex,

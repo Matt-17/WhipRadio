@@ -154,6 +154,10 @@ public class WeightedTrackSelector(ITrackRepository repository, Random? random =
             return null;
         }
 
+        // Timing cap (soft): prefer tracks that fit before the next scheduled
+        // package. Never empties the pool — the caller re-checks the pick.
+        pool = ApplyDurationCap(pool, selection);
+
         // Genre filter with fallback chain: subgenre match -> genre match -> anything.
         // Skipped entirely for Freeform formats. Subgenre rotation is integrated
         // here so a format whose subgenre just played prefers a sibling subgenre
@@ -177,6 +181,17 @@ public class WeightedTrackSelector(ITrackRepository repository, Random? random =
         }
 
         return WeightedRandomPick(pool, artistFactors, rules, selection, context, random);
+    }
+
+    private static List<Track> ApplyDurationCap(List<Track> pool, SelectionSettings selection)
+    {
+        if (selection.MaxTrackDurationSeconds is not double cap || pool.Count == 0)
+        {
+            return pool;
+        }
+
+        var fitting = pool.Where(t => t.DurationSeconds <= cap).ToList();
+        return fitting.Count > 0 ? fitting : pool;
     }
 
     private static List<Track> ApplyModeFilter(List<Track> pool, FormatSelectionRules rules)

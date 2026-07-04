@@ -147,6 +147,14 @@ public class NewsPackageSegmentState
 
     public Guid? GapLineAnnouncementId { get; set; }
 
+    /// <summary>
+    /// Ordered body audio for chaptered (long-format) segments, gap stand-ins included.
+    /// Readers prefer this when non-empty; <see cref="BodyAnnouncementId"/> and
+    /// <see cref="GapLineAnnouncementId"/> stay populated for single-body segments so
+    /// state persisted by older builds keeps loading.
+    /// </summary>
+    public List<Guid> BodyAnnouncementIds { get; set; } = [];
+
     /// <summary>Optional closing line that airs after the body (e.g. the news host returning
     /// after the weather forecast inside the weather segment).</summary>
     public Guid? OutroAnnouncementId { get; set; }

@@ -48,10 +48,16 @@ public class MixerOverviewService(
         var announcementKinds = await db.Announcements.AsNoTracking()
             .Where(a => transitionIds.Contains(a.Id))
             .ToDictionaryAsync(a => a.Id, a => a.Kind.ToString(), ct);
+        var jingleLabels = await db.Jingles.AsNoTracking()
+            .Where(j => transitionIds.Contains(j.Id))
+            .ToDictionaryAsync(j => j.Id, j => j.Label, ct);
 
-        string Title(PlayoutItemType type, Guid id) => type == PlayoutItemType.Track
-            ? trackTitles.GetValueOrDefault(id, "track")
-            : $"{announcementKinds.GetValueOrDefault(id, "talk")} (talk)";
+        string Title(PlayoutItemType type, Guid id) => type switch
+        {
+            PlayoutItemType.Track => trackTitles.GetValueOrDefault(id, "track"),
+            PlayoutItemType.Jingle => $"{jingleLabels.GetValueOrDefault(id, "station ID")} (jingle)",
+            _ => $"{announcementKinds.GetValueOrDefault(id, "talk")} (talk)",
+        };
 
         var status = new MixerStatusDto(
             analyzedTracks, totalTracks, analyzedAnnouncements, byStrategy, totalClips,

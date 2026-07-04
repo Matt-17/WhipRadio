@@ -158,6 +158,13 @@ public interface ITopOfHourSegmentContributor
     /// <summary>Cadence in minutes (normalized by the contributor via the relevant scheduler).</summary>
     int CadenceMinutes(StationSettings settings);
 
+    /// <summary>
+    /// Contributors whose air times are not cadence-based (the long news format airs at
+    /// operator-configured wall-clock times) return their next target here; the planner
+    /// then uses it instead of the cadence boundary math. Null = cadence-based (default).
+    /// </summary>
+    DateTimeOffset? NextOwnTarget(StationSettings settings, DateTimeOffset localNow) => null;
+
     /// <summary>True when this contributor should air at the given target boundary.</summary>
     bool IsIncludedAt(StationSettings settings, DateTimeOffset targetLocal);
 

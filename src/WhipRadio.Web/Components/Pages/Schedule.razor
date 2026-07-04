@@ -49,6 +49,10 @@
                             @if (block.IsPlanned && block.Slot is { } slot)
                             {
                                 <a class="cell-format schedule-link" href="formats">@(slot.FormatName ?? "in planning")</a>
+                                @if (slot.IsNewsShow)
+                                {
+                                    <span class="tag green">news</span>
+                                }
                                 @if (string.IsNullOrWhiteSpace(slot.ModeratorName))
                                 {
                                     <div class="cell-host">no host</div>
