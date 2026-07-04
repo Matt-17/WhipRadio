@@ -42,13 +42,20 @@ public class MusicCopywriterTests
       "name": "Makoa Hale",
       "role": "lead vocals",
       "biography": "Makoa writes most lyrics after long drives across Saddle Road and treats every chorus like a flare.",
-      "voiceCreationPrompt": "Baritone voice, rough edge, Hawaiian English accent, close dynamic mic, intense but controlled."
+      "voiceCreationPrompt": "Baritone voice, rough edge, Hawaiian English accent, close dynamic mic, intense but controlled.",
+      "gender": "Male",
+      "age": 34,
+      "interests": "lava field hikes, freight logistics, slack-key guitar history",
+      "personality": "Intense and protective, jokes only after the work is done."
     },
     {
       "name": "Tessa Burdinsky",
       "role": "bass",
       "biography": "Tessa locks the band to slow, stubborn bass figures and keeps a notebook of local ghost stories.",
-      "voiceCreationPrompt": "Low calm speaking voice, dry humor, subtle rasp, steady microphone presence."
+      "voiceCreationPrompt": "Low calm speaking voice, dry humor, subtle rasp, steady microphone presence.",
+      "gender": "female",
+      "interests": "island ghost stories, tide charts",
+      "personality": "Dry, unhurried, quietly stubborn."
     }
   ]
 }
@@ -76,6 +83,13 @@ public class MusicCopywriterTests
         Assert.Equal("Makoa Hale", plan.Members[0].Name);
         Assert.Equal("lead vocals", plan.Members[0].Role);
         Assert.Contains("Baritone voice", plan.Members[0].VoiceCreationPrompt);
+        Assert.Equal("male", plan.Members[0].Gender);
+        Assert.Equal(34, plan.Members[0].Age);
+        Assert.Contains("lava field hikes", plan.Members[0].Interests);
+        Assert.Contains("protective", plan.Members[0].Personality);
+        Assert.Equal("female", plan.Members[1].Gender);
+        Assert.Null(plan.Members[1].Age);
+        Assert.Contains("tide charts", plan.Members[1].Interests);
 
         Assert.Contains("heavy island band with five members from Hilo", llm.UserPrompt);
         Assert.Contains("Existing artist names to avoid", llm.UserPrompt);

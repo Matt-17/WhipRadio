@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Prompting;
@@ -109,7 +111,19 @@ public class ModeratorMemoryServiceTests
             fixture,
             new StaticPromptContextBuilder(),
             llm ?? new RecordingTextGenerationService("unused"),
+            new ParticipantMemoryWriter(
+                fixture,
+                new StubEmbedding(),
+                new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+                Options.Create(new WhipRadio.Infrastructure.Llm.LlmOptions()),
+                NullLogger<ParticipantMemoryWriter>.Instance),
             NullLogger<ModeratorMemoryService>.Instance);
+
+    private sealed class StubEmbedding : IEmbeddingService
+    {
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+            => Task.FromResult(new float[] { 1f, 0f, 0f });
+    }
 
     private static async Task AddModeratorAsync(DbFixture fixture)
     {

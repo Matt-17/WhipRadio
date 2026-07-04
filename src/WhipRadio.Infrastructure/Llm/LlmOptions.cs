@@ -17,4 +17,7 @@ public class LlmOptions
     public string? KeepAlive { get; set; } = "30m";
 
     public double Temperature { get; set; } = 0.8;
+
+    /// <summary>Ollama embedding model for participant memory retrieval (Phase 5).</summary>
+    public string EmbeddingModel { get; set; } = "nomic-embed-text";
 }

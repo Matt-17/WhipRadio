@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Slugs;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -12,6 +13,7 @@ public class ArtistCreationService(
     ArtistSocialFeedService socialFeed,
     ArtistCreationQueue creationQueue,
     ArtistMemberVoiceQueue voiceQueue,
+    ParticipantMemoryWriter participantMemory,
     ILogger<ArtistCreationService> logger)
 {
     public async Task<Artist> CreateArtistAsync(
@@ -73,6 +75,7 @@ public class ArtistCreationService(
         voiceQueue.EnqueueMany(artist.Members
             .Where(member => string.IsNullOrWhiteSpace(member.VoiceId))
             .Select(member => member.Id));
+        StoreMemberFacts(artist);
 
         return artist;
     }
@@ -128,8 +131,28 @@ public class ArtistCreationService(
         voiceQueue.EnqueueMany(newMembers
             .Where(member => string.IsNullOrWhiteSpace(member.VoiceId))
             .Select(member => member.Id));
+        StoreMemberFacts(artist);
 
         return artist;
+    }
+
+    /// <summary>Seeds retrievable participant memory with member facts (fire-and-forget).</summary>
+    private void StoreMemberFacts(Artist artist)
+    {
+        foreach (var member in artist.Members)
+        {
+            List<string> facts = [$"I am {member.Name}, {member.Role} of {artist.Name}. {member.Biography}"];
+            if (!string.IsNullOrWhiteSpace(member.Interests))
+            {
+                facts.Add($"My interests: {member.Interests}.");
+            }
+
+            participantMemory.StoreFactsAsync(
+                ConversationParticipant.MemberKey(member.Id),
+                facts,
+                $"artist:{artist.Id}",
+                CancellationToken.None).Forget();
+        }
     }
 
     private static void ApplyProfileFields(
@@ -166,6 +189,10 @@ public class ArtistCreationService(
                 Name = member.Name,
                 Role = member.Role,
                 Biography = member.Biography,
+                Gender = member.Gender,
+                Age = member.Age,
+                Interests = member.Interests,
+                Personality = member.Personality,
                 VoiceCreationPrompt = member.VoiceCreationPrompt,
             };
             if (artistId is { } id)
@@ -214,10 +241,36 @@ public class ArtistCreationService(
     {
         var lines = members
             .OrderBy(m => m.SortOrder)
-            .Select(m => $"- {m.Name}: {m.Role}. Bio: {m.Biography}. Voice: {m.VoiceCreationPrompt}")
+            .Select(m => $"- {m.Name}: {m.Role}.{DescribePerson(m)} Bio: {m.Biography}. Voice: {m.VoiceCreationPrompt}")
             .ToList();
 
         return lines.Count == 0 ? "(none recorded)" : string.Join(Environment.NewLine, lines);
+    }
+
+    private static string DescribePerson(ArtistMember member)
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(member.Gender))
+        {
+            parts.Add(member.Gender);
+        }
+
+        if (member.Age is { } age)
+        {
+            parts.Add($"{age}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(member.Personality))
+        {
+            parts.Add(member.Personality);
+        }
+
+        if (!string.IsNullOrWhiteSpace(member.Interests))
+        {
+            parts.Add($"interests: {member.Interests}");
+        }
+
+        return parts.Count == 0 ? string.Empty : $" ({string.Join(", ", parts)})";
     }
 
     private static string EnsureUniqueName(string name, IReadOnlyCollection<string> existingNames)

@@ -5,6 +5,7 @@ param(
     [switch]$IncludeMusicGen,        # also start a MusicGen studio on port 8111
     [switch]$SkipWriterRoom,         # skip the local Ollama Writer Room
     [string]$OllamaModel = "gemma4:e4b",
+    [string]$EmbeddingModel = "nomic-embed-text",  # participant-memory embeddings (Phase 5)
     [int]$OllamaPort = 8001          # host port; the container keeps Ollama's native 11434 inside
 )
 
@@ -277,6 +278,8 @@ if (-not $SkipWriterRoom) {
     Ensure-Container "whip-writer-room-ollama" $ollamaImage $OllamaPort 11434 "ollama-models:/root/.ollama" $gpu
     if (Wait-Http "http://localhost:$OllamaPort/api/version" 90) {
         Ensure-OllamaModel "http://localhost:$OllamaPort" $OllamaModel
+        # Participant-memory embeddings (Phase 5) — tiny model, shared endpoint.
+        Ensure-OllamaModel "http://localhost:$OllamaPort" $EmbeddingModel
     } else {
         Write-Host "  Ollama did not become ready on http://localhost:$OllamaPort" -ForegroundColor Red
     }

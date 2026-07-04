@@ -6,6 +6,7 @@ public enum ChatChannelKind
     HostDm = 1,
     DirectorDm = 2,
     HostToHost = 3,
+    Group = 4,
 }
 
 public class ChatChannel
@@ -33,4 +34,7 @@ public class ChatChannel
     public bool IsArchived { get; set; }
 
     public List<ChatMessage> Messages { get; set; } = [];
+
+    /// <summary>Populated for Group channels only; classic kinds use the typed columns.</summary>
+    public List<ChatChannelMember> Members { get; set; } = [];
 }

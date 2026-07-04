@@ -1,6 +1,6 @@
 # AI Models and External Service Terms
 
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-04
 
 Sources used:
 
@@ -17,6 +17,7 @@ Model weights and hosted APIs are not covered by the license of the wrapper libr
 | --- | --- | --- | --- |
 | Ollama runtime | Writer Room local LLM server | `ollama/ollama:latest` | MIT for the runtime. Model licenses are separate. |
 | Gemma | Writer Room default model | `gemma4:e4b` | Gemma 4 is documented under Apache-2.0. Older Gemma generations are covered by Gemma Terms of Use, so verify the exact Ollama tag before release. |
+| nomic-embed-text | Participant-memory embeddings (Phase 5) on the Writer Room Ollama endpoint | `nomic-embed-text` (v1.5) | Apache-2.0 per the upstream model card. |
 | ACE-Step 1.5 | Main music recording studio | `acestep-v15-turbo`, `acestep-5Hz-lm-0.6B` | ACE-Step 1.5 project is MIT. Its LM model line is based on Qwen3; keep upstream notices. |
 | MusicGen | Optional legacy/secondary music sidecar | `facebook/musicgen-small` | Code is MIT, but the model weights are `CC-BY-NC-4.0`. This is non-commercial. |
 | Kokoro | Local TTS sidecar | `hexgrad/Kokoro-82M` through `kokoro` package | Apache-2.0 for model/package according to upstream metadata. |
@@ -43,6 +44,7 @@ Model weights and hosted APIs are not covered by the license of the wrapper libr
 - Ollama license: <https://github.com/ollama/ollama/blob/main/LICENSE>
 - Gemma Terms of Use: <https://ai.google.dev/gemma/terms>
 - Gemma 4 Apache-2.0 license page: <https://ai.google.dev/gemma/apache_2>
+- nomic-embed-text model card: <https://huggingface.co/nomic-ai/nomic-embed-text-v1.5>
 - ACE-Step 1.5 license: <https://github.com/ace-step/ACE-Step-1.5/blob/main/LICENSE>
 - MusicGen small model card: <https://huggingface.co/facebook/musicgen-small>
 - Kokoro model card: <https://huggingface.co/hexgrad/Kokoro-82M>

@@ -14,6 +14,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<ArtistPost> ArtistPosts => Set<ArtistPost>();
 
+    public DbSet<Guest> Guests => Set<Guest>();
+
     public DbSet<Track> Tracks => Set<Track>();
 
     public DbSet<Announcement> Announcements => Set<Announcement>();
@@ -64,6 +66,10 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
 
+    public DbSet<ChatChannelMember> ChatChannelMembers => Set<ChatChannelMember>();
+
+    public DbSet<ParticipantMemory> ParticipantMemories => Set<ParticipantMemory>();
+
     public DbSet<ProgramDirectorLog> ProgramDirectorLogs => Set<ProgramDirectorLog>();
 
     public DbSet<AgentActionLog> AgentActionLogs => Set<AgentActionLog>();
@@ -109,6 +115,13 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
                 .WithMany()
                 .HasForeignKey(p => p.TrackId)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Guest>(guest =>
+        {
+            guest.Property(g => g.TtsEngine).HasDefaultValue("qwen");
+            guest.HasIndex(g => g.Slug).IsUnique();
+            guest.HasIndex(g => g.IsArchived);
         });
 
         modelBuilder.Entity<Announcement>(announcement =>
@@ -344,6 +357,42 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
                 .WithMany()
                 .HasForeignKey(m => m.SenderModeratorId)
                 .OnDelete(DeleteBehavior.SetNull);
+            message.HasOne(m => m.SenderArtistMember)
+                .WithMany()
+                .HasForeignKey(m => m.SenderArtistMemberId)
+                .OnDelete(DeleteBehavior.SetNull);
+            message.HasOne(m => m.SenderGuest)
+                .WithMany()
+                .HasForeignKey(m => m.SenderGuestId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ChatChannelMember>(member =>
+        {
+            member.Property(m => m.Kind).HasConversion<string>();
+            member.HasIndex(m => m.ChannelId);
+            member.HasOne(m => m.Channel)
+                .WithMany(c => c.Members)
+                .HasForeignKey(m => m.ChannelId)
+                .OnDelete(DeleteBehavior.Cascade);
+            member.HasOne(m => m.Moderator)
+                .WithMany()
+                .HasForeignKey(m => m.ModeratorId)
+                .OnDelete(DeleteBehavior.Cascade);
+            member.HasOne(m => m.ArtistMember)
+                .WithMany()
+                .HasForeignKey(m => m.ArtistMemberId)
+                .OnDelete(DeleteBehavior.Cascade);
+            member.HasOne(m => m.Guest)
+                .WithMany()
+                .HasForeignKey(m => m.GuestId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ParticipantMemory>(memory =>
+        {
+            memory.Property(m => m.Kind).HasConversion<string>();
+            memory.HasIndex(m => m.ParticipantKey);
         });
 
         modelBuilder.Entity<ProgramDirectorLog>(log =>

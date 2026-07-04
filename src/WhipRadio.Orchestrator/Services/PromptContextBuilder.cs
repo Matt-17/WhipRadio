@@ -12,6 +12,7 @@ public sealed class PromptContextBuilder(
     ScheduleService schedule,
     TimeProvider timeProvider,
     ICharacterToolCatalog toolCatalog,
+    ParticipantMemoryRetriever memoryRetriever,
     ILogger<PromptContextBuilder> logger) : IPromptContextBuilder
 {
     public async Task<PromptContext> BuildAsync(PromptContextInput input, CancellationToken ct)
@@ -33,6 +34,11 @@ public sealed class PromptContextBuilder(
         // scope means the Program Director is speaking, not whoever is on air.
         var moderator = input.Moderator
             ?? (input.Scope == PromptScope.Chat ? null : show?.Moderator);
+        // Non-host chat participants (artist members, guests) carry their own
+        // persona; the Moderator-only blocks (traits, talk profile, bits, memory
+        // layers) stay empty for them.
+        var participant = input.Participant;
+        var isNonHostParticipant = participant is not null && participant.Moderator is null;
         var format = input.Format ?? show?.Format;
         // The broadcast/written language is the STATION language (from settings). A host's own
         // Language is a per-host attribute (voice accent / occasional native-language guest
@@ -62,6 +68,7 @@ public sealed class PromptContextBuilder(
         var (currentShowTracks, previousShowTracks) = windows is null
             ? ([], [])
             : await GetShowScopedTracksAsync(db, windows, ct);
+        var chatHistory = await GetChatHistoryAsync(db, input.ChatChannelId, settings.ChatHistoryPromptMessages, ct);
 
         return new PromptContext
         {
@@ -81,8 +88,8 @@ public sealed class PromptContextBuilder(
             FormatTalkDensity = format?.TalkDensity ?? format?.Talkativeness,
             RemainingSlotMinutes = show?.RemainingSlotMinutes,
             NextFormatName = show?.NextFormatName,
-            HostName = moderator?.Name,
-            PersonaSummary = moderator?.PersonaPrompt,
+            HostName = isNonHostParticipant ? participant!.DisplayName : moderator?.Name,
+            PersonaSummary = isNonHostParticipant ? participant!.PersonaSummary : moderator?.PersonaPrompt,
             BaselineTraits = baselineTraits,
             CurrentTraits = currentTraits,
             TalkProfile = moderator is null ? null : HostTalkProfile.FromModerator(moderator),
@@ -98,8 +105,8 @@ public sealed class PromptContextBuilder(
             RecentTalkTopics = await GetRecentTalkTopicsAsync(db, moderator?.Id, ct),
             RecurringBits = await GetRecurringBitsAsync(db, moderator?.Id, ct),
             QueuedListenerMessages = await GetQueuedListenerMessagesAsync(db, ct),
-            MemorySlices = await GetMemorySlicesAsync(db, moderator?.Id, ct),
-            ChatHistory = await GetChatHistoryAsync(db, input.ChatChannelId, settings.ChatHistoryPromptMessages, ct),
+            MemorySlices = await GetCombinedMemorySlicesAsync(db, input, moderator, chatHistory, ct),
+            ChatHistory = chatHistory,
             ChatAudience = ResolveChatAudience(input),
             Tools = toolCatalog.GetTools(input.Scope, role),
         };
@@ -107,6 +114,11 @@ public sealed class PromptContextBuilder(
 
     private static CharacterRole ResolveRole(PromptContextInput input, Moderator? moderator)
     {
+        if (input.Participant is not null)
+        {
+            return input.Participant.Role;
+        }
+
         if (input.Scope == PromptScope.ProgramDirector)
         {
             return CharacterRole.ProgramDirector;
@@ -327,6 +339,52 @@ public sealed class PromptContextBuilder(
             .ToList();
     }
 
+    /// <summary>
+    /// Classic layered host memory plus Phase 5 retrieval: in chat scope the
+    /// participant's top-k relevant memories (query = the latest chat message)
+    /// are appended — for artist members and guests they are the only memory.
+    /// </summary>
+    private async Task<IReadOnlyList<string>> GetCombinedMemorySlicesAsync(
+        RadioDbContext db,
+        PromptContextInput input,
+        Moderator? moderator,
+        IReadOnlyList<string> chatHistory,
+        CancellationToken ct)
+    {
+        var slices = (await GetMemorySlicesAsync(db, moderator?.Id, ct)).ToList();
+
+        if (input.Scope == PromptScope.Chat && chatHistory.Count > 0)
+        {
+            var participantKey = ResolveParticipantMemoryKey(input, moderator);
+            if (participantKey is not null)
+            {
+                var retrieved = await memoryRetriever.RetrieveAsync(participantKey, chatHistory[^1], k: 3, ct);
+                slices.AddRange(retrieved.Select(memory => $"remembered: {memory}"));
+            }
+        }
+
+        return slices;
+    }
+
+    private static string? ResolveParticipantMemoryKey(PromptContextInput input, Moderator? moderator)
+    {
+        if (input.Participant is { } participant)
+        {
+            return participant.Kind switch
+            {
+                ChatParticipantKind.Host when participant.Ref.ModeratorId is int id
+                    => ConversationParticipant.HostKey(id),
+                ChatParticipantKind.ArtistMember when participant.Ref.EntityId is Guid memberId
+                    => ConversationParticipant.MemberKey(memberId),
+                ChatParticipantKind.Guest when participant.Ref.EntityId is Guid guestId
+                    => ConversationParticipant.GuestKey(guestId),
+                _ => null,
+            };
+        }
+
+        return moderator is null ? null : ConversationParticipant.HostKey(moderator.Id);
+    }
+
     private async Task<IReadOnlyList<string>> GetMemorySlicesAsync(
         RadioDbContext db,
         int? moderatorId,
@@ -372,6 +430,8 @@ public sealed class PromptContextBuilder(
         int take = Math.Clamp(maxMessages <= 0 ? 20 : maxMessages, 1, 80);
         List<ChatMessage> messages = await db.ChatMessages.AsNoTracking()
             .Include(message => message.SenderModerator)
+            .Include(message => message.SenderArtistMember)
+            .Include(message => message.SenderGuest)
             .Where(message => message.ChannelId == channelId.Value)
             .OrderByDescending(message => message.CreatedAtUtc)
             .Take(take)
@@ -385,6 +445,8 @@ public sealed class PromptContextBuilder(
                 {
                     ChatSenderKind.Admin => "Admin",
                     ChatSenderKind.Host => message.SenderModerator?.Name ?? "Host",
+                    ChatSenderKind.ArtistMember => message.SenderArtistMember?.Name ?? "Band member",
+                    ChatSenderKind.Guest => message.SenderGuest?.Name ?? "Guest",
                     ChatSenderKind.Director => "Program Director",
                     ChatSenderKind.System => "System",
                     _ => message.SenderKind.ToString(),

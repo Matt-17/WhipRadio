@@ -1,0 +1,26 @@
+You are the producer of {StationName} planning one {KindLabel} before recording starts.
+
+Topic: {Topic}
+Brief: {Brief}
+Target duration: {DurationMinutes} minutes.
+
+Speakers:
+{SpeakerRoster}
+
+{RecentEpisodesBlock}
+
+Plan the episode:
+- Invent a fresh, specific episode title (max 8 words, no quotes-in-quotes).
+- Break the conversation into 2-4 short chapters: each has a title and an intent
+  (what the speakers should get out of that stretch). Chapters are internal
+  production notes — they are never spoken aloud.
+- Chapters must fit the topic and give every speaker something to contribute.
+
+Return valid JSON only. Do not use Markdown fences, comments, or trailing commas.
+Answer with exactly one JSON object in this schema:
+{
+  "title": "<episode title>",
+  "chapters": [
+    { "title": "<chapter title>", "intent": "<what this stretch should achieve>" }
+  ]
+}

@@ -93,6 +93,126 @@ public class ConversationProductionServiceTests
     }
 
     [TestMethod]
+    public async Task Produce_DirectorFailure_FallsBackToSingleCallWriterWithDegradationReason()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        var (hostId, memberId) = await SeedSpeakersAsync(fixture, memberVoiceId: "qv-guest");
+        var segmentId = await SeedSegmentAsync(fixture, hostId, memberId);
+
+        var dataRoot = TestRoot();
+        try
+        {
+            // The static reply only matches the single-call script schema, so the
+            // multi-agent director's plan call fails and production degrades.
+            var service = CreateService(fixture, dataRoot, out _);
+            await service.RunCycleForTestsAsync(CancellationToken.None);
+
+            await using var db = fixture.CreateDbContext();
+            var segment = await db.ConversationSegments.AsNoTracking().SingleAsync(s => s.Id == segmentId);
+            Assert.Equal(ConversationStatus.Produced, segment.Status);
+            Assert.NotNull(segment.DegradationReason);
+            Assert.Contains("single-call writer", segment.DegradationReason);
+        }
+        finally
+        {
+            DeleteRoot(dataRoot);
+        }
+    }
+
+    [TestMethod]
+    public async Task Produce_MultiAgentDirector_ScriptsWithoutDegradation()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        var (hostId, memberId) = await SeedSpeakersAsync(fixture, memberVoiceId: "qv-guest");
+        var segmentId = await SeedSegmentAsync(fixture, hostId, memberId);
+
+        var dataRoot = TestRoot();
+        try
+        {
+            var service = CreateSequencedService(
+                fixture,
+                dataRoot,
+                """{"title":"Night Static","chapters":[{"title":"Opening","intent":"Set the scene."}]}""",
+                """{"text":"Welcome to the show, Makoa Hale.","wrapUp":false}""",
+                """{"text":"Thanks for having me.","wrapUp":false}""",
+                """{"text":"That's the show — good night.","wrapUp":true}""");
+            await service.RunCycleForTestsAsync(CancellationToken.None);
+
+            await using var db = fixture.CreateDbContext();
+            var segment = await db.ConversationSegments.AsNoTracking().SingleAsync(s => s.Id == segmentId);
+            Assert.Equal(ConversationStatus.Produced, segment.Status);
+            Assert.Null(segment.DegradationReason);
+            Assert.Equal("Night Static", segment.Title);
+            Assert.Contains("Makoa Hale: Thanks for having me.", segment.Transcript!);
+        }
+        finally
+        {
+            DeleteRoot(dataRoot);
+        }
+    }
+
+    [TestMethod]
+    public async Task Produce_GuestWithoutVoice_WaitsAndEnqueuesPriorityGuestVoiceDesign()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        var (hostId, _) = await SeedSpeakersAsync(fixture, memberVoiceId: "qv-guest");
+        var guestId = await SeedGuestAsync(fixture, voiceId: null);
+        var segmentId = await SeedGuestSegmentAsync(fixture, hostId, guestId);
+
+        var dataRoot = TestRoot();
+        try
+        {
+            var service = CreateService(fixture, dataRoot, out _, out var guestQueue);
+            await service.RunCycleForTestsAsync(CancellationToken.None);
+
+            await using var db = fixture.CreateDbContext();
+            var segment = await db.ConversationSegments.AsNoTracking().SingleAsync(s => s.Id == segmentId);
+            Assert.Equal(ConversationStatus.Planned, segment.Status);
+            Assert.Contains("Waiting for Ivy Sparks", segment.ProductionState!);
+            Assert.True(guestQueue.QueuedGuestIds().Contains(guestId), "guest voice design must be queued");
+        }
+        finally
+        {
+            DeleteRoot(dataRoot);
+        }
+    }
+
+    [TestMethod]
+    public async Task Produce_TalkWithVoicedGuest_ReachesProduced()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        var (hostId, _) = await SeedSpeakersAsync(fixture, memberVoiceId: "qv-guest");
+        var guestId = await SeedGuestAsync(fixture, voiceId: "qv-ivy");
+        var segmentId = await SeedGuestSegmentAsync(fixture, hostId, guestId);
+
+        var dataRoot = TestRoot();
+        try
+        {
+            var service = CreateService(fixture, dataRoot, out _, out _, """
+{
+  "title": "Beekeeping After Dark",
+  "turns": [
+    { "speaker": "Nova Quinn", "text": "Ivy, welcome." },
+    { "speaker": "Ivy Sparks", "text": "Happy to be here." },
+    { "speaker": "Nova Quinn", "text": "Tell us about the rooftops." }
+  ]
+}
+""");
+            await service.RunCycleForTestsAsync(CancellationToken.None);
+
+            await using var db = fixture.CreateDbContext();
+            var segment = await db.ConversationSegments.AsNoTracking().SingleAsync(s => s.Id == segmentId);
+            Assert.Equal(ConversationStatus.Produced, segment.Status);
+            Assert.Contains("Ivy Sparks: Happy to be here.", segment.Transcript!);
+            Assert.NotNull(segment.OutputFilePath);
+        }
+        finally
+        {
+            DeleteRoot(dataRoot);
+        }
+    }
+
+    [TestMethod]
     public async Task EnsureEpisodes_CreatesOnePlannedSegmentPerUpcomingShowSlot()
     {
         await using var fixture = await DbFixture.CreateAsync();
@@ -148,19 +268,57 @@ public class ConversationProductionServiceTests
 
     private static ConversationProductionService CreateService(
         DbFixture fixture, string dataRoot, out ArtistMemberVoiceQueue voiceQueue)
+        => CreateService(fixture, dataRoot, out voiceQueue, out _);
+
+    private static ConversationProductionService CreateService(
+        DbFixture fixture,
+        string dataRoot,
+        out ArtistMemberVoiceQueue voiceQueue,
+        out GuestVoiceQueue guestVoiceQueue,
+        string? scriptReply = null)
+        => CreateServiceCore(fixture, dataRoot, _ => new StaticLlm(scriptReply ?? ScriptReply), out voiceQueue, out guestVoiceQueue);
+
+    private static ConversationProductionService CreateSequencedService(
+        DbFixture fixture,
+        string dataRoot,
+        params string[] replies)
+    {
+        var llm = new SequencedLlm(replies);
+        return CreateServiceCore(fixture, dataRoot, _ => llm, out _, out _);
+    }
+
+    private static ConversationProductionService CreateServiceCore(
+        DbFixture fixture,
+        string dataRoot,
+        Func<IServiceProvider, ITextGenerationService> llmFactory,
+        out ArtistMemberVoiceQueue voiceQueue,
+        out GuestVoiceQueue guestVoiceQueue)
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddScoped<ITextGenerationService>(_ => new StaticLlm(ScriptReply));
+        services.AddScoped(llmFactory);
         services.AddScoped<ConversationScriptWriter>();
+        services.AddScoped<ConversationDirector>();
+        services.AddSingleton<WhipRadio.Core.Conversations.ITurnTakingPolicy,
+            WhipRadio.Core.Conversations.AddressedToRoundRobinPolicy>();
         services.AddScoped<ITtsEngine>(_ => new FakeTts());
         var provider = services.BuildServiceProvider();
 
         voiceQueue = new ArtistMemberVoiceQueue();
+        guestVoiceQueue = new GuestVoiceQueue();
+        var embedding = new StubEmbedding();
         return new ConversationProductionService(
             provider.GetRequiredService<IServiceScopeFactory>(),
             fixture,
             voiceQueue,
+            guestVoiceQueue,
+            new ParticipantMemoryWriter(
+                fixture,
+                embedding,
+                provider.GetRequiredService<IServiceScopeFactory>(),
+                Options.Create(new WhipRadio.Infrastructure.Llm.LlmOptions()),
+                NullLogger<ParticipantMemoryWriter>.Instance),
+            new ParticipantMemoryRetriever(fixture, embedding, NullLogger<ParticipantMemoryRetriever>.Instance),
             TimeProvider.System,
             new NoOpPublisher(),
             new NoOpMetrics(),
@@ -236,6 +394,62 @@ public class ConversationProductionServiceTests
         return segment.Id;
     }
 
+    private static async Task<Guid> SeedGuestAsync(DbFixture fixture, string? voiceId)
+    {
+        await using var db = fixture.CreateDbContext();
+        var guest = new Guest
+        {
+            Id = Guid.NewGuid(),
+            Name = "Ivy Sparks",
+            Slug = $"ivy-sparks-{Guid.NewGuid():N}",
+            Expertise = "urban beekeeper",
+            Gender = "female",
+            Biography = "Keeps hives on downtown rooftops.",
+            DeepBackground = "Started with two hives on a parking garage.",
+            VoiceCreationPrompt = "Bright, quick, enthusiastic.",
+            TtsEngine = TtsEngines.Qwen,
+            VoiceId = voiceId,
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.Guests.Add(guest);
+        await db.SaveChangesAsync();
+        return guest.Id;
+    }
+
+    private static async Task<Guid> SeedGuestSegmentAsync(DbFixture fixture, int hostId, Guid guestId)
+    {
+        await using var db = fixture.CreateDbContext();
+        var segment = new ConversationSegment
+        {
+            Id = Guid.NewGuid(),
+            Kind = ConversationKind.Talk,
+            Structure = ConversationStructure.Freeform,
+            Topic = "City bees",
+            Brief = "Rooftop hives and honey.",
+            TargetDurationMinutes = 10,
+            ParticipantsJson = System.Text.Json.JsonSerializer.Serialize(new List<ConversationParticipant>
+            {
+                new()
+                {
+                    SpeakerKey = ConversationParticipant.HostKey(hostId),
+                    DisplayName = "Nova Quinn",
+                    ConversationRole = "Host",
+                },
+                new()
+                {
+                    SpeakerKey = ConversationParticipant.GuestKey(guestId),
+                    DisplayName = "Ivy Sparks",
+                    ConversationRole = "Guest",
+                },
+            }),
+            Status = ConversationStatus.Planned,
+            CreatedAtUtc = DateTime.UtcNow,
+        };
+        db.ConversationSegments.Add(segment);
+        await db.SaveChangesAsync();
+        return segment.Id;
+    }
+
     private static string ParticipantsJson(int hostId, Guid memberId)
         => System.Text.Json.JsonSerializer.Serialize(new List<ConversationParticipant>
         {
@@ -268,6 +482,20 @@ public class ConversationProductionServiceTests
     {
         public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
             => Task.FromResult(reply);
+    }
+
+    private sealed class StubEmbedding : IEmbeddingService
+    {
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+            => Task.FromResult(new float[] { 1f, 0f, 0f });
+    }
+
+    private sealed class SequencedLlm(string[] replies) : ITextGenerationService
+    {
+        private readonly Queue<string> _replies = new(replies);
+
+        public Task<string> CompleteAsync(string systemPrompt, string userPrompt, CancellationToken ct)
+            => Task.FromResult(_replies.Dequeue());
     }
 
     private sealed class FakeTts : ITtsEngine

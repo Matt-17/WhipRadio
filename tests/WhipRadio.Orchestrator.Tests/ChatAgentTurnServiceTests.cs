@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using WhipRadio.Core.Abstractions;
+using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Persistence;
@@ -82,12 +83,15 @@ public class ChatAgentTurnServiceTests
         var llm = new SequencedLlm(
             """{"reply":"I'll search the library.","actions":[{"tool":"SearchMusic","arguments":{"query":"synthwave","limit":"1"}}]}""",
             """{"reply":"Neon Atlas - Neon Rider fits the synthwave brief.","actions":[]}""");
+        var turnQueue = new ChatTurnQueue(NullLogger<ChatTurnQueue>.Instance);
         var actionExecutor = new ChatActionExecutor(
             fixture,
             catalog,
             chat,
-            new ChatTurnQueue(NullLogger<ChatTurnQueue>.Instance),
+            new ChatParticipantResolver(fixture),
+            turnQueue,
             new TrackQueryService(fixture),
+            new MusicProductionControl(),
             priorityDispatcher: null!,
             schedule: null!,
             director: null!,
@@ -102,11 +106,15 @@ public class ChatAgentTurnServiceTests
             new ChatReplyParser(),
             chat,
             actionExecutor,
+            new ChatParticipantResolver(fixture),
+            new ChatResponderResolver(fixture, turnQueue, NullLogger<ChatResponderResolver>.Instance),
             new AgentActionLogService(fixture, hub, TimeProvider.System, NullLogger<AgentActionLogService>.Instance),
             hub,
             NullLogger<ChatAgentTurnService>.Instance);
 
-        await turn.RunTurnAsync(new ChatTurnRequest(channelId, hostId, trigger.Id, correlationId, 0), CancellationToken.None);
+        await turn.RunTurnAsync(
+            new ChatTurnRequest(channelId, ChatParticipantRef.ForHost(hostId), trigger.Id, correlationId, 0),
+            CancellationToken.None);
 
         await using var verify = fixture.CreateDbContext();
         var messages = await verify.ChatMessages.AsNoTracking()
@@ -166,12 +174,15 @@ public class ChatAgentTurnServiceTests
         var llm = new SequencedLlm(
             """{"reply":"Sure, I'll pass that on.","actions":[{"tool":"Message","arguments":{"characterId":"Jenny","message":"Prepare a segment please."}}]}""",
             """{"reply":"Sorry, there is no Jenny at the station right now.","actions":[]}""");
+        var turnQueue = new ChatTurnQueue(NullLogger<ChatTurnQueue>.Instance);
         var actionExecutor = new ChatActionExecutor(
             fixture,
             catalog,
             chat,
-            new ChatTurnQueue(NullLogger<ChatTurnQueue>.Instance),
+            new ChatParticipantResolver(fixture),
+            turnQueue,
             new TrackQueryService(fixture),
+            new MusicProductionControl(),
             priorityDispatcher: null!,
             schedule: null!,
             director: null!,
@@ -186,11 +197,15 @@ public class ChatAgentTurnServiceTests
             new ChatReplyParser(),
             chat,
             actionExecutor,
+            new ChatParticipantResolver(fixture),
+            new ChatResponderResolver(fixture, turnQueue, NullLogger<ChatResponderResolver>.Instance),
             new AgentActionLogService(fixture, hub, TimeProvider.System, NullLogger<AgentActionLogService>.Instance),
             hub,
             NullLogger<ChatAgentTurnService>.Instance);
 
-        await turn.RunTurnAsync(new ChatTurnRequest(channelId, hostId, trigger.Id, correlationId, 0), CancellationToken.None);
+        await turn.RunTurnAsync(
+            new ChatTurnRequest(channelId, ChatParticipantRef.ForHost(hostId), trigger.Id, correlationId, 0),
+            CancellationToken.None);
 
         await using var verify = fixture.CreateDbContext();
         var messages = await verify.ChatMessages.AsNoTracking()
@@ -205,6 +220,103 @@ public class ChatAgentTurnServiceTests
         Assert.Null(messages[1].ActionsJson);
         Assert.Equal(2, llm.Requests.Count);
         Assert.Contains("Message -> Failed", llm.Requests[1].UserPrompt);
+    }
+
+    [TestMethod]
+    public async Task RunTurnAsync_ArtistMemberResponder_PostsAsArtistMemberSender()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        Guid memberId;
+        await using (var db = fixture.CreateDbContext())
+        {
+            await db.Database.MigrateAsync();
+            db.StationSettings.Add(new StationSettings { Id = StationSettings.SingletonId });
+            var artist = new Artist
+            {
+                Id = Guid.NewGuid(),
+                Name = "Pacific Furnace",
+                Slug = "pacific-furnace",
+                Genre = "metal",
+                DeepBackgroundBiography = "Formed near Hilo Bay.",
+                CreatedAt = DateTime.UtcNow,
+            };
+            var member = new ArtistMember
+            {
+                Id = Guid.NewGuid(),
+                Artist = artist,
+                Name = "Makoa Hale",
+                Role = "lead vocals",
+                Biography = "Writes most lyrics.",
+                Personality = "Intense and protective.",
+                Interests = "lava field hikes",
+                VoiceCreationPrompt = "Baritone.",
+            };
+            db.Artists.Add(artist);
+            db.ArtistMembers.Add(member);
+            await db.SaveChangesAsync();
+            memberId = member.Id;
+        }
+
+        var hub = new NullHubContext();
+        var chat = new ChatService(fixture, hub, TimeProvider.System, NullLogger<ChatService>.Instance);
+        ChatChannelDto group = await chat.CreateGroupChannelAsync(
+            "Band Talk",
+            [(ChatParticipantRef.ForArtistMember(memberId), "Makoa Hale")],
+            CancellationToken.None);
+        Guid correlationId = Guid.NewGuid();
+        var trigger = await chat.PostAsync(
+            group.Id,
+            ChatSenderKind.Admin,
+            moderatorId: null,
+            "Makoa Hale, how is the new record coming along?",
+            actionsJson: null,
+            correlationId,
+            hopCount: 0,
+            CancellationToken.None);
+
+        var catalog = new CharacterToolCatalog([new MessageTool()]);
+        var llm = new SequencedLlm(
+            """{"reply":"Slow and heavy, just like the lava.","actions":[]}""");
+        var turnQueue = new ChatTurnQueue(NullLogger<ChatTurnQueue>.Instance);
+        var actionExecutor = new ChatActionExecutor(
+            fixture,
+            catalog,
+            chat,
+            new ChatParticipantResolver(fixture),
+            turnQueue,
+            new TrackQueryService(fixture),
+            new MusicProductionControl(),
+            priorityDispatcher: null!,
+            schedule: null!,
+            director: null!,
+            new NoOpNotificationBus(),
+            scopeFactory: null!,
+            TimeProvider.System,
+            NullLogger<ChatActionExecutor>.Instance);
+        var turn = new ChatAgentTurnService(
+            fixture,
+            new StaticPromptContextBuilder(catalog),
+            llm,
+            new ChatReplyParser(),
+            chat,
+            actionExecutor,
+            new ChatParticipantResolver(fixture),
+            new ChatResponderResolver(fixture, turnQueue, NullLogger<ChatResponderResolver>.Instance),
+            new AgentActionLogService(fixture, hub, TimeProvider.System, NullLogger<AgentActionLogService>.Instance),
+            hub,
+            NullLogger<ChatAgentTurnService>.Instance);
+
+        await turn.RunTurnAsync(
+            new ChatTurnRequest(group.Id, ChatParticipantRef.ForArtistMember(memberId), trigger.Id, correlationId, 0),
+            CancellationToken.None);
+
+        await using var verify = fixture.CreateDbContext();
+        var reply = await verify.ChatMessages.AsNoTracking()
+            .Where(message => message.ChannelId == group.Id && message.SenderKind == ChatSenderKind.ArtistMember)
+            .SingleAsync();
+        Assert.Equal(memberId, reply.SenderArtistMemberId);
+        Assert.Null(reply.SenderModeratorId);
+        Assert.Contains("lava", reply.Text);
     }
 
     private sealed class StaticPromptContextBuilder(ICharacterToolCatalog catalog) : IPromptContextBuilder

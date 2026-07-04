@@ -84,7 +84,8 @@ public class MusicCopywriter(ITextGenerationService llm)
         int minDurationSeconds,
         int maxDurationSeconds,
         bool supportsVocals,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? requestHint = null)
     {
         var artistSupportsVocals = ArtistMemberRoster.HasVocalMember(artist.Members);
         var canUseVocals = supportsVocals && artistSupportsVocals;
@@ -108,6 +109,9 @@ public class MusicCopywriter(ITextGenerationService llm)
             ["DefaultLanguage"] = string.IsNullOrWhiteSpace(defaultLanguage) ? "en" : defaultLanguage,
             ["MinDurationSeconds"] = minDurationSeconds.ToString(),
             ["MaxDurationSeconds"] = maxDurationSeconds.ToString(),
+            ["SongRequest"] = string.IsNullOrWhiteSpace(requestHint)
+                ? "(no specific request — the artist picks the direction)"
+                : requestHint.Trim(),
             ["VocalCapability"] = FormatVocalCapability(supportsVocals, artistSupportsVocals),
             ["AvoidTitles"] = existingTitles.Count == 0 ? "(none yet)" : string.Join("; ", existingTitles.TakeLast(30)),
             ["ForbiddenWords"] = string.Join(", ", TitleWordGuard.MostFrequentWords(existingTitles, take: 8)),
@@ -264,7 +268,11 @@ public class MusicCopywriter(ITextGenerationService llm)
                 RequireField(member.Name, "members[].name"),
                 RequireField(member.Role, "members[].role"),
                 RequireField(member.Biography, "members[].biography"),
-                RequireField(member.VoiceCreationPrompt, "members[].voiceCreationPrompt")))
+                RequireField(member.VoiceCreationPrompt, "members[].voiceCreationPrompt"),
+                NormalizeMemberGender(member.Gender),
+                member.Age is { } age ? Math.Clamp(age, 16, 90) : null,
+                member.Interests?.Trim() ?? string.Empty,
+                member.Personality?.Trim() ?? string.Empty))
             .ToList();
 
         if (members.Count == 0)
@@ -536,6 +544,13 @@ public class MusicCopywriter(ITextGenerationService llm)
             ? throw new InvalidOperationException($"Artist profile JSON missing required field '{fieldName}'.")
             : value.Trim();
 
+    /// <summary>Empty = unknown; downstream falls back to inference for legacy members.</summary>
+    private static string NormalizeMemberGender(string? gender)
+    {
+        var value = (gender ?? string.Empty).Trim().ToLowerInvariant();
+        return value is "male" or "female" ? value : string.Empty;
+    }
+
     private static string Trim(string value, int maxChars)
         => value.Length <= maxChars ? value : value[..maxChars].TrimEnd() + "...";
 }
@@ -576,7 +591,11 @@ internal sealed record ArtistMemberJson(
     [property: JsonRequired] string Name,
     [property: JsonRequired] string Role,
     [property: JsonRequired] string Biography,
-    [property: JsonRequired] string VoiceCreationPrompt);
+    [property: JsonRequired] string VoiceCreationPrompt,
+    [property: JsonRequired] string Gender,
+    [property: JsonRequired] string Interests,
+    [property: JsonRequired] string Personality,
+    int? Age = null);
 
 public sealed record ArtistSongPlan(
     string Title,
@@ -629,7 +648,11 @@ public sealed record ArtistMemberPlan(
     string Name,
     string Role,
     string Biography,
-    string VoiceCreationPrompt);
+    string VoiceCreationPrompt,
+    string Gender,
+    int? Age,
+    string Interests,
+    string Personality);
 
 /// <summary>Finds overused words in existing titles so prompts can forbid them.</summary>
 public static class TitleWordGuard

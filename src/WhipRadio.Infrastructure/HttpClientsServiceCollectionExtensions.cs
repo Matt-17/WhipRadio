@@ -56,6 +56,7 @@ public static class HttpClientsServiceCollectionExtensions
             .RemoveAllResilienceHandlers();
 
         services.AddScoped<ITextGenerationService, TextGenerationRouter>();
+        services.AddSingleton<IEmbeddingService, OllamaEmbeddingService>();
 
         services.AddHttpClient(TtsEngineRouter.ElevenLabsClientName, client =>
             {
@@ -125,6 +126,10 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<ICharacterTool, HireHostTool>();
         services.AddSingleton<ICharacterTool, AssignHostTool>();
         services.AddSingleton<ICharacterTool, StatusReportTool>();
+        services.AddSingleton<ICharacterTool, InviteTool>();
+        services.AddSingleton<ICharacterTool, RemoveFromChannelTool>();
+        services.AddSingleton<ICharacterTool, MakeSongTool>();
+        services.AddSingleton<ICharacterTool, BriefPodcastTool>();
         services.AddSingleton<ICharacterTool, StartTalkBreakTool>();
         services.AddSingleton<ICharacterTool, RememberTool>();
         services.AddSingleton<ICharacterTool, RequestBitTool>();

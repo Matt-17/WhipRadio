@@ -122,6 +122,43 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
     public async Task MarkChatReadAsync(Guid channelId, CancellationToken ct = default)
         => await http.PostAsync($"/api/chat/channels/{channelId}/read", null, ct);
 
+    public async Task<List<ChatParticipantOptionDto>> GetChatParticipantsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ChatParticipantOptionDto>>("/api/chat/participants", ct) ?? [];
+
+    public async Task<(ChatChannelDto? Channel, string? Error)> CreateGroupChatChannelAsync(
+        string? name,
+        IReadOnlyList<ChatParticipantSelectionDto> members,
+        CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.PostAsJsonAsync(
+            "/api/chat/channels/group",
+            new CreateGroupChannelRequestDto(name, members),
+            ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<ChatChannelDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<bool> AddChatChannelMemberAsync(
+        Guid channelId,
+        ChatParticipantSelectionDto selection,
+        CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.PostAsJsonAsync(
+            $"/api/chat/channels/{channelId}/members", selection, ct);
+        return response.IsSuccessStatusCode;
+    }
+
+    public async Task<bool> RemoveChatChannelMemberAsync(
+        Guid channelId,
+        Guid memberId,
+        CancellationToken ct = default)
+    {
+        using HttpResponseMessage response = await http.DeleteAsync(
+            $"/api/chat/channels/{channelId}/members/{memberId}", ct);
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<string?> ConfirmChatActionAsync(Guid messageId, int actionIndex, CancellationToken ct = default)
     {
         using HttpResponseMessage response = await http.PostAsync($"/api/chat/actions/{messageId}/{actionIndex}/confirm", null, ct);
@@ -192,6 +229,56 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
             : new DeleteArtistResult(Deleted: false, Error: await response.Content.ReadAsStringAsync(ct));
     }
 
+    public async Task<List<GuestDto>> GetGuestsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<GuestDto>>("/api/guests", ct) ?? [];
+
+    public async Task<(GuestDto? Guest, string? Error)> CreateGuestAsync(string? hint, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync("/api/guests", new CreateGuestRequestDto(hint), ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<GuestDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Guest creation timed out or the writer room is unreachable.");
+        }
+    }
+
+    public async Task<(GuestDto? Guest, string? Error)> RedefineGuestAsync(Guid id, string? hint, CancellationToken ct = default)
+    {
+        try
+        {
+            using var response = await LongClient.PostAsJsonAsync(
+                $"/api/guests/{id}/redefine",
+                new RedefineGuestRequestDto(hint),
+                ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<GuestDto>(ct), null)
+                : (null, await response.Content.ReadAsStringAsync(ct));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return (null, "Guest redefinition timed out or the writer room is unreachable.");
+        }
+    }
+
+    public async Task<(bool Removed, string? Error)> DeleteGuestAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/guests/{id}", ct);
+        return response.IsSuccessStatusCode
+            ? (true, null)
+            : (false, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<bool> RecreateGuestVoiceAsync(Guid guestId, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/guests/{guestId}/voice/recreate", null, ct);
+        return response.IsSuccessStatusCode;
+    }
+
     public async Task<MusicProductionStatusDto?> GetMusicProductionStatusAsync(CancellationToken ct = default)
         => await SafeGetAsync<MusicProductionStatusDto>("/api/music/status", ct);
 
@@ -225,6 +312,9 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
 
     /// <summary>Same-origin media proxy URL for a band member's voice reference clip.</summary>
     public string ArtistMemberVoiceUrl(Guid id) => $"/media/artist-member-voice/{id}";
+
+    /// <summary>Same-origin media proxy URL for a guest's voice reference clip.</summary>
+    public string GuestVoiceUrl(Guid id) => $"/media/guest-voice/{id}";
 
     public async Task<List<PlayLogEntryDto>> GetPlayLogAsync(CancellationToken ct = default)
         => await SafeGetAsync<List<PlayLogEntryDto>>("/api/playlog", ct) ?? [];

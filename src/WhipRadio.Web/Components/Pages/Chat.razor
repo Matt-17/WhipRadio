@@ -24,6 +24,7 @@
                 {
                     <StatusBadge Text="checking" />
                 }
+                <button class="btn small" title="start a group channel" @onclick="OpenCreateGroupAsync">+ Group</button>
             </div>
 
             <input class="chat-search"
@@ -102,7 +103,43 @@
                         <div class="panel-label">@ChannelKindLabel(_activeChannel)</div>
                         <div class="chat-pane-title">@_activeChannel.Name</div>
                     </div>
+                    @if (_activeChannel.Kind == "Group")
+                    {
+                        <button class="btn small @(_showRoster ? "active" : null)"
+                                title="show group members"
+                                @onclick="ToggleRosterAsync">
+                            @(_activeChannel.Members?.Count ?? 0) member@((_activeChannel.Members?.Count ?? 0) == 1 ? "" : "s")
+                        </button>
+                    }
                 </div>
+                @if (_activeChannel.Kind == "Group" && _showRoster)
+                {
+                    <div class="chat-roster">
+                        @foreach (ChatChannelMemberDto member in _activeChannel.Members ?? [])
+                        {
+                            <span class="chat-roster-member">
+                                <PersonAvatar Name="@member.DisplayName" PhotoUrl="@member.PhotoUrl" Size="thumb" />
+                                <span class="chat-roster-name">@member.DisplayName</span>
+                                <span class="tag">@ParticipantKindLabel(member.Kind)</span>
+                                <button class="btn small icon-only vote-down" title="remove from group"
+                                        @onclick="() => _removeMemberTarget = member">
+                                    <Icon Name="trash" />
+                                </button>
+                            </span>
+                        }
+                        <span class="chat-roster-add">
+                            <select @bind="_addMemberKey">
+                                <option value="">add member...</option>
+                                @foreach (ChatParticipantOptionDto option in AddableParticipants)
+                                {
+                                    <option value="@OptionKey(option)">@option.Name — @option.Subtitle</option>
+                                }
+                            </select>
+                            <button class="btn small" disabled="@(string.IsNullOrEmpty(_addMemberKey) || _addingMember)"
+                                    @onclick="AddMemberAsync">Add</button>
+                        </span>
+                    </div>
+                }
 
                 <div class="chat-messages" @ref="_messagePane">
                     @if (_loadingMessages)
@@ -228,6 +265,54 @@
     </div>
 </div>
 
+<Modal Visible="@_createGroupOpen" Title="New Group Channel" Class="modal-wide" OnClose="() => _createGroupOpen = false">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field full">
+                <label>Group name</label>
+                <input @bind="_groupName" placeholder="optional — defaults to the member names" />
+            </div>
+        </div>
+        <div class="chat-group-picker">
+            @foreach (ChatParticipantOptionDto option in _participantOptions)
+            {
+                string key = OptionKey(option);
+                <label class="chat-group-option">
+                    <input type="checkbox"
+                           checked="@_selectedParticipants.Contains(key)"
+                           @onchange="args => ToggleParticipant(key, args)" />
+                    <span>@option.Name</span>
+                    <span class="dim">@option.Subtitle</span>
+                </label>
+            }
+        </div>
+        @if (_createGroupError is not null)
+        {
+            <div class="vote-down-text" style="margin-top:10px">@_createGroupError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="() => _createGroupOpen = false">Cancel</button>
+        <button class="btn primary" disabled="@(_selectedParticipants.Count == 0 || _creatingGroup)"
+                @onclick="CreateGroupAsync">
+            Create Group
+        </button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Visible="@(_removeMemberTarget is not null)"
+               Title="Remove member"
+               ConfirmText="Remove"
+               CancelText="Keep them"
+               Danger="true"
+               OnConfirm="RemoveMemberConfirmedAsync"
+               OnCancel="() => _removeMemberTarget = null">
+    @if (_removeMemberTarget is { } target)
+    {
+        <text>Remove <strong>@target.DisplayName</strong> from this group channel?</text>
+    }
+</ConfirmDialog>
+
 @code {
     private const string SelectedChannelKey = "whipchat.channel";
     private static readonly TimeSpan GroupWindow = TimeSpan.FromMinutes(5);
@@ -248,6 +333,16 @@
     private string? _sendError;
     private ElementReference _messagePane;
     private ElementReference _composer;
+    private bool _createGroupOpen;
+    private bool _creatingGroup;
+    private bool _showRoster;
+    private bool _addingMember;
+    private string _groupName = string.Empty;
+    private string _addMemberKey = string.Empty;
+    private string? _createGroupError;
+    private List<ChatParticipantOptionDto> _participantOptions = [];
+    private readonly HashSet<string> _selectedParticipants = [];
+    private ChatChannelMemberDto? _removeMemberTarget;
 
     private bool CanPost
         => _activeChannel is { IsArchived: false }
@@ -494,6 +589,118 @@
         _sendError = error;
     }
 
+    private IEnumerable<ChatParticipantOptionDto> AddableParticipants
+        => _participantOptions.Where(option =>
+            !(_activeChannel?.Members ?? []).Any(member =>
+                string.Equals(member.Kind, option.Kind, StringComparison.Ordinal)
+                && member.ModeratorId == option.ModeratorId
+                && member.EntityId == option.EntityId));
+
+    private async Task OpenCreateGroupAsync()
+    {
+        _groupName = string.Empty;
+        _selectedParticipants.Clear();
+        _createGroupError = null;
+        _participantOptions = await Api.GetChatParticipantsAsync();
+        _createGroupOpen = true;
+    }
+
+    private void ToggleParticipant(string key, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+        {
+            _selectedParticipants.Add(key);
+        }
+        else
+        {
+            _selectedParticipants.Remove(key);
+        }
+    }
+
+    private async Task CreateGroupAsync()
+    {
+        if (_selectedParticipants.Count == 0 || _creatingGroup)
+        {
+            return;
+        }
+
+        _creatingGroup = true;
+        _createGroupError = null;
+        try
+        {
+            List<ChatParticipantSelectionDto> selections = _participantOptions
+                .Where(option => _selectedParticipants.Contains(OptionKey(option)))
+                .Select(option => new ChatParticipantSelectionDto(option.Kind, option.ModeratorId, option.EntityId))
+                .ToList();
+            (ChatChannelDto? channel, string? error) = await Api.CreateGroupChatChannelAsync(
+                string.IsNullOrWhiteSpace(_groupName) ? null : _groupName.Trim(),
+                selections);
+            if (channel is null)
+            {
+                _createGroupError = string.IsNullOrWhiteSpace(error) ? "Group could not be created." : error;
+                return;
+            }
+
+            _createGroupOpen = false;
+            await SelectChannelAsync(channel);
+        }
+        finally
+        {
+            _creatingGroup = false;
+        }
+    }
+
+    private async Task ToggleRosterAsync()
+    {
+        _showRoster = !_showRoster;
+        if (_showRoster && _participantOptions.Count == 0)
+        {
+            _participantOptions = await Api.GetChatParticipantsAsync();
+        }
+    }
+
+    private async Task AddMemberAsync()
+    {
+        if (_activeChannel is null || string.IsNullOrEmpty(_addMemberKey) || _addingMember)
+        {
+            return;
+        }
+
+        ChatParticipantOptionDto? option = _participantOptions
+            .FirstOrDefault(candidate => OptionKey(candidate) == _addMemberKey);
+        if (option is null)
+        {
+            return;
+        }
+
+        _addingMember = true;
+        try
+        {
+            await Api.AddChatChannelMemberAsync(
+                _activeChannel.Id,
+                new ChatParticipantSelectionDto(option.Kind, option.ModeratorId, option.EntityId));
+            _addMemberKey = string.Empty;
+        }
+        finally
+        {
+            _addingMember = false;
+        }
+    }
+
+    private async Task RemoveMemberConfirmedAsync()
+    {
+        if (_activeChannel is null || _removeMemberTarget is not { } target)
+        {
+            return;
+        }
+
+        _removeMemberTarget = null;
+        await Api.RemoveChatChannelMemberAsync(_activeChannel.Id, target.Id);
+    }
+
+    private static string OptionKey(ChatParticipantOptionDto option)
+        => $"{option.Kind}:{option.ModeratorId?.ToString(CultureInfo.InvariantCulture) ?? option.EntityId?.ToString() ?? ""}";
+
     private void OnLiveChanged()
         => _ = InvokeAsync(() =>
         {
@@ -573,6 +780,7 @@
         {
             "DirectorDm" => "director",
             "HostToHost" => "exchange",
+            "Group" => "chat",
             _ => "antenna",
         };
 
@@ -581,6 +789,7 @@
         {
             "DirectorDm" => "chat-avatar-icon director",
             "HostToHost" => "chat-avatar-icon exchange",
+            "Group" => "chat-avatar-icon group",
             _ => "chat-avatar-icon station",
         };
 
@@ -589,7 +798,17 @@
         {
             "Station" => "station channel",
             "HostToHost" => "host exchange",
+            "Group" => "group channel",
             _ => "direct line",
+        };
+
+    private static string ParticipantKindLabel(string kind)
+        => kind switch
+        {
+            "Host" => "host",
+            "ArtistMember" => "band member",
+            "Guest" => "guest",
+            _ => kind.ToLowerInvariant(),
         };
 
     private static string MessageClass(ChatMessageDto message, bool groupStart)

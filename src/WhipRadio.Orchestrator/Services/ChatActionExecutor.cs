@@ -12,18 +12,26 @@ namespace WhipRadio.Orchestrator.Services;
 public sealed record ChatActionContext(
     ChatChannel Channel,
     ChatMessageDto? AgentMessage,
-    Moderator? Sender,
-    ChatSenderKind SenderKind,
-    CharacterRole SenderRole,
+    ChatParticipant Sender,
     Guid CorrelationId,
-    int HopCount);
+    int HopCount)
+{
+    public ChatSenderKind SenderKind => Sender.SenderKind;
+
+    public CharacterRole SenderRole => Sender.Role;
+
+    /// <summary>Set only when the sender is a host; artists/guests/director have none.</summary>
+    public Moderator? SenderModerator => Sender.Moderator;
+}
 
 public sealed class ChatActionExecutor(
     IDbContextFactory<RadioDbContext> dbFactory,
     ICharacterToolCatalog toolCatalog,
     ChatService chat,
+    ChatParticipantResolver participants,
     ChatTurnQueue turnQueue,
     TrackQueryService tracks,
+    MusicProductionControl musicControl,
     PriorityTalkBreakDispatcher priorityDispatcher,
     ScheduleService schedule,
     DirectorPlanningService director,
@@ -53,12 +61,16 @@ public sealed class ChatActionExecutor(
                 "HireHost" => await ExecuteHireHostAsync(call, ct),
                 "AssignHost" => await ExecuteAssignHostAsync(call, ct),
                 "StatusReport" => await ExecuteStatusReportAsync(call, ct),
+                "Invite" => await ExecuteInviteAsync(call, context, ct),
+                "RemoveFromChannel" => await ExecuteRemoveFromChannelAsync(call, context, ct),
+                "MakeSong" => await ExecuteMakeSongAsync(call, context, ct),
+                "BriefPodcast" => await ExecuteBriefPodcastAsync(call, ct),
                 _ => Failed(call, $"Tool '{call.Name}' has no chat executor."),
             };
             logger.LogInformation(
                 "Chat action {Verb} by {Sender} in {Channel}: {Outcome}",
                 call.Name,
-                context.Sender?.Name ?? context.SenderKind.ToString(),
+                context.Sender.DisplayName,
                 context.Channel.Name,
                 result.ResultSummary);
             return result;
@@ -84,11 +96,11 @@ public sealed class ChatActionExecutor(
         {
             Guid channelId = context.SenderKind == ChatSenderKind.Director
                 ? await chat.GetDirectorChannelIdAsync(ct)
-                : context.Sender is { } adminTargetSender
+                : context.SenderModerator is { } adminTargetSender
                     ? await chat.GetHostDmChannelIdAsync(adminTargetSender.Id, ct) ?? context.Channel.Id
                     : context.Channel.Id;
-            await chat.PostAsync(channelId, context.SenderKind, context.Sender?.Id, message, null, context.CorrelationId, context.HopCount, ct);
-            Guid? plannedBreakId = context.Channel.Kind == ChatChannelKind.HostToHost && context.Sender is not null
+            await chat.PostAsync(channelId, context.SenderKind, context.SenderModerator?.Id, message, null, context.CorrelationId, context.HopCount, ct);
+            Guid? plannedBreakId = context.Channel.Kind == ChatChannelKind.HostToHost && context.SenderModerator is not null
                 ? await CreatePlannedConversationTalkBreakAsync(context, message, ct)
                 : null;
             return Succeeded(
@@ -112,7 +124,7 @@ public sealed class ChatActionExecutor(
             ChatMessageDto posted = await chat.PostAsync(
                 directorChannelId,
                 context.SenderKind,
-                context.Sender?.Id,
+                context.SenderModerator?.Id,
                 message,
                 null,
                 context.CorrelationId,
@@ -123,13 +135,13 @@ public sealed class ChatActionExecutor(
         }
 
         Moderator targetHost = await ResolveHostAsync(target, ct);
-        if (context.Sender is { } sender && sender.Id == targetHost.Id)
+        if (context.SenderModerator is { } sender && sender.Id == targetHost.Id)
         {
             return Failed(call, "You cannot send a chat message to yourself.");
         }
 
         Guid targetChannelId;
-        if (context.Sender is { } senderHost)
+        if (context.SenderModerator is { } senderHost)
         {
             targetChannelId = await chat.GetOrCreateHostToHostChannelAsync(senderHost.Id, targetHost.Id, ct);
         }
@@ -142,13 +154,13 @@ public sealed class ChatActionExecutor(
         ChatMessageDto hostMessage = await chat.PostAsync(
             targetChannelId,
             context.SenderKind,
-            context.Sender?.Id,
+            context.SenderModerator?.Id,
             message,
             null,
             context.CorrelationId,
             context.HopCount + 1,
             ct);
-        await TryEnqueueAsync(targetChannelId, targetHost.Id, hostMessage.Id, context, call);
+        await TryEnqueueAsync(targetChannelId, ChatParticipantRef.ForHost(targetHost.Id), hostMessage.Id, context, call);
         return Succeeded(call, $"Message sent to {targetHost.Name}.");
     }
 
@@ -157,7 +169,7 @@ public sealed class ChatActionExecutor(
         ChatActionContext context,
         CancellationToken ct)
     {
-        Moderator moderator = context.Sender
+        Moderator moderator = context.SenderModerator
             ?? throw new InvalidOperationException("Announcement requires a host sender.");
         string topic = Require(call, "topic");
         TalkBreakPriority priority = ParsePriority(Optional(call, "priority"));
@@ -306,9 +318,295 @@ public sealed class ChatActionExecutor(
     private async Task<ChatActionRecord> ExecuteStatusReportAsync(CharacterToolCall call, CancellationToken ct)
         => Succeeded(call, await director.BuildStatusReportAsync(ct));
 
+    private async Task<ChatActionRecord> ExecuteInviteAsync(
+        CharacterToolCall call,
+        ChatActionContext context,
+        CancellationToken ct)
+    {
+        ChatParticipant invitee = await ResolveParticipantByNameAsync(Require(call, "participant"), ct);
+        if (invitee.Kind == ChatParticipantKind.Director)
+        {
+            return Failed(call, "The Program Director is reachable in every channel and cannot be invited.");
+        }
+
+        Guid channelId = await ResolveGroupChannelAsync(context, Optional(call, "channel"), ct);
+        bool added = await chat.AddMemberAsync(channelId, invitee.Ref, invitee.DisplayName, ct);
+        return Succeeded(
+            call,
+            added
+                ? $"{invitee.DisplayName} joined the group."
+                : $"{invitee.DisplayName} is already in the group.");
+    }
+
+    private async Task<ChatActionRecord> ExecuteRemoveFromChannelAsync(
+        CharacterToolCall call,
+        ChatActionContext context,
+        CancellationToken ct)
+    {
+        ChatParticipant target = await ResolveParticipantByNameAsync(Require(call, "participant"), ct);
+        Guid channelId = await ResolveGroupChannelAsync(context, Optional(call, "channel"), ct);
+        bool removed = await chat.RemoveMemberAsync(channelId, target.Ref, ct);
+        return removed
+            ? Succeeded(call, $"{target.DisplayName} left the group.")
+            : Failed(call, $"{target.DisplayName} is not a member of that group.");
+    }
+
+    private async Task<ChatActionRecord> ExecuteMakeSongAsync(
+        CharacterToolCall call,
+        ChatActionContext context,
+        CancellationToken ct)
+    {
+        string? hint = Optional(call, "hint");
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+
+        Artist artist;
+        if (context.SenderRole == CharacterRole.Artist)
+        {
+            Guid memberId = context.Sender.Ref.EntityId
+                ?? throw new InvalidOperationException("The artist sender has no member identity.");
+            artist = await db.ArtistMembers.AsNoTracking()
+                .Where(member => member.Id == memberId)
+                .Select(member => member.Artist!)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException("Your band no longer exists in the library.");
+        }
+        else
+        {
+            string artistName = Require(call, "artist");
+            string lowered = artistName.Trim().ToLowerInvariant();
+            artist = await db.Artists.AsNoTracking()
+                .Where(candidate => !candidate.IsRetired && candidate.Name.ToLower() == lowered)
+                .FirstOrDefaultAsync(ct)
+                ?? throw new InvalidOperationException($"Artist '{artistName}' was not found.");
+        }
+
+        if (artist.IsRetired)
+        {
+            return Failed(call, $"{artist.Name} is retired and no longer records.");
+        }
+
+        musicControl.RequestTrackFor(new ManualSongRequest(artist.Id, hint));
+        return Succeeded(
+            call,
+            hint is null
+                ? $"Song for {artist.Name} queued in the studio."
+                : $"Song for {artist.Name} queued in the studio (direction: {hint}).");
+    }
+
+    private async Task<ChatActionRecord> ExecuteBriefPodcastAsync(CharacterToolCall call, CancellationToken ct)
+    {
+        string topic = Require(call, "topic");
+        string brief = Optional(call, "brief") ?? topic;
+        int durationMinutes = int.TryParse(
+            Optional(call, "durationMinutes"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedMinutes)
+            ? Math.Clamp(parsedMinutes, 10, 30)
+            : 15;
+
+        List<ConversationParticipant> speakers = await ResolvePodcastParticipantsAsync(
+            Require(call, "participants"), ct);
+
+        (List<Guid> trackIds, List<string> trackNotes) = await ResolveReferencedTracksAsync(Optional(call, "tracks"), ct);
+        string fullBrief = trackNotes.Count == 0
+            ? brief
+            : $"{brief}\n\nTalk about these songs from the station library (they will play around the episode):\n- "
+                + string.Join("\n- ", trackNotes);
+
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        ConversationSegment segment = new()
+        {
+            Id = Guid.NewGuid(),
+            Kind = ConversationKind.Podcast,
+            Structure = ConversationStructure.Freeform,
+            Topic = topic,
+            Brief = fullBrief,
+            TargetDurationMinutes = durationMinutes,
+            ParticipantsJson = System.Text.Json.JsonSerializer.Serialize(speakers),
+            ReferencedTrackIdsJson = System.Text.Json.JsonSerializer.Serialize(trackIds),
+            Status = ConversationStatus.Planned,
+            CreatedAtUtc = timeProvider.GetUtcNow().UtcDateTime,
+        };
+        db.ConversationSegments.Add(segment);
+        await db.SaveChangesAsync(ct);
+
+        string speakerNames = string.Join(", ", speakers.Select(speaker => speaker.DisplayName));
+        string trackSummary = trackIds.Count == 0 ? "no referenced tracks" : $"{trackIds.Count} referenced track(s)";
+        return Succeeded(
+            call,
+            $"Podcast \"{topic}\" briefed with {speakers.Count} speakers ({speakerNames}), {durationMinutes} min, "
+            + $"{trackSummary}. It goes into production now; air it from the Podcasts page when ready.");
+    }
+
+    /// <summary>
+    /// Resolves comma-separated names to speakers. A band name expands to its
+    /// voiced members (firm rule: a band in a talk needs enough voiced members).
+    /// </summary>
+    private async Task<List<ConversationParticipant>> ResolvePodcastParticipantsAsync(
+        string participantsArgument,
+        CancellationToken ct)
+    {
+        const int maxSpeakers = 5;
+        string[] names = participantsArgument
+            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        List<ConversationParticipant> speakers = [];
+
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        foreach (string name in names)
+        {
+            ChatParticipant? person = await participants.ResolveByNameAsync(name, ct);
+            if (person is not null && person.Kind != ChatParticipantKind.Director)
+            {
+                AddSpeaker(speakers, ToConversationParticipant(person));
+                continue;
+            }
+
+            // Not a person — maybe a band name that expands to its voiced members.
+            string lowered = name.ToLowerInvariant();
+            Artist? band = await db.Artists.AsNoTracking()
+                .Include(artist => artist.Members)
+                .FirstOrDefaultAsync(artist => !artist.IsRetired && artist.Name.ToLower() == lowered, ct);
+            if (band is null)
+            {
+                throw new InvalidOperationException(
+                    $"No host, band member, guest, or band named '{name}' was found.");
+            }
+
+            List<ArtistMember> voiced = band.Members
+                .Where(member => !string.IsNullOrWhiteSpace(member.VoiceId))
+                .OrderBy(member => member.SortOrder)
+                .ToList();
+            if (voiced.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"{band.Name} has no members with a designed voice yet - their voices are still in the booth. "
+                    + "Name individual members instead, or try again later.");
+            }
+
+            foreach (ArtistMember member in voiced)
+            {
+                if (speakers.Count >= maxSpeakers)
+                {
+                    break;
+                }
+
+                AddSpeaker(speakers, new ConversationParticipant
+                {
+                    SpeakerKey = ConversationParticipant.MemberKey(member.Id),
+                    DisplayName = member.Name,
+                    ConversationRole = "Guest",
+                });
+            }
+        }
+
+        if (speakers.Count is < 2 or > maxSpeakers)
+        {
+            throw new InvalidOperationException(
+                $"A podcast needs 2-{maxSpeakers} speakers; '{participantsArgument}' resolved to {speakers.Count}.");
+        }
+
+        return speakers;
+    }
+
+    private static void AddSpeaker(List<ConversationParticipant> speakers, ConversationParticipant candidate)
+    {
+        if (speakers.Any(existing => existing.SpeakerKey == candidate.SpeakerKey))
+        {
+            return;
+        }
+
+        if (speakers.Count >= 5)
+        {
+            throw new InvalidOperationException("A podcast supports at most 5 speakers.");
+        }
+
+        speakers.Add(candidate);
+    }
+
+    private static ConversationParticipant ToConversationParticipant(ChatParticipant person)
+        => new()
+        {
+            SpeakerKey = person.Kind switch
+            {
+                ChatParticipantKind.Host => ConversationParticipant.HostKey(person.Ref.ModeratorId!.Value),
+                ChatParticipantKind.ArtistMember => ConversationParticipant.MemberKey(person.Ref.EntityId!.Value),
+                _ => ConversationParticipant.GuestKey(person.Ref.EntityId!.Value),
+            },
+            DisplayName = person.DisplayName,
+            ConversationRole = person.Kind == ChatParticipantKind.Host ? "Host" : "Guest",
+        };
+
+    private async Task<(List<Guid> Ids, List<string> Notes)> ResolveReferencedTracksAsync(
+        string? tracksArgument,
+        CancellationToken ct)
+    {
+        List<Guid> ids = [];
+        List<string> notes = [];
+        if (string.IsNullOrWhiteSpace(tracksArgument))
+        {
+            return (ids, notes);
+        }
+
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        foreach (string title in tracksArgument.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string lowered = title.ToLowerInvariant();
+            Track? track = await db.Tracks.AsNoTracking()
+                .Include(candidate => candidate.Artist)
+                .Where(candidate => !candidate.IsRetired && candidate.Title.ToLower().Contains(lowered))
+                .OrderBy(candidate => candidate.Title.Length)
+                .FirstOrDefaultAsync(ct);
+            if (track is null)
+            {
+                throw new InvalidOperationException($"Track '{title}' was not found in the library.");
+            }
+
+            if (ids.Contains(track.Id))
+            {
+                continue;
+            }
+
+            ids.Add(track.Id);
+            string story = string.IsNullOrWhiteSpace(track.SongStory) ? "" : $" Story: {track.SongStory}";
+            notes.Add($"\"{track.Title}\" by {track.Artist?.Name ?? "unknown"} ({track.Genre}).{story}");
+        }
+
+        return (ids, notes);
+    }
+
+    private async Task<ChatParticipant> ResolveParticipantByNameAsync(string name, CancellationToken ct)
+        => await participants.ResolveByNameAsync(name, ct)
+            ?? throw new InvalidOperationException(
+                $"No host, band member, or guest named '{name}' was found.");
+
+    /// <summary>The current channel when it is a group; otherwise a group resolved by name.</summary>
+    private async Task<Guid> ResolveGroupChannelAsync(
+        ChatActionContext context,
+        string? channelName,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(channelName))
+        {
+            return context.Channel.Kind == ChatChannelKind.Group
+                ? context.Channel.Id
+                : throw new InvalidOperationException(
+                    "This is not a group channel. Name the target group with the 'channel' argument.");
+        }
+
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        string lowered = channelName.Trim().ToLowerInvariant();
+        Guid channelId = await db.ChatChannels.AsNoTracking()
+            .Where(channel => channel.Kind == ChatChannelKind.Group
+                && !channel.IsArchived
+                && channel.Name.ToLower() == lowered)
+            .Select(channel => channel.Id)
+            .FirstOrDefaultAsync(ct);
+        return channelId != Guid.Empty
+            ? channelId
+            : throw new InvalidOperationException($"Group channel '{channelName}' was not found.");
+    }
+
     private async Task TryEnqueueAsync(
         Guid channelId,
-        int? responderModeratorId,
+        ChatParticipantRef? responder,
         Guid triggerMessageId,
         ChatActionContext context,
         CharacterToolCall call)
@@ -333,7 +631,7 @@ public sealed class ChatActionExecutor(
 
             turnQueue.TryEnqueue(new ChatTurnRequest(
                 channelId,
-                responderModeratorId,
+                responder,
                 triggerMessageId,
                 context.CorrelationId,
                 context.HopCount + 1));
@@ -384,7 +682,7 @@ public sealed class ChatActionExecutor(
         TalkBreak talkBreak = new()
         {
             Id = Guid.NewGuid(),
-            ModeratorId = context.Sender!.Id,
+            ModeratorId = context.SenderModerator!.Id,
             Priority = TalkBreakPriority.Scheduled,
             Status = TalkBreakStatus.Pending,
             Purpose = purpose,

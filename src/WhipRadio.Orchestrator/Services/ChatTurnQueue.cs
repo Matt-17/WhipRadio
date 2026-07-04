@@ -1,10 +1,12 @@
 using System.Threading.Channels;
+using WhipRadio.Core.Prompting;
 
 namespace WhipRadio.Orchestrator.Services;
 
+/// <summary>A queued agent turn. A null <paramref name="Responder"/> means the Program Director.</summary>
 public sealed record ChatTurnRequest(
     Guid ChannelId,
-    int? ResponderModeratorId,
+    ChatParticipantRef? Responder,
     Guid TriggerMessageId,
     Guid CorrelationId,
     int HopCount);

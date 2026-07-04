@@ -13,7 +13,7 @@ namespace WhipRadio.Orchestrator.Api;
 
 public static partial class RadioApiEndpoints
 {
-    private const int MaxConversationParticipants = 4;
+    private const int MaxConversationParticipants = 5;
 
     private static void MapConversations(RouteGroupBuilder api)
     {
@@ -96,6 +96,7 @@ public static partial class RadioApiEndpoints
             RadioDbContext db,
             IPlayoutQueue playoutQueue,
             IProductionUpdatePublisher productionUpdates,
+            ILogger<ConversationDispatcher> logger,
             CancellationToken ct) =>
         {
             var segment = await db.ConversationSegments.FirstOrDefaultAsync(candidate => candidate.Id == id, ct);
@@ -116,6 +117,10 @@ public static partial class RadioApiEndpoints
                 return Results.BadRequest("The produced audio is missing.");
             }
 
+            // Referenced tracks first (reversed), then the episode on top of the
+            // queue-front stack, so playback runs episode -> track A -> track B.
+            await ConversationDispatcher.EnqueueReferencedTracksAsync(
+                db, playoutQueue, segment, logger, ct);
             playoutQueue.EnqueueFront(new PlayoutItem(
                 PlayoutItemType.Announcement,
                 announcement.Id,
@@ -224,7 +229,16 @@ public static partial class RadioApiEndpoints
                     (member.Artist!.Name + " — " + member.Role),
                     member.VoiceId != null && member.VoiceId != ""))
                 .ToListAsync(ct);
-            return Results.Ok(hosts.Concat(members).ToList());
+            var guests = await db.Guests.AsNoTracking()
+                .Where(guest => !guest.IsArchived)
+                .OrderBy(guest => guest.Name)
+                .Select(guest => new ConversationSpeakerOptionDto(
+                    ConversationParticipant.GuestKeyPrefix + guest.Id.ToString(),
+                    guest.Name,
+                    "guest — " + guest.Expertise,
+                    guest.VoiceId != null && guest.VoiceId != ""))
+                .ToListAsync(ct);
+            return Results.Ok(hosts.Concat(members).Concat(guests).ToList());
         });
 
         api.MapGet("/podcast-shows", async (RadioDbContext db, CancellationToken ct) =>
@@ -388,7 +402,7 @@ public static partial class RadioApiEndpoints
                     ? "Guest"
                     : participant.ConversationRole.Trim(),
             };
-            if (!entry.TryGetModeratorId(out _) && !entry.TryGetArtistMemberId(out _))
+            if (!entry.TryGetModeratorId(out _) && !entry.TryGetArtistMemberId(out _) && !entry.TryGetGuestId(out _))
             {
                 error = $"Speaker key \"{participant.SpeakerKey}\" is not valid.";
                 return false;
@@ -436,7 +450,8 @@ public static partial class RadioApiEndpoints
             segment.ProducedAtUtc,
             segment.UsedAtUtc,
             ParseParticipants(segment.ParticipantsJson),
-            includeTranscript ? segment.Transcript : null);
+            includeTranscript ? segment.Transcript : null,
+            segment.DegradationReason);
 
     private static PodcastShowDto ToDto(PodcastShow show)
         => new(

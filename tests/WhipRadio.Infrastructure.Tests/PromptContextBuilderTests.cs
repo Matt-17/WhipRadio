@@ -44,6 +44,7 @@ public class PromptContextBuilderTests
             new ScheduleService(fixture, time),
             time,
             new EmptyToolCatalog(),
+            new ParticipantMemoryRetriever(fixture, new StubEmbedding(), NullLogger<ParticipantMemoryRetriever>.Instance),
             NullLogger<PromptContextBuilder>.Instance);
 
         var context = await builder.BuildAsync(
@@ -78,6 +79,7 @@ public class PromptContextBuilderTests
             new ScheduleService(fixture, time),
             time,
             new EmptyToolCatalog(),
+            new ParticipantMemoryRetriever(fixture, new StubEmbedding(), NullLogger<ParticipantMemoryRetriever>.Instance),
             NullLogger<PromptContextBuilder>.Instance);
 
         var context = await builder.BuildAsync(
@@ -90,6 +92,12 @@ public class PromptContextBuilderTests
         var rendered = context.RenderSituation();
         Assert.Contains("2026-06-21 00:00", rendered);
         Assert.DoesNotContain("21:50", rendered);
+    }
+
+    private sealed class StubEmbedding : WhipRadio.Core.Abstractions.IEmbeddingService
+    {
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+            => Task.FromResult(new float[] { 1f, 0f, 0f });
     }
 
     private sealed class EmptyToolCatalog : ICharacterToolCatalog

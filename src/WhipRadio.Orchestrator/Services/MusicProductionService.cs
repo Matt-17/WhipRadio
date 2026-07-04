@@ -54,28 +54,28 @@ public class MusicProductionService(
                     {
                         logger.LogDebug("Manual music production is queued; no recording studio endpoint is free and ready.");
                     }
-                    else if (control.TryDequeueManualRequest() is { } artistId)
+                    else if (control.TryDequeueManualRequest() is { } request)
                     {
                         try
                         {
-                            await ProduceOneTrackAsync(settings, artistId, stoppingToken);
+                            await ProduceOneTrackAsync(settings, request, stoppingToken);
                             metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
                         }
                         catch (Exception ex) when (IsTransientStudioUnavailable(ex) && !stoppingToken.IsCancellationRequested)
                         {
                             metrics.GenerationFailed(kind);
-                            control.RequeueTrackForFront(artistId);
+                            control.RequeueTrackForFront(request);
                             logger.LogWarning(ex,
                                 "Recording studio became unavailable while producing requested artist {ArtistId}; keeping the request queued.",
-                                artistId);
+                                request.ArtistId);
                             await PublishFailureAsync(kind, ex, stoppingToken);
                         }
                         catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
                         {
-                            control.RequeueTrackForFront(artistId);
+                            control.RequeueTrackForFront(request);
                             logger.LogInformation(
                                 "Requested vocal song for artist {ArtistId} is waiting for member voice {MemberId}; keeping the request queued.",
-                                artistId,
+                                request.ArtistId,
                                 ex.MemberId);
                         }
                     }
@@ -86,7 +86,7 @@ public class MusicProductionService(
                     {
                         try
                         {
-                            await ProduceOneTrackAsync(settings, forcedArtistId: null, stoppingToken);
+                            await ProduceOneTrackAsync(settings, manualRequest: null, stoppingToken);
                             metrics.GenerationSucceeded(kind, Stopwatch.GetElapsedTime(cycleStart));
                         }
                         catch (VocalReferenceNotReadyException ex) when (!stoppingToken.IsCancellationRequested)
@@ -163,7 +163,7 @@ public class MusicProductionService(
         return unplayed < settings.TargetQueueLength;
     }
 
-    private async Task ProduceOneTrackAsync(StationSettings settings, Guid? forcedArtistId, CancellationToken ct)
+    private async Task ProduceOneTrackAsync(StationSettings settings, ManualSongRequest? manualRequest, CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
         var copywriter = scope.ServiceProvider.GetRequiredService<MusicCopywriter>();
@@ -173,7 +173,7 @@ public class MusicProductionService(
         RequestHint? requestHint = null;
         Artist artist;
 
-        if (forcedArtistId is { } forcedId)
+        if (manualRequest?.ArtistId is { } forcedId)
         {
             // Library-driven: the track is for THIS artist, in THEIR genre.
             await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -211,7 +211,7 @@ public class MusicProductionService(
         {
             await gate.WaitAsync(generationToken); // analysis backfill yields while we generate
             gateHeld = true;
-            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, scope, generationToken, ct);
+            await GenerateAndStoreTrackAsync(settings, context, artist, requestHint, manualRequest?.Hint, scope, generationToken, ct);
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested && generationToken.IsCancellationRequested)
         {
@@ -229,7 +229,7 @@ public class MusicProductionService(
     }
 
     private async Task GenerateAndStoreTrackAsync(
-        StationSettings settings, ShowContext context, Artist artist, RequestHint? requestHint,
+        StationSettings settings, ShowContext context, Artist artist, RequestHint? requestHint, string? songRequest,
         IServiceScope scope, CancellationToken ct, CancellationToken postProcessingToken)
     {
         var musicGenerator = scope.ServiceProvider.GetRequiredService<IMusicGenerator>();
@@ -249,7 +249,8 @@ public class MusicProductionService(
             minSeconds,
             maxSeconds,
             supportsVocals,
-            ct);
+            ct,
+            requestHint: songRequest);
         var plannedDuration = plan.TargetDurationSeconds;
         plan = plan with
         {

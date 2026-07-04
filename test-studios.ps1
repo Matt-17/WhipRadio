@@ -3,6 +3,7 @@ param(
     [int]$Count = 1,
     [switch]$IncludeMusicGen,
     [string]$OllamaModel = "gemma4:e4b",
+    [string]$EmbeddingModel = "nomic-embed-text",
     [int]$OllamaPort = 8001,
     [switch]$SkipWriterRoomChat
 )
@@ -72,6 +73,25 @@ if (-not $SkipWriterRoomChat -and ($modelNames -contains $OllamaModel)) {
     } catch {
         Fail "Ollama chat failed - $($_.Exception.Message)"
     }
+}
+
+# Participant-memory embeddings (Phase 5) share the Writer Room endpoint.
+$embeddingInstalled = @($modelNames | Where-Object { $_ -eq $EmbeddingModel -or $_ -like "$EmbeddingModel`:*" })
+if ($embeddingInstalled.Count -gt 0) {
+    Pass "embedding model $EmbeddingModel is installed"
+    $embedBody = @{ model = $EmbeddingModel; input = "probe" } | ConvertTo-Json
+    try {
+        $embed = Invoke-RestMethod -Method Post -Uri "$ollamaBase/api/embed" -ContentType "application/json" -Body $embedBody -TimeoutSec 120
+        if ($embed.embeddings -and $embed.embeddings.Count -gt 0) {
+            Pass "Ollama embed returned a $($embed.embeddings[0].Count)-dimensional vector"
+        } else {
+            Fail "Ollama embed returned no vector"
+        }
+    } catch {
+        Fail "Ollama embed failed - $($_.Exception.Message)"
+    }
+} else {
+    Fail "embedding model $EmbeddingModel is missing; run start-studios.ps1 to pull it"
 }
 
 Write-Host ""

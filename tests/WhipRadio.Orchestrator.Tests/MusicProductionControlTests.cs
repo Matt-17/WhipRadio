@@ -15,13 +15,27 @@ public class MusicProductionControlTests
         control.RequestTrackFor(first);
         control.RequestTrackFor(second);
 
-        Assert.Equal(first, control.TryDequeueManualRequest());
-        control.RequeueTrackForFront(first);
+        var dequeued = control.TryDequeueManualRequest();
+        Assert.Equal(first, dequeued?.ArtistId);
+        control.RequeueTrackForFront(dequeued!);
 
         Assert.Equal(new[] { first, second }, control.QueuedArtistIds());
-        Assert.Equal(first, control.TryPeekManualRequest());
-        Assert.Equal(first, control.TryDequeueManualRequest());
-        Assert.Equal(second, control.TryDequeueManualRequest());
+        Assert.Equal(first, control.TryPeekManualRequest()?.ArtistId);
+        Assert.Equal(first, control.TryDequeueManualRequest()?.ArtistId);
+        Assert.Equal(second, control.TryDequeueManualRequest()?.ArtistId);
         Assert.Null(control.TryDequeueManualRequest());
+    }
+
+    [TestMethod]
+    public void ManualRequest_CarriesTheSongHintThroughTheQueue()
+    {
+        var control = new MusicProductionControl();
+        var artistId = Guid.NewGuid();
+
+        control.RequestTrackFor(new ManualSongRequest(artistId, "an indie track about ferries"));
+
+        var request = control.TryDequeueManualRequest();
+        Assert.Equal(artistId, request?.ArtistId);
+        Assert.Equal("an indie track about ferries", request?.Hint);
     }
 }

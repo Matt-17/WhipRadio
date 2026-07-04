@@ -195,14 +195,26 @@ song makes ACE-Step spend minutes decoding reference audio before generation.
 
 1. `ConversationProductionService` ensures a `ConversationSegment` episode
    exists for every upcoming podcast-show slot (and produces operator-created
-   one-off talks): one LLM call writes the speaker-tagged script, each turn is
-   voiced with that speaker's designed voice (hosts or artist members), and
-   `ConversationAssembler` joins the turns into one WAV under
-   `library/conversations/`.
-2. `ConversationDispatcher` lands scheduled episodes at their grid slot start
+   one-off talks, including chat-briefed `BriefPodcast` segments). Speakers are
+   hosts, artist members, or one-off guests (2-5), each with a designed voice.
+2. Scripting is multi-agent first (Phase 5): `ConversationDirector` makes one
+   light plan call, then generates each turn with the SPEAKING participant's
+   own LLM call (persona + retrieved memories + running transcript), with the
+   pluggable `ITurnTakingPolicy` (default: addressed-to → name mention →
+   round-robin) picking who speaks and `ConversationBudget` capping turns from
+   the 150-wpm word budget. On failure it degrades to the single-call
+   `ConversationScriptWriter`; the reason lands in
+   `ConversationSegment.DegradationReason` and the Podcasts page.
+3. Each turn is voiced with its speaker's voice, then `ConversationRenderer`
+   premixes the turns over the pure `MixerCore` (sequential today; cross-talk
+   overlap is a renderer parameter awaiting LLM overlap markers) into one WAV
+   under `library/conversations/`. The live mixer is not involved.
+4. `ConversationDispatcher` lands scheduled episodes at their grid slot start
    through the multi-slot `TimedPlayoutInterruptService`; one-off talks air via
-   a queue-front "Air next" action. A slot with no produced episode falls back
-   to normal music under the show's format.
+   a queue-front "Air next" action. Referenced tracks from a `BriefPodcast`
+   brief are front-queued (reversed) so they play right after the episode. A
+   slot with no produced episode falls back to normal music under the show's
+   format.
 
 ### Talk And Announcements
 
@@ -239,6 +251,27 @@ song makes ACE-Step spend minutes decoding reference audio before generation.
    `TalkBreak` when a terminal Admin report ends the exchange.
 9. `ChatNotificationBus` lets existing services publish proactive System
    messages for director results, production failures, and show handovers.
+10. Group channels (Phase 5): `ChatChannelKind.Group` channels carry a
+    `ChatChannelMember` roster mixing hosts, artist members, and guests
+    (`ChatParticipantRef`/`ChatParticipant`, resolved by
+    `ChatParticipantResolver`). Mention-based turn taking works for admin and
+    agent messages alike (hop-capped); artist/guest roles get a narrow verb set
+    (prose plus `MakeSong` for artists) enforced by the tool catalog. The
+    Director manages rosters via `Invite`/`RemoveFromChannel` and can
+    commission songs (`MakeSong`) and one-off podcasts (`BriefPodcast`).
+
+### Participant Memory (Phase 5)
+
+- `ParticipantMemory` rows hold short text slices plus `real[]` embeddings,
+  keyed by the conversation speaker keys (`host:`/`member:`/`guest:`).
+- Write path (`ParticipantMemoryWriter`, failure-soft): per-speaker takeaways
+  distilled after an episode is produced, plain fact snippets on artist/guest
+  creation, and mirrored nightly host summaries.
+- Read path (`ParticipantMemoryRetriever`): embed the query via Ollama
+  `/api/embed` (`nomic-embed-text` on the Writer Room endpoint), then an
+  in-process cosine top-k over the participant's newest rows — no vector
+  database (see Phase-0-Tech-Decisions). Consumed by `PromptContextBuilder`
+  (chat scope) and `ConversationDirector` turns.
 
 ## State And Persistence
 

@@ -23,6 +23,8 @@ public sealed class ArtistMemberVoicePreparationService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await EnqueuePendingMembersAsync(stoppingToken);
+
         while (!stoppingToken.IsCancellationRequested)
         {
             if (queue.TryDequeue() is not { } memberId)
@@ -36,6 +38,31 @@ public sealed class ArtistMemberVoicePreparationService(
             {
                 await Task.Delay(ErrorDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
             }
+        }
+    }
+
+    /// <summary>Queues every member without a designed voice (the file check happens in ProcessMemberAsync).</summary>
+    public async Task EnqueuePendingMembersAsync(CancellationToken ct)
+    {
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var pending = await db.ArtistMembers
+                .AsNoTracking()
+                .Where(m => m.Artist!.IsRetired == false
+                    && (m.VoiceId == null || m.VoiceReferencePath == null))
+                .Select(m => m.Id)
+                .ToListAsync(ct);
+
+            if (pending.Count > 0)
+            {
+                queue.EnqueueMany(pending);
+                logger.LogInformation("Queued {Count} artist member(s) for voice design.", pending.Count);
+            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Could not scan artist members for pending voice design.");
         }
     }
 
@@ -187,6 +214,11 @@ public sealed class ArtistMemberVoicePreparationService(
 
     private static string InferMemberGender(ArtistMember member)
     {
+        if (!string.IsNullOrWhiteSpace(member.Gender))
+        {
+            return member.Gender;
+        }
+
         var text = $"{member.Role} {member.Biography} {member.VoiceCreationPrompt}".ToLowerInvariant();
         if (ContainsAny(text, "female", "woman", "women", "soprano", "mezzo", "alto", "contralto"))
         {

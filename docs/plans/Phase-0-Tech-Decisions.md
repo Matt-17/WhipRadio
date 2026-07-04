@@ -430,3 +430,53 @@ the earliest due one inside its claim window, and supports a targeted
 approach-timing machinery (TimingPlanner track capping, jingle fill, playout
 holds, mixer guard) treats scheduled conversation targets exactly like news
 package targets.
+
+## Artists, Guests, And Group Conversations (Phase 5)
+
+**Multi-agent conversations (firm).** `ConversationDirector`
+(`Infrastructure/Llm`) replaces the single LLM call for scripting: one light
+plan call, then each turn is the SPEAKING participant's own schema-constrained
+call with their persona, retrieved memories, and the running transcript. Turn
+order comes from the pluggable `ITurnTakingPolicy` (default
+`AddressedToRoundRobinPolicy`: explicit addressed-to -> name mention ->
+round-robin, never repeating the last speaker); `ConversationBudget` caps turns
+from the 150-wpm word budget (max 40 turns / 41 calls). Failure degrades to the
+single-call `ConversationScriptWriter` and records
+`ConversationSegment.DegradationReason`. The emitted `ConversationTurn` records
+are unchanged.
+
+**Offline premix = ConversationRenderer over the pure MixerCore (firm).**
+Conversation audio is rendered by scheduling each turn as a `SourceSlot` on a
+master sample clock and driving `MixerCore.MixFrame` — byte-identical to the
+old concat path for sequential turns, and cross-talk overlap is now just a
+renderer parameter (`overlapMs`) awaiting LLM overlap markers. The live mixer
+and the news `SegmentRenderer` are not involved. `ConversationAssembler` stays
+one release as the reference implementation.
+
+**No VoiceProfile owned type.** Moderator, `ArtistMember`, and the new `Guest`
+keep parallel voice columns (`TtsEngine`, `VoiceId`, `VoiceCreationPrompt`,
+`VoiceReferencePath`, ...) — their shapes genuinely diverge and an owned-type
+migration would be destructive churn. Guests follow the exact member pipeline:
+designed `qv-` Qwen voice, self-intro reference WAV under
+`acestep/voice-references/guests/`, priority re-queue when production waits.
+The planned `Fx` chain (telephone/lo-fi caller) is deferred.
+
+**Artist backstory = `DeepBackgroundBiography` (no new column).** Member
+persona lives on `ArtistMember` (`Gender`, `Age?`, `Interests`, `Personality`);
+legacy members keep empty values and fall back to runtime inference — the
+Redefine flow is the on-demand enrichment path.
+
+**Participant memory: no vector database (firm for now).**
+`ParticipantMemory.Embedding` is a plain Npgsql `real[]` scored by in-process
+cosine top-k (`VectorMath`) over the participant's newest ~300 rows. Embeddings
+come from Ollama `/api/embed` with `nomic-embed-text` (Apache-2.0) on the
+existing Writer Room endpoint (pulled by `start-studios.ps1`, probed by
+`test-studios.ps1`). Revisit pgvector only if per-participant candidate sets
+grow far beyond that (see Phase-0-Deferred).
+
+**Group chat = ChatChannelMember table.** `ChatChannelKind.Group` channels mix
+hosts, artist members, and guests; classic channel kinds keep their typed
+columns (no data migration). `ChatSenderKind` gained `ArtistMember`/`Guest`
+with sender-id columns on `ChatMessage`. Artist/guest chat roles are narrow by
+catalog: prose always, `MakeSong` for artists; `Invite`/`RemoveFromChannel`/
+`BriefPodcast` are Director verbs.

@@ -206,6 +206,9 @@ namespace WhipRadio.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int?>("Age")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("ArtistId")
                         .HasColumnType("uuid");
 
@@ -213,7 +216,19 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Gender")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Interests")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Personality")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -333,6 +348,48 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.ToTable("ChatChannels");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.ChatChannelMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ArtistMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ChannelId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("GuestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("JoinedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ModeratorId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ArtistMemberId");
+
+                    b.HasIndex("ChannelId");
+
+                    b.HasIndex("GuestId");
+
+                    b.HasIndex("ModeratorId");
+
+                    b.ToTable("ChatChannelMembers");
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.ChatMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -354,6 +411,12 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<int>("HopCount")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SenderArtistMemberId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SenderGuestId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("SenderKind")
                         .IsRequired()
                         .HasColumnType("text");
@@ -368,6 +431,10 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CorrelationId");
+
+                    b.HasIndex("SenderArtistMemberId");
+
+                    b.HasIndex("SenderGuestId");
 
                     b.HasIndex("SenderModeratorId");
 
@@ -396,6 +463,9 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("DegradationReason")
+                        .HasColumnType("text");
+
                     b.Property<double>("DurationSeconds")
                         .HasColumnType("double precision");
 
@@ -420,6 +490,10 @@ namespace WhipRadio.Infrastructure.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ProductionState")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ReferencedTrackIdsJson")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Status")
@@ -527,6 +601,91 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasIndex("ModeratorId");
 
                     b.ToTable("Formats");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Guest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("Age")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Biography")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CreationHint")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DeepBackground")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Expertise")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Gender")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("GenerationPrompt")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Interests")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Personality")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TtsEngine")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("qwen");
+
+                    b.Property<string>("VoiceCreationPrompt")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("VoiceDesignLastError")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("VoiceDesignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("VoiceId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("VoiceReferencePath")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsArchived");
+
+                    b.HasIndex("Slug")
+                        .IsUnique();
+
+                    b.ToTable("Guests");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.Jingle", b =>
@@ -1044,6 +1203,45 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.HasIndex("Status", "TargetUtc");
 
                     b.ToTable("NewsPackages");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.ParticipantMemory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.PrimitiveCollection<float[]>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("real[]");
+
+                    b.Property<string>("EmbeddingModel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ParticipantKey")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceRef")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ParticipantKey");
+
+                    b.ToTable("ParticipantMemories");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.PlayLogEntry", b =>
@@ -1961,6 +2159,38 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Navigation("Moderator");
                 });
 
+            modelBuilder.Entity("WhipRadio.Core.Entities.ChatChannelMember", b =>
+                {
+                    b.HasOne("WhipRadio.Core.Entities.ArtistMember", "ArtistMember")
+                        .WithMany()
+                        .HasForeignKey("ArtistMemberId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("WhipRadio.Core.Entities.ChatChannel", "Channel")
+                        .WithMany("Members")
+                        .HasForeignKey("ChannelId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("WhipRadio.Core.Entities.Guest", "Guest")
+                        .WithMany()
+                        .HasForeignKey("GuestId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("WhipRadio.Core.Entities.Moderator", "Moderator")
+                        .WithMany()
+                        .HasForeignKey("ModeratorId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("ArtistMember");
+
+                    b.Navigation("Channel");
+
+                    b.Navigation("Guest");
+
+                    b.Navigation("Moderator");
+                });
+
             modelBuilder.Entity("WhipRadio.Core.Entities.ChatMessage", b =>
                 {
                     b.HasOne("WhipRadio.Core.Entities.ChatChannel", "Channel")
@@ -1969,12 +2199,26 @@ namespace WhipRadio.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("WhipRadio.Core.Entities.ArtistMember", "SenderArtistMember")
+                        .WithMany()
+                        .HasForeignKey("SenderArtistMemberId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("WhipRadio.Core.Entities.Guest", "SenderGuest")
+                        .WithMany()
+                        .HasForeignKey("SenderGuestId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("WhipRadio.Core.Entities.Moderator", "SenderModerator")
                         .WithMany()
                         .HasForeignKey("SenderModeratorId")
                         .OnDelete(DeleteBehavior.SetNull);
 
                     b.Navigation("Channel");
+
+                    b.Navigation("SenderArtistMember");
+
+                    b.Navigation("SenderGuest");
 
                     b.Navigation("SenderModerator");
                 });
@@ -2148,6 +2392,8 @@ namespace WhipRadio.Infrastructure.Migrations
 
             modelBuilder.Entity("WhipRadio.Core.Entities.ChatChannel", b =>
                 {
+                    b.Navigation("Members");
+
                     b.Navigation("Messages");
                 });
 

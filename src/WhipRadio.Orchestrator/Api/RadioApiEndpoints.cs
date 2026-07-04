@@ -35,6 +35,7 @@ public static partial class RadioApiEndpoints
         MapStationStatus(api);
         MapLibrary(api);
         MapArtistPosts(api);
+        MapGuests(api);
         MapChat(api);
         MapAgentLog(api);
         MapPlayLog(api);

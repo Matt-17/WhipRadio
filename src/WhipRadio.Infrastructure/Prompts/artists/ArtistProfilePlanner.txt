@@ -16,6 +16,7 @@ Requirements:
 - DeepBackgroundBiography is hidden generation context: include formation story, member dynamics, creative conflicts, recurring themes, musical influences without naming real copyrighted artists, song-language identity, stage habits, and how their sound evolved.
 - Create enough members for the artist type. Solo acts still need one member. Bands normally need 3-6 members.
 - Member biographies must be specific and useful for future dialogue.
+- Every member needs gender ("male" or "female"), a plausible age, 2-4 concrete interests, and a one-line personality. Interests must be specific enough to argue about in a podcast (not "music" or "life").
 - Voice creation prompts describe speaking/singing timbre, accent, age impression, energy, and microphone character.
 - Do not imitate real living artists. Do not use existing artist names.
 - Return valid JSON only. Do not use Markdown fences, comments, trailing commas, or function-call syntax.
@@ -42,7 +43,11 @@ Answer with exactly one JSON object in this schema:
       "name": "<member name>",
       "role": "<role/instrument>",
       "biography": "<member biography, 2-4 sentences>",
-      "voiceCreationPrompt": "<speaking/singing timbre, accent, age impression, energy, and microphone character>"
+      "voiceCreationPrompt": "<speaking/singing timbre, accent, age impression, energy, and microphone character>",
+      "gender": "<male or female>",
+      "age": 29,
+      "interests": "<2-4 comma-separated concrete interests>",
+      "personality": "<one-line personality descriptor>"
     }
   ]
 }

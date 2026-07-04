@@ -17,6 +17,8 @@ public sealed class ChatAgentTurnService(
     IChatReplyParser parser,
     ChatService chat,
     ChatActionExecutor actionExecutor,
+    ChatParticipantResolver participantResolver,
+    ChatResponderResolver responderResolver,
     AgentActionLogService agentLog,
     IHubContext<RadioHub> hub,
     ILogger<ChatAgentTurnService> logger)
@@ -28,28 +30,33 @@ public sealed class ChatAgentTurnService(
     {
         ChatChannel channel;
         ChatMessage trigger;
-        Moderator? responder;
         await using (RadioDbContext db = await dbFactory.CreateDbContextAsync(ct))
         {
             channel = await db.ChatChannels.AsNoTracking()
                 .Include(item => item.Moderator)
                 .Include(item => item.CounterpartModerator)
+                .Include(item => item.Members)
                 .FirstOrDefaultAsync(item => item.Id == request.ChannelId, ct)
                 ?? throw new KeyNotFoundException($"Chat channel {request.ChannelId} was not found.");
             trigger = await db.ChatMessages.AsNoTracking()
                 .Include(item => item.SenderModerator)
+                .Include(item => item.SenderArtistMember)
+                .Include(item => item.SenderGuest)
                 .FirstOrDefaultAsync(item => item.Id == request.TriggerMessageId, ct)
                 ?? throw new KeyNotFoundException($"Trigger message {request.TriggerMessageId} was not found.");
-            responder = request.ResponderModeratorId is int moderatorId
-                ? await db.Moderators.AsNoTracking().FirstOrDefaultAsync(host => host.Id == moderatorId && host.IsActive, ct)
-                : null;
         }
 
-        string senderName = responder?.Name ?? "Program Director";
+        // A dangling reference (fired host, deleted member) falls back to the
+        // Director — matching the pre-Phase-5 behavior for inactive hosts.
+        ChatParticipant participant = await participantResolver.ResolveAsync(request.Responder, ct)
+            ?? ChatParticipantResolver.Director;
+        Moderator? responder = participant.Moderator;
+
+        string senderName = participant.DisplayName;
         await PublishThinkingAsync(channel.Id, senderName, isThinking: true, ct);
         try
         {
-            CharacterRole role = ResolveRole(responder);
+            CharacterRole role = participant.Role;
             PromptContext context = await promptContextBuilder.BuildAsync(
                 new PromptContextInput(
                     PromptScope.Chat,
@@ -57,19 +64,17 @@ public sealed class ChatAgentTurnService(
                     Purpose: "chat conversation",
                     ChatChannelId: channel.Id,
                     ChatCounterpartName: ResolveCounterpartName(channel, trigger, responder),
-                    ChatAudience: trigger.SenderKind),
+                    ChatAudience: trigger.SenderKind,
+                    Participant: participant),
                 ct);
 
-            ChatSenderKind senderKind = responder is null ? ChatSenderKind.Director : ChatSenderKind.Host;
+            ChatSenderKind senderKind = participant.SenderKind;
             (ChatReply reply, List<ChatActionRecord> records) = await RunAgenticLoopAsync(
                 context,
                 trigger.Text,
                 channel,
-                responder,
-                senderKind,
-                role,
+                participant,
                 request,
-                senderName,
                 ct);
 
             if (reply.Errors.Count > 0)
@@ -92,15 +97,24 @@ public sealed class ChatAgentTurnService(
                     ct);
             }
 
-            await chat.PostAsync(
+            ChatMessageDto posted = await chat.PostAsync(
                 channel.Id,
                 senderKind,
                 responder?.Id,
+                participant.Kind == ChatParticipantKind.ArtistMember ? participant.Ref.EntityId : null,
+                participant.Kind == ChatParticipantKind.Guest ? participant.Ref.EntityId : null,
                 LlmOutputSanitizer.Sanitize(reply.Prose),
                 records.Count == 0 ? null : ChatActionJson.Serialize(records),
                 request.CorrelationId,
                 request.HopCount,
                 ct);
+
+            if (channel.Kind == ChatChannelKind.Group)
+            {
+                // Group members can address each other by name; the resolver
+                // enforces the hop cap so the exchange terminates.
+                await responderResolver.TryEnqueueForAgentMessageAsync(posted, ct);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -143,13 +157,13 @@ public sealed class ChatAgentTurnService(
         PromptContext context,
         string triggerText,
         ChatChannel channel,
-        Moderator? responder,
-        ChatSenderKind senderKind,
-        CharacterRole role,
+        ChatParticipant participant,
         ChatTurnRequest request,
-        string senderName,
         CancellationToken ct)
     {
+        Moderator? responder = participant.Moderator;
+        CharacterRole role = participant.Role;
+        string senderName = participant.DisplayName;
         List<string> feedback = [];
         ChatReply reply = new(string.Empty, [], []);
         List<ChatActionRecord> records = [];
@@ -183,7 +197,7 @@ public sealed class ChatAgentTurnService(
                 return (reply, []);
             }
 
-            records = await ExecuteActionsAsync(reply.Actions, channel, responder, senderKind, role, request, senderName, round, feedback, ct);
+            records = await ExecuteActionsAsync(reply.Actions, channel, participant, request, round, feedback, ct);
 
             bool needsFeedbackRound = records.Any(record => record.State == ChatActionState.Failed)
                 || reply.Actions.Any(ChatActionPolicy.IsInTurnLookup);
@@ -199,21 +213,18 @@ public sealed class ChatAgentTurnService(
     private async Task<List<ChatActionRecord>> ExecuteActionsAsync(
         IReadOnlyList<CharacterToolCall> actions,
         ChatChannel channel,
-        Moderator? responder,
-        ChatSenderKind senderKind,
-        CharacterRole role,
+        ChatParticipant participant,
         ChatTurnRequest request,
-        string senderName,
         int round,
         List<string> feedback,
         CancellationToken ct)
     {
+        Moderator? responder = participant.Moderator;
+        string senderName = participant.DisplayName;
         ChatActionContext actionContext = new(
             channel,
             AgentMessage: null,
-            responder,
-            senderKind,
-            role,
+            participant,
             request.CorrelationId,
             request.HopCount);
 
@@ -328,13 +339,25 @@ public sealed class ChatAgentTurnService(
 
     private static string BuildSystemPrompt(PromptContext context, CharacterRole role)
     {
-        string roleGuidance = role == CharacterRole.ProgramDirector
-            ? "You are the Program Director with full authority over programming. When someone asks for a "
-              + "schedule or programming change, apply it with your tools (PlanFormat, AssignHost, HireHost) - "
-              + "agreeing in words alone changes nothing. Use StatusReport first when you need the current schedule. "
-            : "You are a radio host. You cannot change the schedule or programming; that is the Program Director's "
-              + "call. If asked for such a change, say so and forward the request with Message to the Program "
-              + "Director instead of promising it yourself. ";
+        string roleGuidance = role switch
+        {
+            CharacterRole.ProgramDirector =>
+                "You are the Program Director with full authority over programming. When someone asks for a "
+                + "schedule or programming change, apply it with your tools (PlanFormat, AssignHost, HireHost) - "
+                + "agreeing in words alone changes nothing. Use StatusReport first when you need the current schedule. ",
+            CharacterRole.Artist =>
+                "You are a musician invited into the station messenger. You talk about your music, your band, and "
+                + "your interests, and you can offer to record a new song when asked. You cannot change the "
+                + "station's schedule or programming, and you never speak for the station. ",
+            CharacterRole.Guest =>
+                "You are an invited guest in the station messenger. You talk from your own experience and "
+                + "expertise, with opinions of your own. You have no station tools and no authority over "
+                + "programming; if asked for station changes, say that is not your call. ",
+            _ =>
+                "You are a radio host. You cannot change the schedule or programming; that is the Program Director's "
+                + "call. If asked for such a change, say so and forward the request with Message to the Program "
+                + "Director instead of promising it yourself. ",
+        };
 
         return "You are a WhipRadio character chatting off-air in the station messenger. Stay in character and be "
             + "concise like a colleague on a phone chat. Reply in the language of the last user message. "
@@ -347,26 +370,6 @@ public sealed class ChatAgentTurnService(
             + context.RenderSituation();
     }
 
-    private static CharacterRole ResolveRole(Moderator? moderator)
-    {
-        if (moderator is null)
-        {
-            return CharacterRole.ProgramDirector;
-        }
-
-        if (moderator.IsNewsSpecialist)
-        {
-            return CharacterRole.NewsSpecialist;
-        }
-
-        if (moderator.IsWeatherSpecialist)
-        {
-            return CharacterRole.WeatherSpecialist;
-        }
-
-        return CharacterRole.Host;
-    }
-
     private static string ResolveCounterpartName(ChatChannel channel, ChatMessage trigger, Moderator? responder)
     {
         if (trigger.SenderKind == ChatSenderKind.Host && trigger.SenderModerator is { } sender)
@@ -374,9 +377,24 @@ public sealed class ChatAgentTurnService(
             return sender.Name;
         }
 
+        if (trigger.SenderKind == ChatSenderKind.ArtistMember && trigger.SenderArtistMember is { } member)
+        {
+            return member.Name;
+        }
+
+        if (trigger.SenderKind == ChatSenderKind.Guest && trigger.SenderGuest is { } guest)
+        {
+            return guest.Name;
+        }
+
         if (trigger.SenderKind == ChatSenderKind.Director)
         {
             return "Program Director";
+        }
+
+        if (channel.Kind == ChatChannelKind.Group)
+        {
+            return "the group";
         }
 
         if (channel.Kind == ChatChannelKind.HostToHost && responder is not null)

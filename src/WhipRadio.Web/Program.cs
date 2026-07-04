@@ -93,6 +93,9 @@ app.MapGet("/media/voice-preview/{handle}", (string handle, IHttpClientFactory f
 app.MapGet("/media/artist-member-voice/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
     ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/artist-members/{id}/voice"));
 
+app.MapGet("/media/guest-voice/{id:guid}", (Guid id, IHttpClientFactory factory, HttpContext context) =>
+    ProxyMediaAsync(context, factory.CreateClient("orchestrator-media"), $"/api/guests/{id}/voice"));
+
 app.Run();
 
 static string GetOrchestratorEndpoint(IConfiguration configuration, IHostEnvironment environment)

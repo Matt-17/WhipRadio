@@ -144,6 +144,7 @@ public sealed class ConversationDispatcher(
             announcement.DurationSeconds,
             announcement.ModeratorId);
 
+        var isFirstClaim = next.Status != ConversationStatus.Queued;
         if (settings.MixerEnabled)
         {
             interrupts.Schedule(new TimedPlayoutInterrupt(
@@ -152,20 +153,85 @@ public sealed class ConversationDispatcher(
                 TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds),
                 introGrace,
                 lateWindow));
+            if (isFirstClaim)
+            {
+                // The interrupt plays outside the queue; front-queued referenced
+                // tracks follow it once the queue resumes.
+                await EnqueueReferencedTracksAsync(db, playoutQueue, next, logger, ct);
+            }
         }
         else
         {
+            if (isFirstClaim)
+            {
+                // Queue-front is LIFO: tracks first (reversed), then the episode
+                // on top, so playback runs episode -> track A -> track B -> ...
+                await EnqueueReferencedTracksAsync(db, playoutQueue, next, logger, ct);
+            }
+
             playoutQueue.EnqueueFront(item);
             logger.LogInformation("Queued podcast episode at queue front: {AnnouncementId}", announcement.Id);
         }
 
-        if (next.Status != ConversationStatus.Queued)
+        if (isFirstClaim)
         {
             next.Status = ConversationStatus.Queued;
         }
 
         await db.SaveChangesAsync(ct);
         await productionUpdates.PublishConversationsChangedAsync(ct);
+    }
+
+    /// <summary>
+    /// Front-queues the episode's referenced tracks in reverse order so they
+    /// play right after it (BriefPodcast: "talk about A, B, C" also schedules
+    /// A, B, C around the segment). Missing tracks are skipped with a log line.
+    /// </summary>
+    internal static async Task EnqueueReferencedTracksAsync(
+        RadioDbContext db,
+        IPlayoutQueue playoutQueue,
+        ConversationSegment segment,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        List<Guid> trackIds;
+        try
+        {
+            trackIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(segment.ReferencedTrackIdsJson) ?? [];
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return;
+        }
+
+        if (trackIds.Count == 0)
+        {
+            return;
+        }
+
+        var tracks = await db.Tracks.AsNoTracking()
+            .Include(track => track.Artist)
+            .Where(track => trackIds.Contains(track.Id) && !track.IsRetired)
+            .ToDictionaryAsync(track => track.Id, ct);
+
+        foreach (var trackId in Enumerable.Reverse(trackIds))
+        {
+            if (!tracks.TryGetValue(trackId, out var track))
+            {
+                logger.LogInformation(
+                    "Referenced track {TrackId} for episode {SegmentId} no longer exists; skipping.",
+                    trackId,
+                    segment.Id);
+                continue;
+            }
+
+            playoutQueue.EnqueueFront(new PlayoutItem(
+                PlayoutItemType.Track,
+                track.Id,
+                track.FilePath,
+                $"{track.Artist?.Name ?? "Unknown"} - {track.Title}",
+                track.DurationSeconds));
+        }
     }
 
     private static async Task<bool> MarkUsedSegmentsAsync(RadioDbContext db, CancellationToken ct)

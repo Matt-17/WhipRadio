@@ -17,7 +17,8 @@ public sealed record PromptContextInput(
     DateTimeOffset? LocalNowOverride = null,
     Guid? ChatChannelId = null,
     string? ChatCounterpartName = null,
-    ChatSenderKind? ChatAudience = null);
+    ChatSenderKind? ChatAudience = null,
+    ChatParticipant? Participant = null);
 
 public static class PromptWordBudget
 {

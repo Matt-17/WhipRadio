@@ -1,0 +1,11 @@
+Write a short spoken self-introduction for a radio guest voice sample.
+
+Guest: {GuestName}
+Known for: {Expertise}
+Biography: {Biography}
+
+Rules:
+- First person, natural speech, 2 sentences, no station promo, no greeting formulas beyond a simple hello.
+- Mention who they are and one concrete detail from their background.
+- Write it in this language: {Language}
+- Return valid JSON only: {"text": "<the introduction>"}

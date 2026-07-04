@@ -18,6 +18,9 @@ Background — context for the Story field only. Do not let it leak into the Sty
 - Creation hint: {ArtistCreationHint}
 - Public promotion text: {ArtistPromotionText}
 
+Specific request for this recording — honor its topic, mood, or style direction while staying true to your sound:
+{SongRequest}
+
 Previously released songs, including listener reaction:
 {SongHistory}
 

@@ -135,15 +135,29 @@ past summaries for a participant) because 5-way talks otherwise repeat themselve
 ---
 
 ## 7. Definition of Done (themes)
-- [ ] Artists have members with names, genders, ages, roles, interests, voices
-- [ ] A 5-person band can hold a chaptered podcast where each member speaks in-character
-- [ ] Turns are generated per-agent (Option B), each with its own context/memory
-- [ ] A talk/podcast is premixed by `SegmentRenderer` into one WAV (reusing `MixerCore`)
+- [x] Artists have members with names, genders, ages, roles, interests, voices
+- [x] A 5-person band can hold a chaptered podcast where each member speaks in-character
+      (speaker cap raised to 5; bands expand to voiced members in `BriefPodcast`)
+- [x] Turns are generated per-agent (Option B), each with its own context/memory
+      (`ConversationDirector` + `ITurnTakingPolicy`; retrieval memory per speaker)
+- [x] A talk/podcast is premixed into one WAV reusing `MixerCore`
+      (`ConversationRenderer` — the news `SegmentRenderer` stays separate)
       and plays as a single live item; turns sequential and believable
-- [ ] Natural bounded cross-talk is possible later via `timing?` with no schema change
-- [ ] Inviting an artist in chat and asking for a song produces a track in their style
-- [ ] Briefing a podcast on specific tracks references *and* schedules those tracks
-- [ ] Production stays within a per-segment time/cost budget, with a safe fallback
+- [x] Natural bounded cross-talk is possible later via `timing?` with no schema change
+      (the renderer's `overlapMs` parameter exists; LLM overlap markers deferred)
+- [x] Inviting an artist in chat and asking for a song produces a track in their style
+      (`MakeSong` verb over the manual production lane, hint threaded into the song plan)
+- [x] Briefing a podcast on specific tracks references *and* schedules those tracks
+      (`BriefPodcast` verb; referenced tracks front-queue right after the episode)
+- [x] Production stays within a per-segment time/cost budget, with a safe fallback
+      (`ConversationBudget` turn caps; degradation to the single-call writer with a
+      visible `DegradationReason`)
+
+Also delivered beyond the spine: one-off `Guest` entities with a dedicated
+Guests page, group chat channels (`ChatChannelMember`) with invite/remove, and
+thin retrieval memory (`ParticipantMemory` + Ollama embeddings). Deferred: the
+`Fx` caller chain, LLM-driven cross-talk markers, artist autonomy between
+appearances (see Phase-0-Deferred).
 
 ---
 

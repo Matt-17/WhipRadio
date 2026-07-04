@@ -82,7 +82,8 @@ public sealed record ArtistDto(
     int? FormationYear = null,
     string? PromotionText = null,
     IReadOnlyList<ArtistMemberDto>? Members = null,
-    string Language = "en");
+    string Language = "en",
+    string? DeepBackground = null);
 
 public sealed record ArtistMemberDto(
     Guid Id,
@@ -90,7 +91,27 @@ public sealed record ArtistMemberDto(
     string Role,
     string Biography,
     bool HasVoiceReference = false,
-    string? VoiceError = null);
+    string? VoiceError = null,
+    string Gender = "",
+    int? Age = null,
+    string Interests = "",
+    string Personality = "");
+
+public sealed record GuestDto(
+    Guid Id,
+    string Name,
+    string Slug,
+    string Expertise,
+    string Gender,
+    int? Age,
+    string Interests,
+    string Personality,
+    string Biography,
+    bool HasVoice,
+    bool HasVoiceReference,
+    string? VoiceError,
+    bool IsArchived,
+    DateTime CreatedAtUtc);
 
 public sealed record ArtistPostDto(
     Guid Id,
@@ -112,7 +133,32 @@ public sealed record ChatChannelDto(
     DateTime LastMessageAtUtc,
     string? LastMessagePreview,
     int UnreadCount,
-    bool IsArchived);
+    bool IsArchived,
+    IReadOnlyList<ChatChannelMemberDto>? Members = null);
+
+public sealed record ChatChannelMemberDto(
+    Guid Id,
+    string Kind,
+    string DisplayName,
+    int? ModeratorId,
+    Guid? EntityId,
+    string? PhotoUrl);
+
+public sealed record ChatParticipantOptionDto(
+    string Kind,
+    int? ModeratorId,
+    Guid? EntityId,
+    string Name,
+    string Subtitle);
+
+public sealed record ChatParticipantSelectionDto(
+    string Kind,
+    int? ModeratorId,
+    Guid? EntityId);
+
+public sealed record CreateGroupChannelRequestDto(
+    string? Name,
+    IReadOnlyList<ChatParticipantSelectionDto> Members);
 
 public sealed record ChatActionDto(
     string Tool,
@@ -164,6 +210,10 @@ public sealed record PagedArtistPostsDto(
     IReadOnlyList<ArtistPostDto> Items);
 
 public sealed record CreateArtistRequestDto(string? Hint);
+
+public sealed record CreateGuestRequestDto(string? Hint);
+
+public sealed record RedefineGuestRequestDto(string? Hint);
 
 public sealed record RedefineArtistRequestDto(string? Hint);
 
@@ -644,7 +694,8 @@ public sealed record ConversationSegmentDto(
     DateTime? ProducedAtUtc,
     DateTime? UsedAtUtc,
     IReadOnlyList<ConversationParticipantDto> Participants,
-    string? Transcript = null);
+    string? Transcript = null,
+    string? DegradationReason = null);
 
 public sealed record CreateConversationRequestDto(
     string Kind,

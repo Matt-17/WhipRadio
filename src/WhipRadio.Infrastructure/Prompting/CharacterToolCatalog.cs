@@ -59,8 +59,10 @@ public sealed class MessageTool() : CharacterToolBase(
         new("message", "Message body."),
     ])
 {
+    // Artists and guests speak in their own channel only — no DM hopping.
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is not CharacterRole.System && scope is not PromptScope.Utility;
+        => role is not CharacterRole.System and not CharacterRole.Artist and not CharacterRole.Guest
+            && scope is not PromptScope.Utility;
 }
 
 public sealed class AnnouncementTool() : CharacterToolBase(
@@ -123,6 +125,57 @@ public sealed class AssignHostTool() : CharacterToolBase(
     [
         new("format", "Format name or id."),
         new("host", "Host name or id."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class MakeSongTool() : CharacterToolBase(
+    "MakeSong",
+    "Commission a new song: artists record one themselves; the Program Director names the artist.",
+    [
+        new("hint", "Optional topic, mood, or style direction for the song.", IsRequired: false),
+        new("artist", "Artist or band name (Program Director only; artists record their own).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.Artist or CharacterRole.ProgramDirector;
+}
+
+public sealed class BriefPodcastTool() : CharacterToolBase(
+    "BriefPodcast",
+    "Brief a one-off podcast/talk: names the speakers, the topic, and optionally songs to reference and play around it.",
+    [
+        new("participants", "Comma-separated speaker names (hosts, band members, guests; a band name expands to its voiced members)."),
+        new("topic", "Episode topic."),
+        new("brief", "What the conversation should cover.", IsRequired: false),
+        new("tracks", "Comma-separated track titles to reference and schedule around the episode.", IsRequired: false),
+        new("durationMinutes", "Target duration in minutes (10-30).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class InviteTool() : CharacterToolBase(
+    "Invite",
+    "Invite a host, band member, or guest into a group chat channel.",
+    [
+        new("participant", "Name of the host, band member, or guest to invite."),
+        new("channel", "Target group channel name; defaults to the current group channel.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class RemoveFromChannelTool() : CharacterToolBase(
+    "RemoveFromChannel",
+    "Remove a participant from a group chat channel.",
+    [
+        new("participant", "Name of the participant to remove."),
+        new("channel", "Target group channel name; defaults to the current group channel.", IsRequired: false),
     ])
 {
     public override bool IsAvailable(PromptScope scope, CharacterRole role)

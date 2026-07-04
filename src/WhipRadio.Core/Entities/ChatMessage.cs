@@ -9,6 +9,8 @@ public enum ChatSenderKind
     Host = 1,
     Director = 2,
     System = 3,
+    ArtistMember = 4,
+    Guest = 5,
 }
 
 public enum ChatActionState
@@ -34,6 +36,14 @@ public class ChatMessage
     public int? SenderModeratorId { get; set; }
 
     public Moderator? SenderModerator { get; set; }
+
+    public Guid? SenderArtistMemberId { get; set; }
+
+    public ArtistMember? SenderArtistMember { get; set; }
+
+    public Guid? SenderGuestId { get; set; }
+
+    public Guest? SenderGuest { get; set; }
 
     public string Text { get; set; } = string.Empty;
 

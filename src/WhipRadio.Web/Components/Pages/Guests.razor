@@ -1,0 +1,362 @@
+@page "/guests"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@inject RadioApiClient Api
+@inject PlayerState Player
+
+<PageTitle>WhipRadio — Guests</PageTitle>
+
+<h1 class="stage-title">Guests</h1>
+<div class="stage-sub">invented experts and characters · bookable for chat and podcasts</div>
+
+@if (_guests is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> checking the guest book...</div></div>
+}
+else
+{
+    <div class="panel reveal guest-toolbar">
+        <span class="panel-label">Guest book</span>
+        <button class="btn small primary" @onclick="OpenCreate">+ Book Guest</button>
+    </div>
+
+    @if (_guests.Count == 0 && _creationQueue.Count == 0)
+    {
+        <div class="panel reveal">
+            <div class="empty-state">nobody booked yet — invite your first guest</div>
+        </div>
+    }
+    else
+    {
+        <div class="mod-grid">
+            @foreach (var pending in _creationQueue)
+            {
+                <div class="panel mod-card reveal @(pending.Status == PendingGuestCreationStatus.Failed ? "inactive" : null)" aria-live="polite">
+                    <div class="mod-name">@PendingTitle(pending)</div>
+                    <div class="mod-meta">
+                        <StatusBadge Text="@PendingStatusText(pending)"
+                                     Tone="@(pending.Status == PendingGuestCreationStatus.Failed ? StatusBadgeTone.Red : StatusBadgeTone.Amber)"
+                                     Title="@pending.Error" />
+                    </div>
+                    <div class="mod-persona">@pending.Hint</div>
+                    @if (pending.Status == PendingGuestCreationStatus.Failed)
+                    {
+                        <footer>
+                            <div class="btn-row">
+                                <button class="btn small" @onclick="() => RetryPending(pending)">Retry</button>
+                                <button class="btn small" @onclick="() => _creationQueue.Remove(pending)">Dismiss</button>
+                            </div>
+                        </footer>
+                    }
+                </div>
+            }
+            @foreach (var guest in _guests)
+            {
+                <div class="panel mod-card reveal @(guest.IsArchived ? "inactive" : null)">
+                    <div class="guest-card-head">
+                        <PersonAvatar Name="@guest.Name" Size="thumb" />
+                        <div class="mod-name">@guest.Name</div>
+                    </div>
+                    <div class="mod-meta">
+                        <span class="tag amber">@guest.Expertise</span>
+                        @if (!string.IsNullOrWhiteSpace(guest.Gender))
+                        {
+                            <span class="tag">@guest.Gender</span>
+                        }
+                        @if (guest.Age is { } age)
+                        {
+                            <span class="tag">@age</span>
+                        }
+                        @if (guest.IsArchived)
+                        {
+                            <StatusBadge Text="archived" />
+                        }
+                        else
+                        {
+                            <StatusBadge Text="@VoiceStatusText(guest)"
+                                         Tone="@VoiceStatusTone(guest)"
+                                         Title="@guest.VoiceError" />
+                        }
+                    </div>
+                    <div class="mod-persona">
+                        @guest.Biography
+                        @if (!string.IsNullOrWhiteSpace(guest.Personality) || !string.IsNullOrWhiteSpace(guest.Interests))
+                        {
+                            <div class="dim micro-copy guest-persona-line">
+                                @guest.Personality@(string.IsNullOrWhiteSpace(guest.Personality) || string.IsNullOrWhiteSpace(guest.Interests) ? "" : " — ")@guest.Interests
+                            </div>
+                        }
+                    </div>
+                    <footer>
+                        <div class="btn-row">
+                            @if (guest.HasVoiceReference)
+                            {
+                                <button class="btn small" title="play voice reference" @onclick="() => PlayVoice(guest)">
+                                    <Icon Name="soundwave" /> Voice
+                                </button>
+                            }
+                            <button class="btn small" title="redesign the guest's voice"
+                                    disabled="@_voicePending.Contains(guest.Id)"
+                                    @onclick="() => RecreateVoiceAsync(guest)">
+                                <Icon Name="refresh" /> Voice
+                            </button>
+                            <button class="btn small" title="rebuild the guest profile"
+                                    @onclick="() => _redefineTarget = guest">
+                                <Icon Name="refresh" /> Redefine
+                            </button>
+                            <button class="btn small vote-down" title="remove guest"
+                                    @onclick="() => _deleteTarget = guest">
+                                <Icon Name="trash" />
+                            </button>
+                        </div>
+                    </footer>
+                </div>
+            }
+        </div>
+    }
+    @if (_actionError is not null)
+    {
+        <div class="vote-down-text" style="margin-top:10px">@_actionError</div>
+    }
+}
+
+<Modal Visible="@_createOpen" Title="Book Guest" Class="modal-wide" OnClose="CloseCreate">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field full">
+                <label>Booking hint</label>
+                <textarea rows="3" @bind="_hint" @bind:event="oninput"
+                          placeholder="Describe the guest: field of expertise, angle, temperament — or leave empty and let the producer invent one."></textarea>
+            </div>
+        </div>
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="CloseCreate">Cancel</button>
+        <button class="btn primary" @onclick="QueueCreate">Queue Guest</button>
+    </Footer>
+</Modal>
+
+<Modal Visible="@(_redefineTarget is not null)" Title="Redefine guest" Class="modal-wide" OnClose="() => _redefineTarget = null">
+    <ChildContent>
+        @if (_redefineTarget is { } target)
+        {
+            <div class="form-grid">
+                <div class="field full">
+                    <label>Redefinition hint</label>
+                    <textarea rows="3" @bind="_redefineHint" @bind:event="oninput"
+                              placeholder="What should change about @target.Name? Leave empty to refresh the whole profile."></textarea>
+                </div>
+            </div>
+            <div class="dim micro-copy" style="margin-top:8px">
+                The name stays; persona, background and voice are rebuilt.
+            </div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="() => _redefineTarget = null">Cancel</button>
+        <button class="btn primary" @onclick="RedefineAsync">Redefine</button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Remove guest"
+               ConfirmText="Remove"
+               CancelText="Keep them"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Remove <strong>"@doomed.Name"</strong>? Guests who already appeared in a
+        conversation are archived instead of deleted so history stays readable.</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private List<GuestDto>? _guests;
+    private readonly List<PendingGuestCreation> _creationQueue = [];
+    private readonly HashSet<Guid> _voicePending = [];
+    private bool _createOpen;
+    private bool _creationPumpRunning;
+    private string _hint = "";
+    private string _redefineHint = "";
+    private string? _actionError;
+    private GuestDto? _redefineTarget;
+    private GuestDto? _deleteTarget;
+
+    protected override async Task OnInitializedAsync() => _guests = await Api.GetGuestsAsync();
+
+    private void OpenCreate()
+    {
+        _hint = "";
+        _createOpen = true;
+    }
+
+    private void CloseCreate() => _createOpen = false;
+
+    private void QueueCreate()
+    {
+        _creationQueue.Add(new PendingGuestCreation(_hint.Trim()));
+        _createOpen = false;
+        _hint = "";
+        _ = ProcessCreationQueueAsync();
+    }
+
+    private void RetryPending(PendingGuestCreation pending)
+    {
+        pending.Status = PendingGuestCreationStatus.Queued;
+        pending.Error = null;
+        _ = ProcessCreationQueueAsync();
+    }
+
+    private async Task ProcessCreationQueueAsync()
+    {
+        if (_creationPumpRunning)
+        {
+            return;
+        }
+
+        _creationPumpRunning = true;
+        try
+        {
+            while (_creationQueue.FirstOrDefault(p => p.Status == PendingGuestCreationStatus.Queued) is { } pending)
+            {
+                pending.Status = PendingGuestCreationStatus.Creating;
+                pending.Error = null;
+                await InvokeAsync(StateHasChanged);
+
+                try
+                {
+                    var (guest, error) = await Api.CreateGuestAsync(
+                        string.IsNullOrWhiteSpace(pending.Hint) ? null : pending.Hint);
+                    if (guest is null)
+                    {
+                        pending.Status = PendingGuestCreationStatus.Failed;
+                        pending.Error = error;
+                        await InvokeAsync(StateHasChanged);
+                        continue;
+                    }
+
+                    _creationQueue.Remove(pending);
+                    _guests = await Api.GetGuestsAsync();
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (Exception ex)
+                {
+                    pending.Status = PendingGuestCreationStatus.Failed;
+                    pending.Error = ex.Message;
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        finally
+        {
+            _creationPumpRunning = false;
+            if (_creationQueue.Any(p => p.Status == PendingGuestCreationStatus.Queued))
+            {
+                _ = ProcessCreationQueueAsync();
+            }
+        }
+    }
+
+    private async Task RedefineAsync()
+    {
+        if (_redefineTarget is not { } target)
+        {
+            return;
+        }
+
+        _redefineTarget = null;
+        _actionError = null;
+        var hint = _redefineHint.Trim();
+        _redefineHint = "";
+        var (guest, error) = await Api.RedefineGuestAsync(target.Id, string.IsNullOrWhiteSpace(hint) ? null : hint);
+        if (guest is null)
+        {
+            _actionError = error;
+        }
+
+        _guests = await Api.GetGuestsAsync();
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } doomed)
+        {
+            return;
+        }
+
+        _deleteTarget = null;
+        _actionError = null;
+        var (removed, error) = await Api.DeleteGuestAsync(doomed.Id);
+        if (!removed)
+        {
+            _actionError = error;
+        }
+
+        _guests = await Api.GetGuestsAsync();
+    }
+
+    private void PlayVoice(GuestDto guest)
+        => Player.PlayVoice($"{guest.Name} — voice reference", Api.GuestVoiceUrl(guest.Id), 0);
+
+    private async Task RecreateVoiceAsync(GuestDto guest)
+    {
+        if (!_voicePending.Add(guest.Id))
+        {
+            return;
+        }
+
+        try
+        {
+            await Api.RecreateGuestVoiceAsync(guest.Id);
+            _guests = await Api.GetGuestsAsync();
+        }
+        finally
+        {
+            _voicePending.Remove(guest.Id);
+        }
+    }
+
+    private string VoiceStatusText(GuestDto guest)
+        => guest.HasVoice && guest.HasVoiceReference
+            ? "voice ready"
+            : guest.VoiceError is not null ? "voice failed" : "designing voice";
+
+    private StatusBadgeTone VoiceStatusTone(GuestDto guest)
+        => guest.HasVoice && guest.HasVoiceReference
+            ? StatusBadgeTone.Green
+            : guest.VoiceError is not null ? StatusBadgeTone.Red : StatusBadgeTone.Amber;
+
+    private static string PendingTitle(PendingGuestCreation pending)
+        => pending.Status switch
+        {
+            PendingGuestCreationStatus.Creating => "Booking guest...",
+            PendingGuestCreationStatus.Failed => "Guest booking failed",
+            _ => "Guest queued",
+        };
+
+    private static string PendingStatusText(PendingGuestCreation pending)
+        => pending.Status switch
+        {
+            PendingGuestCreationStatus.Creating => "creating",
+            PendingGuestCreationStatus.Failed => "failed",
+            _ => "queued",
+        };
+
+    private sealed class PendingGuestCreation(string hint)
+    {
+        public string Hint { get; } = hint;
+
+        public PendingGuestCreationStatus Status { get; set; } = PendingGuestCreationStatus.Queued;
+
+        public string? Error { get; set; }
+    }
+
+    private enum PendingGuestCreationStatus
+    {
+        Queued,
+        Creating,
+        Failed,
+    }
+}

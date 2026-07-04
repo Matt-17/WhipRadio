@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Api;
 
@@ -24,6 +25,7 @@ public sealed class ChatService(
         List<ChatChannel> channels = await db.ChatChannels.AsNoTracking()
             .Include(channel => channel.Moderator)
             .Include(channel => channel.CounterpartModerator)
+            .Include(channel => channel.Members).ThenInclude(member => member.Moderator)
             .ToListAsync(ct);
 
         // Stable rail order (Station, Director, hosts A-Z, exchanges, archived
@@ -79,6 +81,8 @@ public sealed class ChatService(
 
         IQueryable<ChatMessage> query = db.ChatMessages.AsNoTracking()
             .Include(message => message.SenderModerator)
+            .Include(message => message.SenderArtistMember)
+            .Include(message => message.SenderGuest)
             .Where(message => message.ChannelId == channelId);
 
         if (beforeUtc is { } before)
@@ -109,10 +113,23 @@ public sealed class ChatService(
         return new PagedChatMessagesDto(page.Select(ToMessageDto).ToList(), hasMore);
     }
 
+    public Task<ChatMessageDto> PostAsync(
+        Guid channelId,
+        ChatSenderKind kind,
+        int? moderatorId,
+        string text,
+        string? actionsJson,
+        Guid? correlationId,
+        int hopCount,
+        CancellationToken ct)
+        => PostAsync(channelId, kind, moderatorId, artistMemberId: null, guestId: null, text, actionsJson, correlationId, hopCount, ct);
+
     public async Task<ChatMessageDto> PostAsync(
         Guid channelId,
         ChatSenderKind kind,
         int? moderatorId,
+        Guid? artistMemberId,
+        Guid? guestId,
         string text,
         string? actionsJson,
         Guid? correlationId,
@@ -147,6 +164,8 @@ public sealed class ChatService(
             ChannelId = channelId,
             SenderKind = kind,
             SenderModeratorId = moderatorId,
+            SenderArtistMemberId = artistMemberId,
+            SenderGuestId = guestId,
             Text = trimmed,
             ActionsJson = actionsJson,
             CorrelationId = correlationId,
@@ -160,6 +179,8 @@ public sealed class ChatService(
 
         ChatMessage persisted = await db.ChatMessages.AsNoTracking()
             .Include(item => item.SenderModerator)
+            .Include(item => item.SenderArtistMember)
+            .Include(item => item.SenderGuest)
             .FirstAsync(item => item.Id == message.Id, ct);
         ChatMessageDto messageDto = ToMessageDto(persisted);
         ChatChannelDto channelDto = await BuildChannelDtoAsync(channelId, ct);
@@ -190,6 +211,8 @@ public sealed class ChatService(
 
         ChatMessage persisted = await db.ChatMessages.AsNoTracking()
             .Include(item => item.SenderModerator)
+            .Include(item => item.SenderArtistMember)
+            .Include(item => item.SenderGuest)
             .FirstAsync(item => item.Id == messageId, ct);
         await BroadcastMessageAsync(ToMessageDto(persisted), ct);
         await BroadcastChannelAsync(await BuildChannelDtoAsync(persisted.ChannelId, ct), ct);
@@ -218,6 +241,8 @@ public sealed class ChatService(
 
         ChatMessage persisted = await db.ChatMessages.AsNoTracking()
             .Include(item => item.SenderModerator)
+            .Include(item => item.SenderArtistMember)
+            .Include(item => item.SenderGuest)
             .FirstAsync(item => item.Id == messageId, ct);
         await BroadcastMessageAsync(ToMessageDto(persisted), ct);
     }
@@ -311,6 +336,151 @@ public sealed class ChatService(
         await BroadcastChannelAsync(await BuildChannelDtoAsync(channel.Id, ct), ct);
         return channel.Id;
     }
+
+    /// <summary>
+    /// Creates a group channel with any mix of hosts, artist members, and
+    /// guests. The admin is an implicit member; the Director is always
+    /// reachable by mention and needs no membership row.
+    /// </summary>
+    public async Task<ChatChannelDto> CreateGroupChannelAsync(
+        string? name,
+        IReadOnlyList<(ChatParticipantRef Ref, string DisplayName)> members,
+        CancellationToken ct)
+    {
+        if (members.Count == 0)
+        {
+            throw new InvalidOperationException("A group channel needs at least one member.");
+        }
+
+        DateTime now = timeProvider.GetUtcNow().UtcDateTime;
+        ChatChannel channel = new()
+        {
+            Id = Guid.NewGuid(),
+            Kind = ChatChannelKind.Group,
+            Name = string.IsNullOrWhiteSpace(name)
+                ? string.Join(", ", members.Select(member => member.DisplayName).Distinct())
+                : name.Trim(),
+            CreatedAtUtc = now,
+            LastMessageAtUtc = now,
+        };
+
+        await using (RadioDbContext db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            db.ChatChannels.Add(channel);
+            foreach ((ChatParticipantRef reference, string displayName) in members)
+            {
+                db.ChatChannelMembers.Add(ToMemberRow(channel.Id, reference, displayName, now));
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        ChatChannelDto dto = await BuildChannelDtoAsync(channel.Id, ct);
+        await BroadcastChannelAsync(dto, ct);
+        return dto;
+    }
+
+    /// <summary>Adds a member; false when they already belong to the channel.</summary>
+    public async Task<bool> AddMemberAsync(
+        Guid channelId,
+        ChatParticipantRef reference,
+        string displayName,
+        CancellationToken ct)
+    {
+        await using (RadioDbContext db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            ChatChannel channel = await db.ChatChannels
+                .Include(item => item.Members)
+                .FirstOrDefaultAsync(item => item.Id == channelId, ct)
+                ?? throw new KeyNotFoundException($"Chat channel {channelId} was not found.");
+            if (channel.Kind != ChatChannelKind.Group)
+            {
+                throw new InvalidOperationException("Members can only be managed on group channels.");
+            }
+
+            if (channel.Members.Any(member => MatchesRef(member, reference)))
+            {
+                return false;
+            }
+
+            db.ChatChannelMembers.Add(ToMemberRow(channelId, reference, displayName, timeProvider.GetUtcNow().UtcDateTime));
+            await db.SaveChangesAsync(ct);
+        }
+
+        await BroadcastChannelAsync(await BuildChannelDtoAsync(channelId, ct), ct);
+        return true;
+    }
+
+    /// <summary>Removes a member; false when they were not part of the channel.</summary>
+    public async Task<bool> RemoveMemberAsync(
+        Guid channelId,
+        ChatParticipantRef reference,
+        CancellationToken ct)
+    {
+        await using (RadioDbContext db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            List<ChatChannelMember> rows = await db.ChatChannelMembers
+                .Where(item => item.ChannelId == channelId)
+                .ToListAsync(ct);
+            ChatChannelMember? member = rows.FirstOrDefault(item => MatchesRef(item, reference));
+            if (member is null)
+            {
+                return false;
+            }
+
+            db.ChatChannelMembers.Remove(member);
+            await db.SaveChangesAsync(ct);
+        }
+
+        await BroadcastChannelAsync(await BuildChannelDtoAsync(channelId, ct), ct);
+        return true;
+    }
+
+    public async Task<bool> RemoveMemberByIdAsync(Guid channelId, Guid memberId, CancellationToken ct)
+    {
+        await using (RadioDbContext db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            ChatChannelMember? member = await db.ChatChannelMembers
+                .FirstOrDefaultAsync(item => item.Id == memberId && item.ChannelId == channelId, ct);
+            if (member is null)
+            {
+                return false;
+            }
+
+            db.ChatChannelMembers.Remove(member);
+            await db.SaveChangesAsync(ct);
+        }
+
+        await BroadcastChannelAsync(await BuildChannelDtoAsync(channelId, ct), ct);
+        return true;
+    }
+
+    private static ChatChannelMember ToMemberRow(
+        Guid channelId,
+        ChatParticipantRef reference,
+        string displayName,
+        DateTime now)
+        => new()
+        {
+            Id = Guid.NewGuid(),
+            ChannelId = channelId,
+            Kind = reference.Kind,
+            ModeratorId = reference.Kind == ChatParticipantKind.Host ? reference.ModeratorId : null,
+            ArtistMemberId = reference.Kind == ChatParticipantKind.ArtistMember ? reference.EntityId : null,
+            GuestId = reference.Kind == ChatParticipantKind.Guest ? reference.EntityId : null,
+            DisplayName = displayName,
+            JoinedAtUtc = now,
+        };
+
+    private static bool MatchesRef(ChatChannelMember member, ChatParticipantRef reference)
+        => member.Kind == reference.Kind
+            && member.Kind switch
+            {
+                ChatParticipantKind.Host => member.ModeratorId == reference.ModeratorId,
+                ChatParticipantKind.ArtistMember => member.ArtistMemberId == reference.EntityId,
+                ChatParticipantKind.Guest => member.GuestId == reference.EntityId,
+                _ => true,
+            };
 
     public async Task EnsureChannelsAsync(CancellationToken ct)
     {
@@ -415,6 +585,7 @@ public sealed class ChatService(
         ChatChannel channel = await db.ChatChannels.AsNoTracking()
             .Include(item => item.Moderator)
             .Include(item => item.CounterpartModerator)
+            .Include(item => item.Members).ThenInclude(member => member.Moderator)
             .FirstAsync(item => item.Id == channelId, ct);
         ChatMessage? latest = await db.ChatMessages.AsNoTracking()
             .Where(message => message.ChannelId == channelId)
@@ -439,7 +610,19 @@ public sealed class ChatService(
             channel.LastMessageAtUtc,
             latest is null ? null : Preview(latest.Text),
             unreadCount,
-            channel.IsArchived);
+            channel.IsArchived,
+            channel.Kind == ChatChannelKind.Group
+                ? channel.Members
+                    .OrderBy(member => member.JoinedAtUtc)
+                    .Select(member => new ChatChannelMemberDto(
+                        member.Id,
+                        member.Kind.ToString(),
+                        member.DisplayName,
+                        member.ModeratorId,
+                        member.ArtistMemberId ?? member.GuestId,
+                        member.Moderator?.PhotoUrl))
+                    .ToList()
+                : null);
 
     private static ChatMessageDto ToMessageDto(ChatMessage message)
         => new(
@@ -466,6 +649,8 @@ public sealed class ChatService(
         {
             ChatSenderKind.Admin => "Admin",
             ChatSenderKind.Host => message.SenderModerator?.Name ?? "Host",
+            ChatSenderKind.ArtistMember => message.SenderArtistMember?.Name ?? "Band member",
+            ChatSenderKind.Guest => message.SenderGuest?.Name ?? "Guest",
             ChatSenderKind.Director => "Program Director",
             ChatSenderKind.System => "System",
             _ => message.SenderKind.ToString(),
@@ -477,7 +662,8 @@ public sealed class ChatService(
             ChatChannelKind.Station => 0,
             ChatChannelKind.DirectorDm => 1,
             ChatChannelKind.HostDm => 2,
-            _ => 3,
+            ChatChannelKind.Group => 3,
+            _ => 4,
         };
 
     private static string ChannelName(ChatChannel channel)

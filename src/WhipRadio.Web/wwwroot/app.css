@@ -1068,6 +1068,38 @@ table.console-table {
     align-items: center;
 }
 
+/* ---------- guest book ---------- */
+
+.guest-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.guest-toolbar .panel-label { margin-bottom: 0; }
+
+.guest-card-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.guest-persona-line { margin-top: 8px; }
+
+/* ---------- artist detail extras (Phase 5) ---------- */
+
+.artist-member-persona {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    margin-bottom: 6px;
+}
+
+.artist-backstory-toggle { margin-top: 8px; }
+
+.artist-backstory { margin-top: 8px; }
+
 /* ---------- hosts master-detail ---------- */
 
 .host-layout {
@@ -2502,6 +2534,60 @@ table.console-table {
     color: var(--green);
     border-color: rgba(87, 245, 159, .35);
 }
+
+.chat-avatar-icon.group {
+    color: var(--amber);
+    border-color: rgba(255, 176, 46, .35);
+}
+
+/* ---------- group channel roster + picker (Phase 5) ---------- */
+
+.chat-roster {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 10px;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.chat-roster-member {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.chat-roster-name { color: var(--text); }
+
+.chat-roster-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.chat-group-picker {
+    margin-top: 12px;
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+}
+
+.chat-group-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    cursor: pointer;
+}
+
+.chat-group-option:hover { background: var(--bg-2); }
 
 .chat-unread {
     min-width: 24px;

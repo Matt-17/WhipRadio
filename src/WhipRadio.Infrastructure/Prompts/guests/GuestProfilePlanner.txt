@@ -1,0 +1,39 @@
+Create a fictional one-off radio guest for the station below.
+The one-line creation hint is:
+{Hint}
+
+Station context:
+Name: {StationName}
+Slogan: {StationSlogan}
+Vision: {StationVision}
+Mission: {StationMission}
+Broadcast language: {Language}
+
+Existing people names to avoid:
+{AvoidNames}
+
+Requirements:
+- Invent a believable person who can hold their own in interviews, podcasts, and the station messenger: an expert, local character, author, scientist, athlete, or similar.
+- The expertise field is a short label for what they are known for ("urban beekeeper", "sleep researcher").
+- Biography is public showcase copy (2-3 sentences).
+- DeepBackground is hidden generation context: include career history, strong opinions, contradictions, recurring anecdotes, and how they talk when challenged (6-10 sentences).
+- Gender must be "male" or "female", with a plausible age.
+- Interests must be 2-4 concrete topics, specific enough to argue about in a podcast (not "music" or "life").
+- Personality is one line.
+- The voice creation prompt describes speaking timbre, accent, age impression, energy, and microphone character.
+- Do not imitate real living people. Do not use existing names.
+- Return valid JSON only. Do not use Markdown fences, comments, trailing commas, or function-call syntax.
+- JSON strings must use normal double quotes. Do not put quote characters inside string values.
+
+Answer with exactly one JSON object in this schema:
+{
+  "name": "<full name>",
+  "expertise": "<short label for what they are known for>",
+  "gender": "<male or female>",
+  "age": 47,
+  "interests": "<2-4 comma-separated concrete interests>",
+  "personality": "<one-line personality descriptor>",
+  "biography": "<2-3 public sentences>",
+  "deepBackground": "<6-10 detailed sentences, hidden from listeners, for talk generation>",
+  "voiceCreationPrompt": "<speaking timbre, accent, age impression, energy, and microphone character>"
+}

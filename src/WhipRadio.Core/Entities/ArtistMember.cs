@@ -17,6 +17,17 @@ public class ArtistMember
 
     public string Biography { get; set; } = string.Empty;
 
+    /// <summary>"male"/"female"; empty = unknown (legacy member, inferred at runtime).</summary>
+    public string Gender { get; set; } = string.Empty;
+
+    public int? Age { get; set; }
+
+    /// <summary>Comma-separated interests concrete enough to argue about in a podcast.</summary>
+    public string Interests { get; set; } = string.Empty;
+
+    /// <summary>One-line personality descriptor.</summary>
+    public string Personality { get; set; } = string.Empty;
+
     public string VoiceCreationPrompt { get; set; } = string.Empty;
 
     public string TtsEngine { get; set; } = "qwen";

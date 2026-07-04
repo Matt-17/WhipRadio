@@ -1,0 +1,23 @@
+A conversation just aired on {StationName}. Distill what each speaker should
+remember about it — one takeaway per speaker, written from that speaker's own
+perspective ("I said...", "Nova told me...").
+
+Episode: "{Title}" — {Topic}
+
+Speakers:
+{SpeakerRoster}
+
+Transcript:
+{Transcript}
+
+Rules:
+- Exactly one entry per speaker, using their exact name.
+- Each takeaway is 1-2 sentences: the concrete point they made or learned, not vibes.
+- Return valid JSON only. No Markdown fences, comments, or trailing commas.
+
+Answer with exactly one JSON object in this schema:
+{
+  "takeaways": [
+    { "speaker": "<exact speaker name>", "takeaway": "<1-2 sentences>" }
+  ]
+}

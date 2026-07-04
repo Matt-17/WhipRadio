@@ -104,6 +104,106 @@ public static partial class RadioApiEndpoints
             }
         });
 
+        // Everyone who can be invited into a group channel.
+        chat.MapGet("/participants", async (RadioDbContext db, CancellationToken ct) =>
+        {
+            var hosts = await db.Moderators.AsNoTracking()
+                .Where(host => host.IsActive)
+                .OrderBy(host => host.Name)
+                .Select(host => new ChatParticipantOptionDto(
+                    nameof(ChatParticipantKind.Host), host.Id, null, host.Name, "host — " + host.Style))
+                .ToListAsync(ct);
+            var members = await db.ArtistMembers.AsNoTracking()
+                .Include(member => member.Artist)
+                .Where(member => member.Artist != null && !member.Artist.IsRetired)
+                .OrderBy(member => member.Name)
+                .Select(member => new ChatParticipantOptionDto(
+                    nameof(ChatParticipantKind.ArtistMember), null, member.Id, member.Name,
+                    member.Artist!.Name + " — " + member.Role))
+                .ToListAsync(ct);
+            var guests = await db.Guests.AsNoTracking()
+                .Where(guest => !guest.IsArchived)
+                .OrderBy(guest => guest.Name)
+                .Select(guest => new ChatParticipantOptionDto(
+                    nameof(ChatParticipantKind.Guest), null, guest.Id, guest.Name, "guest — " + guest.Expertise))
+                .ToListAsync(ct);
+            return Results.Ok(hosts.Concat(members).Concat(guests).ToList());
+        });
+
+        chat.MapPost("/channels/group", async (
+            CreateGroupChannelRequestDto request,
+            ChatService service,
+            ChatParticipantResolver participants,
+            CancellationToken ct) =>
+        {
+            if (request.Members is not { Count: > 0 })
+            {
+                return Results.BadRequest("A group channel needs at least one member.");
+            }
+
+            var resolved = new List<(WhipRadio.Core.Prompting.ChatParticipantRef Ref, string DisplayName)>();
+            foreach (ChatParticipantSelectionDto selection in request.Members)
+            {
+                if (!TryToRef(selection, out var reference))
+                {
+                    return Results.BadRequest($"Invalid participant selection '{selection.Kind}'.");
+                }
+
+                var participant = await participants.ResolveAsync(reference, ct);
+                if (participant is null)
+                {
+                    return Results.BadRequest($"Participant of kind '{selection.Kind}' was not found.");
+                }
+
+                if (resolved.All(entry => entry.Ref != participant.Ref))
+                {
+                    resolved.Add((participant.Ref, participant.DisplayName));
+                }
+            }
+
+            return Results.Ok(await service.CreateGroupChannelAsync(request.Name, resolved, ct));
+        });
+
+        chat.MapPost("/channels/{id:guid}/members", async (
+            Guid id,
+            ChatParticipantSelectionDto selection,
+            ChatService service,
+            ChatParticipantResolver participants,
+            CancellationToken ct) =>
+        {
+            if (!TryToRef(selection, out var reference))
+            {
+                return Results.BadRequest($"Invalid participant selection '{selection.Kind}'.");
+            }
+
+            var participant = await participants.ResolveAsync(reference, ct);
+            if (participant is null)
+            {
+                return Results.NotFound("Participant was not found.");
+            }
+
+            try
+            {
+                bool added = await service.AddMemberAsync(id, participant.Ref, participant.DisplayName, ct);
+                return added ? Results.Ok() : Results.Conflict("Already a member.");
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.Conflict(ex.Message);
+            }
+        });
+
+        chat.MapDelete("/channels/{id:guid}/members/{memberId:guid}", async (
+            Guid id,
+            Guid memberId,
+            ChatService service,
+            CancellationToken ct) =>
+            await service.RemoveMemberByIdAsync(id, memberId, ct) ? Results.NoContent() : Results.NotFound());
+
         chat.MapPost("/channels/{id:guid}/read", async (
             Guid id,
             ChatService service,
@@ -146,5 +246,29 @@ public static partial class RadioApiEndpoints
                 return Results.BadRequest(ex.Message);
             }
         });
+    }
+
+    private static bool TryToRef(
+        ChatParticipantSelectionDto selection,
+        out WhipRadio.Core.Prompting.ChatParticipantRef reference)
+    {
+        reference = WhipRadio.Core.Prompting.ChatParticipantRef.Director;
+        if (Enum.TryParse(selection.Kind, ignoreCase: true, out ChatParticipantKind kind))
+        {
+            switch (kind)
+            {
+                case ChatParticipantKind.Host when selection.ModeratorId is int moderatorId:
+                    reference = WhipRadio.Core.Prompting.ChatParticipantRef.ForHost(moderatorId);
+                    return true;
+                case ChatParticipantKind.ArtistMember when selection.EntityId is Guid memberId:
+                    reference = WhipRadio.Core.Prompting.ChatParticipantRef.ForArtistMember(memberId);
+                    return true;
+                case ChatParticipantKind.Guest when selection.EntityId is Guid guestId:
+                    reference = WhipRadio.Core.Prompting.ChatParticipantRef.ForGuest(guestId);
+                    return true;
+            }
+        }
+
+        return false;
     }
 }

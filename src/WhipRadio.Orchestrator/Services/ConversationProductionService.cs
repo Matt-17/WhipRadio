@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -26,6 +27,9 @@ public sealed class ConversationProductionService(
     IServiceScopeFactory scopeFactory,
     IDbContextFactory<RadioDbContext> dbFactory,
     ArtistMemberVoiceQueue memberVoiceQueue,
+    GuestVoiceQueue guestVoiceQueue,
+    ParticipantMemoryWriter memoryWriter,
+    ParticipantMemoryRetriever memoryRetriever,
     TimeProvider timeProvider,
     IProductionUpdatePublisher productionUpdates,
     IStationMetrics metrics,
@@ -227,7 +231,7 @@ public sealed class ConversationProductionService(
             {
                 step = "writing the script";
                 await UpdateStateAsync(segment.Id, "Writing the script.", 1, 1, ct);
-                var script = await WriteScriptAsync(scope.ServiceProvider, segment, settings, speakers, ct);
+                var (script, degradationReason) = await WriteScriptAsync(scope.ServiceProvider, segment, settings, speakers, ct);
                 await using var db = await dbFactory.CreateDbContextAsync(ct);
                 var tracked = await db.ConversationSegments.FirstAsync(s => s.Id == segment.Id, ct);
                 tracked.TurnsJson = JsonSerializer.Serialize(script.Turns);
@@ -235,6 +239,7 @@ public sealed class ConversationProductionService(
                 tracked.Title = script.Title;
                 tracked.Status = ConversationStatus.Scripted;
                 tracked.ProductionState = "Script ready.";
+                tracked.DegradationReason = degradationReason;
                 await db.SaveChangesAsync(ct);
                 await productionUpdates.PublishConversationsChangedAsync(ct);
                 segment = tracked;
@@ -279,7 +284,7 @@ public sealed class ConversationProductionService(
 
             step = "assembling audio";
             await UpdateStateAsync(segment.Id, "Assembling the conversation.", stepTotal, stepTotal, ct);
-            var composite = ConversationAssembler.Assemble(recorded);
+            var composite = ConversationRenderer.Render(recorded);
             var relativePath = Path.Combine("library", ConversationsDirectory, $"{segment.Id}.wav");
             var absolutePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(absolutePath)!);
@@ -406,6 +411,43 @@ public sealed class ConversationProductionService(
                     Rate: 1.0,
                     BuildInstruction(member.TtsEngine, "Podcast guest, natural conversational delivery."));
             }
+            else if (participant.TryGetGuestId(out var guestId))
+            {
+                var guest = await db.Guests.AsNoTracking()
+                    .FirstOrDefaultAsync(g => g.Id == guestId, ct);
+                if (guest is null)
+                {
+                    await MarkFailedAsync(segmentId, $"Guest \"{participant.DisplayName}\" no longer exists.", ct);
+                    return null;
+                }
+
+                if (string.IsNullOrWhiteSpace(guest.VoiceId))
+                {
+                    guestVoiceQueue.EnqueuePriority(guest.Id);
+                    await UpdateStateAsync(
+                        segmentId, $"Waiting for {guest.Name}'s voice to be designed.", 0, 0, ct);
+                    return null;
+                }
+
+                var deepBackground = guest.DeepBackground;
+                if (deepBackground.Length > MaxDeepBackgroundChars)
+                {
+                    deepBackground = deepBackground[..MaxDeepBackgroundChars];
+                }
+
+                briefs.Add(new ConversationSpeakerBrief(
+                    participant.SpeakerKey,
+                    guest.Name,
+                    participant.ConversationRole,
+                    BuildGuestPersonaBrief(guest, deepBackground)));
+                voices[participant.SpeakerKey] = new ResolvedVoice(
+                    guest.Name,
+                    guest.VoiceId!,
+                    guest.TtsEngine,
+                    language,
+                    Rate: 1.0,
+                    BuildInstruction(guest.TtsEngine, "Invited guest, natural conversational delivery."));
+            }
             else
             {
                 await MarkFailedAsync(segmentId, $"Unknown speaker key \"{participant.SpeakerKey}\".", ct);
@@ -426,7 +468,12 @@ public sealed class ConversationProductionService(
         return new ResolvedSpeakers(briefs, voices, leadModeratorId);
     }
 
-    private async Task<ConversationScript> WriteScriptAsync(
+    /// <summary>
+    /// Scripts the episode: the multi-agent <see cref="ConversationDirector"/>
+    /// first, degrading to the single-call <see cref="ConversationScriptWriter"/>
+    /// when the director fails — the reason lands in DegradationReason.
+    /// </summary>
+    private async Task<(ConversationScript Script, string? DegradationReason)> WriteScriptAsync(
         IServiceProvider services,
         ConversationSegment segment,
         StationSettings settings,
@@ -447,21 +494,59 @@ public sealed class ConversationProductionService(
                 .ToListAsync(ct);
         }
 
-        var writer = services.GetRequiredService<ConversationScriptWriter>();
-        return await writer.WriteAsync(
-            new ConversationScriptRequest(
-                segment.Kind,
-                segment.Structure,
-                segment.Topic,
-                segment.Brief,
-                PodcastShowScheduler.NormalizeEpisodeMinutes(segment.TargetDurationMinutes),
-                speakers.Briefs,
-                Deserialize<ConversationChapter>(segment.ChaptersJson),
-                string.IsNullOrWhiteSpace(settings.StationName) ? "WhipRadio" : settings.StationName,
-                settings.StationSlogan,
-                StationLanguages.Normalize(settings.DefaultLanguage),
-                recentTitles),
-            ct);
+        var request = new ConversationScriptRequest(
+            segment.Kind,
+            segment.Structure,
+            segment.Topic,
+            segment.Brief,
+            PodcastShowScheduler.NormalizeEpisodeMinutes(segment.TargetDurationMinutes),
+            speakers.Briefs,
+            Deserialize<ConversationChapter>(segment.ChaptersJson),
+            string.IsNullOrWhiteSpace(settings.StationName) ? "WhipRadio" : settings.StationName,
+            settings.StationSlogan,
+            StationLanguages.Normalize(settings.DefaultLanguage),
+            recentTitles);
+
+        var director = services.GetRequiredService<ConversationDirector>();
+        try
+        {
+            var script = await director.WriteAsync(request, await RetrieveMemorySlicesAsync(segment, speakers, ct), ct);
+            return (script, null);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var reason = $"Multi-agent director failed ({ex.GetBaseException().Message}); used the single-call writer.";
+            logger.LogWarning(ex, "Conversation director degraded for {Segment}: {Reason}", segment.Id, reason);
+            var writer = services.GetRequiredService<ConversationScriptWriter>();
+            var script = await writer.WriteAsync(request, ct);
+            return (script, reason);
+        }
+    }
+
+    /// <summary>Top-k retrievable memories per speaker so 5-way talks stop repeating
+    /// themselves. Failure-soft: the retriever returns empty lists when the
+    /// embedding backend is down.</summary>
+    private async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>?> RetrieveMemorySlicesAsync(
+        ConversationSegment segment,
+        ResolvedSpeakers speakers,
+        CancellationToken ct)
+    {
+        var query = $"{segment.Topic}. {segment.Brief}";
+        var slices = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var brief in speakers.Briefs)
+        {
+            var memories = await memoryRetriever.RetrieveAsync(brief.SpeakerKey, query, k: 3, ct);
+            if (memories.Count > 0)
+            {
+                slices[brief.SpeakerKey] = memories;
+            }
+        }
+
+        return slices.Count == 0 ? null : slices;
     }
 
     private async Task FinalizeAsync(
@@ -495,6 +580,10 @@ public sealed class ConversationProductionService(
         segment.StepTotal = 0;
         await db.SaveChangesAsync(ct);
         await productionUpdates.PublishConversationsChangedAsync(ct);
+
+        // Distill per-speaker takeaways in the background; the episode is done
+        // either way (memory is a quality boost, not a production step).
+        memoryWriter.StoreTalkSummariesAsync(segmentId, CancellationToken.None).Forget();
     }
 
     private async Task UpdateStateAsync(
@@ -535,6 +624,28 @@ public sealed class ConversationProductionService(
 
     private static string? BuildInstruction(string engine, string instruction)
         => string.Equals(engine, TtsEngines.Qwen, StringComparison.OrdinalIgnoreCase) ? instruction : null;
+
+    private static string BuildGuestPersonaBrief(Guest guest, string deepBackground)
+    {
+        var parts = new List<string> { $"{guest.Expertise}." };
+        if (!string.IsNullOrWhiteSpace(guest.Personality))
+        {
+            parts.Add($"{guest.Personality}.".Replace("..", "."));
+        }
+
+        if (!string.IsNullOrWhiteSpace(guest.Interests))
+        {
+            parts.Add($"Interests: {guest.Interests}.");
+        }
+
+        parts.Add(guest.Biography);
+        if (!string.IsNullOrWhiteSpace(deepBackground))
+        {
+            parts.Add(deepBackground);
+        }
+
+        return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part))).Trim();
+    }
 
     private static List<T> Deserialize<T>(string json)
         => string.IsNullOrWhiteSpace(json) ? [] : JsonSerializer.Deserialize<List<T>>(json) ?? [];

@@ -77,3 +77,51 @@ media validation, loudness, and copyright handling in the identity page.
 
 **Done when:** operators can import vetted jingle WAVs without bypassing storage,
 metadata, or audio safety checks.
+
+## 6. Conversation Cross-Talk Overlap (Phase 5 Leftover)
+
+**Problem:** `ConversationRenderer` already supports overlapping a speaker's
+tail with the next speaker's head (the `overlapMs` parameter over `MixerCore`),
+but nothing feeds it: natural cross-talk needs the LLM to mark WHAT overlaps
+WHEN and still sound right.
+
+**Fix:** extend the director's turn schema with overlap markers, map them to
+per-turn negative gaps, and tune bounds. No schema change needed —
+`ConversationTurn.PauseAfterMs` and the renderer parameter already exist.
+
+**Done when:** a podcast can contain short, natural interjections without
+clipped words or doubled sentences.
+
+## 7. pgvector Threshold (Phase 5 Leftover)
+
+**Problem:** participant memory uses in-process cosine over Npgsql `real[]`
+(fine at ~300 rows per participant). Very large stations could outgrow it.
+
+**Fix:** if per-participant candidate sets or total memory rows grow by orders
+of magnitude, swap the stock postgres image for `pgvector/pgvector`, add
+`Pgvector.EntityFrameworkCore`, and index with HNSW. The read path is isolated
+in `ParticipantMemoryRetriever`.
+
+**Done when:** retrieval stays under a few ms at the station's real memory size.
+
+## 8. Guest Voice Fx Chain (Phase 5 Leftover)
+
+**Problem:** the Phase 5 brief reserves an Fx chain (telephone/lo-fi caller
+effect) on guest voices; nothing is stored or applied yet.
+
+**Fix:** add an optional Fx descriptor to `Guest` (and possibly members), apply
+it as a post-TTS filter in conversation voicing.
+
+**Done when:** a "caller" guest sounds like a phone line without a new voice.
+
+## 9. Artist Autonomy Between Appearances (Phase 5 Open Question)
+
+**Problem:** artists/guests accrue memory only from talks, chats, and creation
+facts; they do not "live" between appearances.
+
+**Fix (if wanted):** a low-frequency background beat that writes small
+in-character life events into `ParticipantMemory` so the next appearance has
+fresh material. Needs cost limits and operator control.
+
+**Done when:** returning guests/artists reference plausible off-air happenings
+without an operator scripting them.

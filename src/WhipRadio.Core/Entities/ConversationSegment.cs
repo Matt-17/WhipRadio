@@ -79,6 +79,12 @@ public class ConversationSegment
 
     public string? FailureReason { get; set; }
 
+    /// <summary>JSON <c>List&lt;Guid&gt;</c> of tracks to schedule right after the episode airs.</summary>
+    public string ReferencedTrackIdsJson { get; set; } = "[]";
+
+    /// <summary>Why production degraded (fewer turns, single-call fallback); null = full quality.</summary>
+    public string? DegradationReason { get; set; }
+
     /// <summary>Human-readable "what's happening now" production label.</summary>
     public string? ProductionState { get; set; }
 
@@ -99,8 +105,9 @@ public class ConversationParticipant
 {
     public const string HostKeyPrefix = "host:";
     public const string MemberKeyPrefix = "member:";
+    public const string GuestKeyPrefix = "guest:";
 
-    /// <summary>"host:{moderatorId}" or "member:{artistMemberGuid}".</summary>
+    /// <summary>"host:{moderatorId}", "member:{artistMemberGuid}", or "guest:{guestGuid}".</summary>
     public string SpeakerKey { get; set; } = string.Empty;
 
     /// <summary>Display name snapshot taken at creation time.</summary>
@@ -112,6 +119,8 @@ public class ConversationParticipant
     public static string HostKey(int moderatorId) => $"{HostKeyPrefix}{moderatorId}";
 
     public static string MemberKey(Guid artistMemberId) => $"{MemberKeyPrefix}{artistMemberId:D}";
+
+    public static string GuestKey(Guid guestId) => $"{GuestKeyPrefix}{guestId:D}";
 
     public bool TryGetModeratorId(out int moderatorId)
     {
@@ -125,6 +134,13 @@ public class ConversationParticipant
         artistMemberId = Guid.Empty;
         return SpeakerKey.StartsWith(MemberKeyPrefix, StringComparison.Ordinal)
             && Guid.TryParse(SpeakerKey.AsSpan(MemberKeyPrefix.Length), out artistMemberId);
+    }
+
+    public bool TryGetGuestId(out Guid guestId)
+    {
+        guestId = Guid.Empty;
+        return SpeakerKey.StartsWith(GuestKeyPrefix, StringComparison.Ordinal)
+            && Guid.TryParse(SpeakerKey.AsSpan(GuestKeyPrefix.Length), out guestId);
     }
 }
 

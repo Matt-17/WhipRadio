@@ -7,6 +7,7 @@
 @inject RadioApiClient Api
 @inject PlayerState Player
 @inject NavigationManager Navigation
+@inject IJSRuntime Js
 
 <PageTitle>WhipRadio — Library</PageTitle>
 
@@ -113,6 +114,16 @@
                                     @(_artistDetail.Biography ?? "No backstory on record.")
                                 }
                             </div>
+                            @if (!string.IsNullOrWhiteSpace(_artistDetail?.DeepBackground))
+                            {
+                                <button class="btn small artist-backstory-toggle" @onclick="() => _showBackstory = !_showBackstory">
+                                    <Icon Name="@(_showBackstory ? "chevron-up" : "chevron-down")" /> Deep background
+                                </button>
+                                @if (_showBackstory)
+                                {
+                                    <div class="artist-bio dim artist-backstory">@_artistDetail.DeepBackground</div>
+                                }
+                            }
                             @if (_artistDetail?.Members is { Count: > 0 } members)
                             {
                                 @if (members.Count == 1)
@@ -125,9 +136,14 @@
                                                     <span class="artist-member-name">
                                                         @members[0].Name
                                                         @MemberVoiceControls(members[0])
+                                                        <button type="button" class="member-voice-btn" title="invite to chat"
+                                                                @onclick="() => InviteMemberToChatAsync(members[0])">
+                                                            <Icon Name="chat" Size="14" />
+                                                        </button>
                                                     </span>
                                                     <span class="tag">@members[0].Role</span>
                                                 </div>
+                                                @MemberPersonaLine(members[0])
                                                 <div class="dim">@members[0].Biography</div>
                                             </div>
                                         </div>
@@ -158,9 +174,14 @@
                                                     <span class="artist-member-name">
                                                         @activeMember.Name
                                                         @MemberVoiceControls(activeMember)
+                                                        <button type="button" class="member-voice-btn" title="invite to chat"
+                                                                @onclick="() => InviteMemberToChatAsync(activeMember)">
+                                                            <Icon Name="chat" Size="14" />
+                                                        </button>
                                                     </span>
                                                     <span class="tag">@activeMember.Role</span>
                                                 </div>
+                                                @MemberPersonaLine(activeMember)
                                                 <div class="dim">@activeMember.Biography</div>
                                             </div>
                                         </div>
@@ -416,6 +437,7 @@
     private int _page = 1;
     private Guid? _selectedArtistId;
     private Guid? _selectedMemberId;
+    private bool _showBackstory;
     private readonly HashSet<Guid> _voicePending = [];
     private TrackDto? _deleteTarget;
     private ArtistDto? _deleteArtistTarget;
@@ -599,6 +621,7 @@
         _selectedArtistId = artist?.Id;
         _selectedMemberId = null;
         _artistDetail = null;
+        _showBackstory = false;
         _page = 1;
         _deleteTarget = null;
         _deleteError = null;
@@ -630,6 +653,67 @@
 
     private void PlayMemberVoice(ArtistMemberDto member)
         => Player.PlayVoice($"{member.Name} — voice reference", Api.ArtistMemberVoiceUrl(member.Id), 0);
+
+    // Starts (or reuses via server dedupe) a group channel with this member and
+    // jumps to the chat page with that channel preselected.
+    private async Task InviteMemberToChatAsync(ArtistMemberDto member)
+    {
+        var (channel, _) = await Api.CreateGroupChatChannelAsync(
+            null,
+            [new ChatParticipantSelectionDto("ArtistMember", null, member.Id)]);
+        if (channel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("whipChat.storageSet", "whipchat.channel", channel.Id.ToString());
+        }
+        catch
+        {
+            // localStorage being unavailable must never block the invite.
+        }
+
+        Navigation.NavigateTo("/chat");
+    }
+
+    // Gender · age · personality plus interests, shown under the member name.
+    // Legacy members created before Phase 5 may have none of these — render nothing.
+    private RenderFragment? MemberPersonaLine(ArtistMemberDto member)
+    {
+        var facts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(member.Gender))
+        {
+            facts.Add(member.Gender);
+        }
+
+        if (member.Age is { } age)
+        {
+            facts.Add($"{age}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(member.Personality))
+        {
+            facts.Add(member.Personality);
+        }
+
+        if (facts.Count == 0 && string.IsNullOrWhiteSpace(member.Interests))
+        {
+            return null;
+        }
+
+        return __builder =>
+        {
+            <div class="artist-member-persona dim">
+                @string.Join(" · ", facts)
+                @if (!string.IsNullOrWhiteSpace(member.Interests))
+                {
+                    <span class="artist-member-interests">@(facts.Count > 0 ? " — " : "")@member.Interests</span>
+                }
+            </div>
+        };
+    }
 
     // Mouth (play) icon plus a create/recreate button for the member's spoken
     // voice. While a design is queued we show a status note instead of the button.

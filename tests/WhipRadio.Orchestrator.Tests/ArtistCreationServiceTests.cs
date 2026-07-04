@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
@@ -36,7 +38,11 @@ public class ArtistCreationServiceTests
       "name": "Mara Voss",
       "role": "lead vocals and sampler",
       "biography": "Mara writes lyrics from overheard dockside conversations and keeps the band's emotional center direct. She pushes the arrangements toward memorable choruses.",
-      "voiceCreationPrompt": "Female alto singer, early 30s, light Dutch accent, intimate close microphone, controlled late-night energy."
+      "voiceCreationPrompt": "Female alto singer, early 30s, light Dutch accent, intimate close microphone, controlled late-night energy.",
+      "gender": "female",
+      "age": 32,
+      "interests": "container terminal logistics, reel-to-reel tape repair, canal swimming",
+      "personality": "Direct and warm, allergic to vague answers."
     }
   ]
 }
@@ -52,6 +58,7 @@ public class ArtistCreationServiceTests
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             voiceQueue,
+            CreateMemoryWriter(fixture),
             NullLogger<ArtistCreationService>.Instance);
 
         var updated = await service.RedefineArtistAsync(artistId, hint: null, CancellationToken.None);
@@ -68,6 +75,10 @@ public class ArtistCreationServiceTests
         var artist = await db.Artists.Include(a => a.Members).SingleAsync(a => a.Id == artistId);
         Assert.Equal(1, artist.Members.Count);
         Assert.Equal("Mara Voss", artist.Members.Single().Name);
+        Assert.Equal("female", artist.Members.Single().Gender);
+        Assert.Equal(32, artist.Members.Single().Age);
+        Assert.Contains("reel-to-reel tape repair", artist.Members.Single().Interests);
+        Assert.Contains("Direct and warm", artist.Members.Single().Personality);
         Assert.False(await db.ArtistMembers.AnyAsync(m => m.Name == "Placeholder Member"));
         Assert.True(await db.Tracks.AnyAsync(t => t.ArtistId == artistId && t.Title == "Old Song"));
 
@@ -94,6 +105,7 @@ public class ArtistCreationServiceTests
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             voiceQueue,
+            CreateMemoryWriter(fixture),
             NullLogger<ArtistCreationService>.Instance);
 
         var artist = await service.CreateArtistAsync("dock signal band", "electronic", "dock synth", CancellationToken.None);
@@ -123,6 +135,7 @@ public class ArtistCreationServiceTests
                 NullLogger<ArtistSocialFeedService>.Instance),
             new ArtistCreationQueue(),
             new ArtistMemberVoiceQueue(),
+            CreateMemoryWriter(fixture),
             NullLogger<ArtistCreationService>.Instance);
 
         var artist = await service.CreateArtistAsync("private ambient artist", "ambient", "tape ambient", CancellationToken.None);
@@ -130,6 +143,20 @@ public class ArtistCreationServiceTests
         await using RadioDbContext db = fixture.CreateDbContext();
         Assert.True(await db.Artists.AnyAsync(a => a.Id == artist.Id));
         Assert.False(await db.ArtistPosts.AnyAsync());
+    }
+
+    private static ParticipantMemoryWriter CreateMemoryWriter(DbFixture fixture)
+        => new(
+            fixture,
+            new StubEmbedding(),
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new WhipRadio.Infrastructure.Llm.LlmOptions()),
+            NullLogger<ParticipantMemoryWriter>.Instance);
+
+    private sealed class StubEmbedding : IEmbeddingService
+    {
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+            => Task.FromResult(new float[] { 1f, 0f, 0f });
     }
 
     private static async Task<Guid> AddSparseArtistAsync(DbFixture fixture)
@@ -227,7 +254,11 @@ public class ArtistCreationServiceTests
       "name": "Mara Voss",
       "role": "lead vocals",
       "biography": "Mara writes compact dockside lyrics.",
-      "voiceCreationPrompt": "Female alto, close microphone, light Dutch accent."
+      "voiceCreationPrompt": "Female alto, close microphone, light Dutch accent.",
+      "gender": "female",
+      "age": 31,
+      "interests": "ship radios, dockside markets",
+      "personality": "Compact, observant, dry."
     }
   ]
 }

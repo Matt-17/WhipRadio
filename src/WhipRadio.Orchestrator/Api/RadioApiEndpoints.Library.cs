@@ -120,13 +120,14 @@ public static partial class RadioApiEndpoints
             var members = await db.ArtistMembers.AsNoTracking()
                 .Where(m => m.ArtistId == artist.Id)
                 .OrderBy(m => m.SortOrder)
-                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
+                .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError, m.Gender, m.Age, m.Interests, m.Personality))
                 .ToListAsync(ct);
 
             return Results.Ok(new ArtistDto(
                 artist.Id, artist.Name, artist.Slug, artist.Genre, artist.Subgenre, artist.StyleDescriptor,
                 0, 0, 0, artist.IsRetired, artist.Biography,
-                artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText, members, artist.Language));
+                artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText, members, artist.Language,
+                artist.DeepBackgroundBiography));
         });
 
         api.MapPost("/artists/{id:guid}/redefine", async (
@@ -166,7 +167,7 @@ public static partial class RadioApiEndpoints
                 stats?.Down ?? 0,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError, m.Gender, m.Age, m.Interests, m.Personality))
                     .ToList()));
         });
 
@@ -206,9 +207,10 @@ public static partial class RadioApiEndpoints
                 artist.Type, artist.Origin, artist.FormationYear, artist.PromotionText,
                 artist.Members
                     .OrderBy(m => m.SortOrder)
-                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError))
+                    .Select(m => new ArtistMemberDto(m.Id, m.Name, m.Role, m.Biography, !string.IsNullOrEmpty(m.VoiceReferencePath), m.VoiceDesignLastError, m.Gender, m.Age, m.Interests, m.Personality))
                     .ToList(),
-                artist.Language));
+                artist.Language,
+                artist.DeepBackgroundBiography));
         });
 
         // "Create new song" — queued for the production loop, generated in the

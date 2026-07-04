@@ -100,6 +100,92 @@ public class ArtistMemberVoiceBootstrapTests
     }
 
     [TestMethod]
+    public async Task StartupScan_QueuesOnlyMembersWithoutDesignedVoice()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        using TempDataRoot dataRoot = new();
+        var voicelessId = await AddArtistAsync(fixture, voiceId: null, referencePath: null, lastError: null);
+        var voicedId = await AddArtistAsync(
+            fixture,
+            voiceId: "qwen-voice-9",
+            referencePath: Path.Combine("acestep", "voice-references", "x", "y.wav"),
+            lastError: null);
+        var queue = new ArtistMemberVoiceQueue();
+        var service = new ArtistMemberVoicePreparationService(
+            fixture,
+            queue,
+            new FakeVoiceDesignClient("qwen-voice-1", WavBytes()),
+            BuildScopeFactory(),
+            Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
+            NullLogger<ArtistMemberVoicePreparationService>.Instance);
+
+        await service.EnqueuePendingMembersAsync(CancellationToken.None);
+
+        var queued = new List<Guid>();
+        while (queue.TryDequeue() is { } id)
+        {
+            queued.Add(id);
+        }
+
+        Assert.Contains(voicelessId, queued);
+        Assert.DoesNotContain(voicedId, queued);
+    }
+
+    [TestMethod]
+    public async Task StartupScan_SkipsMembersOfRetiredArtists()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        using TempDataRoot dataRoot = new();
+        var memberId = await AddArtistAsync(fixture, voiceId: null, referencePath: null, lastError: null);
+        await using (RadioDbContext db = fixture.CreateDbContext())
+        {
+            await db.Artists.ExecuteUpdateAsync(s => s.SetProperty(a => a.IsRetired, true));
+        }
+
+        var queue = new ArtistMemberVoiceQueue();
+        var service = new ArtistMemberVoicePreparationService(
+            fixture,
+            queue,
+            new FakeVoiceDesignClient("qwen-voice-1", WavBytes()),
+            BuildScopeFactory(),
+            Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
+            NullLogger<ArtistMemberVoicePreparationService>.Instance);
+
+        await service.EnqueuePendingMembersAsync(CancellationToken.None);
+
+        Assert.Null(queue.TryDequeue());
+    }
+
+    [TestMethod]
+    public async Task VoicePreparation_PrefersStoredGenderOverInference()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        using TempDataRoot dataRoot = new();
+        var memberId = await AddArtistAsync(fixture, voiceId: null, referencePath: null, lastError: null);
+        await using (RadioDbContext db = fixture.CreateDbContext())
+        {
+            // Bio/voice prompt say "female alto"; the stored column must win.
+            await db.ArtistMembers
+                .Where(m => m.Id == memberId)
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.Gender, "male"));
+        }
+
+        var design = new FakeVoiceDesignClient("qwen-voice-1", WavBytes());
+        var service = new ArtistMemberVoicePreparationService(
+            fixture,
+            new ArtistMemberVoiceQueue(),
+            design,
+            BuildScopeFactory(),
+            Options.Create(new RadioOptions { DataRoot = dataRoot.Path }),
+            NullLogger<ArtistMemberVoicePreparationService>.Instance);
+
+        var processed = await service.ProcessMemberAsync(memberId, CancellationToken.None);
+
+        Assert.True(processed);
+        Assert.Equal("male", design.LastGender);
+    }
+
+    [TestMethod]
     public async Task Resolver_UsesLeadVocalistSpokenReferenceWhenNoSungHistoryExists()
     {
         await using DbFixture fixture = await DbFixture.CreateAsync();
@@ -196,6 +282,7 @@ public class ArtistMemberVoiceBootstrapTests
         {
             Id = artistId,
             Name = "Broken Signal",
+            Slug = $"broken-signal-{artistId:N}",
             Genre = "electronic",
             Subgenre = "dock synth",
             StyleDescriptor = "Tape synths and direct vocals.",
@@ -277,6 +364,8 @@ public class ArtistMemberVoiceBootstrapTests
     {
         public Exception? Exception { get; init; }
 
+        public string? LastGender { get; private set; }
+
         public Task<DesignedVoice> DesignVoiceAsync(
             string description,
             string gender,
@@ -284,6 +373,7 @@ public class ArtistMemberVoiceBootstrapTests
             string? sampleText,
             CancellationToken ct)
         {
+            LastGender = gender;
             if (Exception is not null)
             {
                 throw Exception;

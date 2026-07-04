@@ -3,53 +3,59 @@ namespace WhipRadio.Orchestrator.Services;
 /// <summary>What the studio is currently recording (shown live in the library UI).</summary>
 public sealed record GenerationStatus(Guid ArtistId, string ArtistName, string? TrackTitle, DateTime StartedAtUtc);
 
+/// <summary>A manual "create new song" request; the optional hint steers the song plan.</summary>
+public sealed record ManualSongRequest(Guid ArtistId, string? Hint = null);
+
 /// <summary>
 /// Library-driven production control: "create new song" requests queued from the
-/// UI, plus the live status of whatever generation (manual or automatic) is
-/// currently running.
+/// UI or chat, plus the live status of whatever generation (manual or automatic)
+/// is currently running.
 /// </summary>
 public class MusicProductionControl
 {
     private readonly object _queueLock = new();
-    private readonly Queue<Guid> _manualRequests = new();
+    private readonly Queue<ManualSongRequest> _manualRequests = new();
     private readonly object _generationLock = new();
     private CancellationTokenSource? _currentCancel;
     private GenerationStatus? _current;
 
     public void RequestTrackFor(Guid artistId)
+        => RequestTrackFor(new ManualSongRequest(artistId));
+
+    public void RequestTrackFor(ManualSongRequest request)
     {
         lock (_queueLock)
         {
-            _manualRequests.Enqueue(artistId);
+            _manualRequests.Enqueue(request);
         }
     }
 
-    public Guid? TryPeekManualRequest()
+    public ManualSongRequest? TryPeekManualRequest()
     {
         lock (_queueLock)
         {
-            return _manualRequests.TryPeek(out var artistId) ? artistId : null;
+            return _manualRequests.TryPeek(out var request) ? request : null;
         }
     }
 
-    public Guid? TryDequeueManualRequest()
+    public ManualSongRequest? TryDequeueManualRequest()
     {
         lock (_queueLock)
         {
-            return _manualRequests.TryDequeue(out var artistId) ? artistId : null;
+            return _manualRequests.TryDequeue(out var request) ? request : null;
         }
     }
 
-    public void RequeueTrackForFront(Guid artistId)
+    public void RequeueTrackForFront(ManualSongRequest request)
     {
         lock (_queueLock)
         {
             var existing = _manualRequests.ToArray();
             _manualRequests.Clear();
-            _manualRequests.Enqueue(artistId);
-            foreach (var queuedArtistId in existing)
+            _manualRequests.Enqueue(request);
+            foreach (var queuedRequest in existing)
             {
-                _manualRequests.Enqueue(queuedArtistId);
+                _manualRequests.Enqueue(queuedRequest);
             }
         }
     }
@@ -58,7 +64,7 @@ public class MusicProductionControl
     {
         lock (_queueLock)
         {
-            return [.. _manualRequests];
+            return _manualRequests.Select(request => request.ArtistId).ToList();
         }
     }
 

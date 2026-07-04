@@ -12,6 +12,7 @@ public sealed class ModeratorMemoryService(
     IDbContextFactory<RadioDbContext> dbFactory,
     IPromptContextBuilder promptContextBuilder,
     ITextGenerationService llm,
+    ParticipantMemoryWriter participantMemory,
     ILogger<ModeratorMemoryService> logger)
 {
     public const int DayMemoryMaxChars = 2_000;
@@ -99,6 +100,9 @@ public sealed class ModeratorMemoryService(
 
         var summary = await SummarizeAsync(moderator, day, dayMemories, ct);
         await RememberAsync(moderatorId, ModeratorMemoryLayer.LongTermMemory, day, summary, ct);
+        // Mirror into the retrievable participant memory (Phase 5); the classic
+        // ModeratorMemory layers above stay the source of truth.
+        await participantMemory.StoreHostSummaryAsync(moderatorId, summary, ct);
         logger.LogInformation("Distilled {Count} day memories for {Moderator} on {Date}",
             dayMemories.Count, moderator.Name, day);
         return true;
