@@ -1,5 +1,10 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Playout;
+using WhipRadio.Orchestrator.Configuration;
 using WhipRadio.Orchestrator.Services;
 
 namespace WhipRadio.Orchestrator.Tests;
@@ -398,6 +403,108 @@ public class NewsPackageProductionServiceTests
         Assert.Equal(1, segments.Count);
         Assert.Equal(Guid.Parse("22222222-2222-2222-2222-222222222222"), segments[0].BodyAnnouncementId!.Value);
         Assert.Equal(0, segments[0].BodyAnnouncementIds.Count); // new list defaults empty → legacy path
+    }
+
+    [TestMethod]
+    public async Task RunCycle_SkipsNewsBoundaryOwnedByPodcastSlot()
+    {
+        await using var fixture = await WhipRadio.TestSupport.DbFixture.CreateAsync();
+        // Wednesday 2026-07-08 07:40 UTC — the next hourly news boundary is 08:00.
+        var time = new FixedUtcTimeProvider(new DateTime(2026, 7, 8, 7, 40, 0, DateTimeKind.Utc));
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            db.StationSettings.Add(new StationSettings
+            {
+                Id = StationSettings.SingletonId,
+                NewsEnabled = true,
+                WeatherEnabled = false,
+            });
+            db.PodcastShows.Add(new PodcastShow
+            {
+                Id = Guid.NewGuid(),
+                Name = "Night Static Weekly",
+                Brief = "talk",
+                DayOfWeek = 3, // Wednesday
+                StartMinute = 8 * 60,
+                SlotDurationMinutes = 30,
+                IsEnabled = true,
+                CreatedAtUtc = time.GetUtcNow().UtcDateTime,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = CreateService(fixture, time);
+        await service.RunCycleForTestsAsync(CancellationToken.None);
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            // The 08:00 boundary belongs to the podcast — no news package may claim it.
+            Assert.Equal(0, await db.NewsPackages.CountAsync());
+        }
+    }
+
+    [TestMethod]
+    public async Task RunCycle_ProducesNewsBoundaryWhenPodcastSlotIsElsewhere()
+    {
+        await using var fixture = await WhipRadio.TestSupport.DbFixture.CreateAsync();
+        var time = new FixedUtcTimeProvider(new DateTime(2026, 7, 8, 7, 40, 0, DateTimeKind.Utc));
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            db.StationSettings.Add(new StationSettings
+            {
+                Id = StationSettings.SingletonId,
+                NewsEnabled = true,
+                WeatherEnabled = false,
+            });
+            db.PodcastShows.Add(new PodcastShow
+            {
+                Id = Guid.NewGuid(),
+                Name = "Night Static Weekly",
+                Brief = "talk",
+                DayOfWeek = 3,
+                StartMinute = 21 * 60, // Wednesday 21:00 — not the 08:00 boundary
+                SlotDurationMinutes = 30,
+                IsEnabled = true,
+                CreatedAtUtc = time.GetUtcNow().UtcDateTime,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var service = CreateService(fixture, time);
+        await service.RunCycleForTestsAsync(CancellationToken.None);
+
+        await using (var db = fixture.CreateDbContext())
+        {
+            // The stub contributor cannot actually produce, but the 08:00 boundary
+            // must at least have been claimed (a package row exists for it).
+            Assert.Equal(1, await db.NewsPackages.CountAsync());
+        }
+    }
+
+    private static NewsPackageProductionService CreateService(
+        WhipRadio.TestSupport.DbFixture fixture, TimeProvider time)
+        => new(
+            new ServiceCollection().BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(),
+            fixture,
+            new ScheduleService(fixture, time),
+            [NewsContributor],
+            new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance),
+            time,
+            new SegmentTestFixtures.NoOpProductionUpdatePublisher(),
+            NullStationMetrics.Instance,
+            Options.Create(new RadioOptions
+            {
+                DataRoot = Path.Combine(Path.GetTempPath(), "whipradio-news-suppression-tests"),
+            }),
+            NullLogger<NewsPackageProductionService>.Instance);
+
+    private sealed class FixedUtcTimeProvider(DateTime utcNow) : TimeProvider
+    {
+        public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+
+        public override DateTimeOffset GetUtcNow() => new(utcNow, TimeSpan.Zero);
     }
 
     /// <summary>

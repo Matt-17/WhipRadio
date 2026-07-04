@@ -10,25 +10,32 @@ public sealed record TimedPlayoutInterrupt(
     int GraceSeconds,
     int LateWindowSeconds);
 
+/// <summary>
+/// Hand-off channel between dispatchers (top-of-hour news, podcast episodes)
+/// and the mixer: holds the pending timed interrupts and releases the earliest
+/// due one inside its claim window. Multiple interrupts may be pending at once
+/// (a news package and a podcast episode with different targets); duplicates
+/// are keyed by (ItemId, TargetUtc).
+/// </summary>
 public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptService> logger)
 {
+    private const int RecentlyConsumedCap = 4;
+
     private readonly object _lock = new();
-    private TimedPlayoutInterrupt? _pending;
-    private TimedPlayoutInterrupt? _recentlyConsumed;
-    private DateTime? _recentlyConsumedAtUtc;
+    private readonly List<TimedPlayoutInterrupt> _pending = [];
+    private readonly List<(TimedPlayoutInterrupt Interrupt, DateTime ConsumedAtUtc)> _recentlyConsumed = [];
 
     public void Schedule(TimedPlayoutInterrupt interrupt)
     {
         lock (_lock)
         {
-            if (_pending is not null
-                && _pending.Item.ItemId == interrupt.Item.ItemId
-                && _pending.TargetUtc == interrupt.TargetUtc)
+            if (_pending.Any(pending => pending.Item.ItemId == interrupt.Item.ItemId
+                && pending.TargetUtc == interrupt.TargetUtc))
             {
                 return;
             }
 
-            _pending = interrupt;
+            _pending.Add(interrupt);
         }
 
         logger.LogInformation(
@@ -44,9 +51,8 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
     {
         lock (_lock)
         {
-            return _pending is { } pending
-                && pending.Item.ItemId == announcementId
-                && pending.TargetUtc == targetUtc;
+            return _pending.Any(pending => pending.Item.ItemId == announcementId
+                && pending.TargetUtc == targetUtc);
         }
     }
 
@@ -62,15 +68,9 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
 
         lock (_lock)
         {
-            if (_recentlyConsumed is not { } consumed
-                || consumed.Item.ItemId != announcementId
-                || consumed.TargetUtc != targetUtc
-                || _recentlyConsumedAtUtc is null)
-            {
-                return false;
-            }
-
-            return utcNow - _recentlyConsumedAtUtc.Value < minimumDelay;
+            return _recentlyConsumed.Any(entry => entry.Interrupt.Item.ItemId == announcementId
+                && entry.Interrupt.TargetUtc == targetUtc
+                && utcNow - entry.ConsumedAtUtc < minimumDelay);
         }
     }
 
@@ -78,56 +78,72 @@ public sealed class TimedPlayoutInterruptService(ILogger<TimedPlayoutInterruptSe
     {
         lock (_lock)
         {
-            if (_pending is null)
+            // Drop interrupts that missed their late window before picking a winner.
+            for (var i = _pending.Count - 1; i >= 0; i--)
+            {
+                var candidate = _pending[i];
+                if (utcNow > candidate.TargetUtc.AddSeconds(candidate.LateWindowSeconds))
+                {
+                    logger.LogWarning(
+                        "Timed playout interrupt missed its late window: {Title} target {Target:u}",
+                        candidate.Item.Title,
+                        candidate.TargetUtc);
+                    _pending.RemoveAt(i);
+                }
+            }
+
+            var due = _pending
+                .Where(candidate => TopOfHourScheduler.IsInsidePackageClaimWindow(
+                    utcNow, candidate.TargetUtc, candidate.GraceSeconds, candidate.LateWindowSeconds))
+                .OrderBy(candidate => candidate.TargetUtc)
+                .FirstOrDefault();
+            if (due is null)
             {
                 return null;
             }
 
-            var latest = _pending.TargetUtc.AddSeconds(_pending.LateWindowSeconds);
-            if (utcNow > latest)
+            _pending.Remove(due);
+            _recentlyConsumed.Add((due, utcNow));
+            while (_recentlyConsumed.Count > RecentlyConsumedCap)
             {
-                logger.LogWarning(
-                    "Timed playout interrupt missed its late window: {Title} target {Target:u}",
-                    _pending.Item.Title,
-                    _pending.TargetUtc);
-                _pending = null;
-                return null;
+                _recentlyConsumed.RemoveAt(0);
             }
 
-            if (!TopOfHourScheduler.IsInsidePackageClaimWindow(
-                utcNow,
-                _pending.TargetUtc,
-                _pending.GraceSeconds,
-                _pending.LateWindowSeconds))
-            {
-                return null;
-            }
-
-            var pending = _pending;
-            _pending = null;
-            _recentlyConsumed = pending;
-            _recentlyConsumedAtUtc = utcNow;
-            return pending;
+            return due;
         }
     }
 
     /// <summary>
-    /// Clears any pending interrupt so the mixer won't play a stale package
-    /// announcement. Called when a package is recreated or failed.
+    /// Clears every pending interrupt so the mixer won't play a stale package
+    /// announcement. Prefer <see cref="Clear(Guid)"/> when only one item was
+    /// recreated/failed — a full clear also drops other dispatchers' interrupts.
     /// </summary>
     public void Clear()
     {
         lock (_lock)
         {
-            if (_pending is not null || _recentlyConsumed is not null)
+            if (_pending.Count > 0 || _recentlyConsumed.Count > 0)
             {
                 logger.LogInformation(
-                    "Timed playout interrupt cleared for {Target:u}: {Title}",
-                    (_pending ?? _recentlyConsumed)!.TargetUtc,
-                    (_pending ?? _recentlyConsumed)!.Item.Title);
-                _pending = null;
-                _recentlyConsumed = null;
-                _recentlyConsumedAtUtc = null;
+                    "Timed playout interrupts cleared ({Pending} pending, {Consumed} recently consumed)",
+                    _pending.Count,
+                    _recentlyConsumed.Count);
+                _pending.Clear();
+                _recentlyConsumed.Clear();
+            }
+        }
+    }
+
+    /// <summary>Clears only the interrupts (and consumed markers) for one item.</summary>
+    public void Clear(Guid itemId)
+    {
+        lock (_lock)
+        {
+            var removed = _pending.RemoveAll(pending => pending.Item.ItemId == itemId)
+                + _recentlyConsumed.RemoveAll(entry => entry.Interrupt.Item.ItemId == itemId);
+            if (removed > 0)
+            {
+                logger.LogInformation("Timed playout interrupt cleared for item {ItemId}", itemId);
             }
         }
     }

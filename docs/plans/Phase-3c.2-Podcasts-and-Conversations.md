@@ -57,9 +57,15 @@ true multi-agent speaker turns.
 
 ## 4. Definition Of Done
 
-- [ ] Two-speaker talk produces a transcript and mixed WAV.
-- [ ] Three-speaker chaptered podcast produces a transcript and mixed WAV.
-- [ ] Turns are stored as speaker-tagged structured data.
-- [ ] Produced segments can be scheduled without live-stream stalls.
-- [ ] Artist members can be selected as future speakers using existing rich artist data.
-- [ ] The design remains compatible with later multi-agent dialogue generation.
+- [x] Two-speaker talk produces a transcript and mixed WAV.
+- [x] Three-speaker chaptered podcast produces a transcript and mixed WAV.
+- [x] Turns are stored as speaker-tagged structured data.
+      (`ConversationSegment.TurnsJson` — one `ConversationTurn` record per utterance,
+      generation-agnostic for a later multi-agent writer.)
+- [x] Produced segments can be scheduled without live-stream stalls.
+      (Podcast shows are grid format blocks; episodes land via the multi-slot
+      `TimedPlayoutInterruptService`; one-off talks air via queue-front "Air next".)
+- [x] Artist members can be selected as future speakers using existing rich artist data.
+      (Members without a designed voice are selectable; production enqueues priority
+      voice design and waits.)
+- [x] The design remains compatible with later multi-agent dialogue generation.

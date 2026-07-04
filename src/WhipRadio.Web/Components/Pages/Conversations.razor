@@ -1,0 +1,542 @@
+@page "/production/conversations"
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IAsyncDisposable
+@inject RadioApiClient Api
+@inject ProductionLiveClient Live
+@inject PlayerState Player
+
+<PageTitle>WhipRadio - Podcasts</PageTitle>
+
+<h1 class="stage-title">Podcasts &amp; Talks</h1>
+<div class="stage-sub">recurring podcast shows with grid slots and one-off multi-speaker talks</div>
+
+@if (_loadError is not null)
+{
+    <div class="panel reveal"><div class="empty-state text-danger">@_loadError</div></div>
+}
+else if (_shows is null || _conversations is null)
+{
+    <div class="panel reveal"><div class="empty-state"><span class="blink">▮</span> loading conversations...</div></div>
+}
+else
+{
+    <div class="panel reveal">
+        <div class="news-feed-head">
+            <div class="panel-label">Podcast Shows</div>
+            <button class="btn small primary" @onclick="OpenAddShow">+ Add Show</button>
+        </div>
+        @if (_shows.Count == 0)
+        {
+            <div class="empty-state">no podcast shows yet — add one and it gets a weekly slot in the program grid</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <thead>
+                    <tr>
+                        <th>Show</th>
+                        <th style="width:160px">Slot</th>
+                        <th style="width:90px">Episode</th>
+                        <th style="width:50px" aria-label="Edit"></th>
+                        <th style="width:72px">Active</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var show in _shows)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@show.Name</strong>
+                                <div class="dim">@string.Join(", ", show.Participants.Select(p => p.DisplayName))</div>
+                            </td>
+                            <td>@DayName(show.DayOfWeek) @Clock(show.StartMinute) · @show.SlotDurationMinutes min</td>
+                            <td class="num">@show.EpisodeMinutes min</td>
+                            <td>
+                                <button class="btn small icon-only" title="edit show" @onclick="() => OpenEditShow(show)">
+                                    <Icon Name="edit" />
+                                </button>
+                            </td>
+                            <td>
+                                <UiSwitch Value="@show.IsEnabled"
+                                          ValueChanged="@(_ => ToggleShowAsync(show.Id))"
+                                          Title="@(show.IsEnabled ? "show active" : "show off")" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    </div>
+
+    <div class="panel reveal">
+        <div class="news-feed-head">
+            <div class="panel-label">Conversations</div>
+            <button class="btn small primary" @onclick="OpenAddConversation">+ New Talk</button>
+        </div>
+        @if (_conversations.Count == 0)
+        {
+            <div class="empty-state">nothing produced yet</div>
+        }
+        else
+        {
+            <table class="console-table">
+                <thead>
+                    <tr>
+                        <th>Topic</th>
+                        <th style="width:110px">Status</th>
+                        <th style="width:220px">Production</th>
+                        <th style="width:150px">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var segment in _conversations)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@(segment.Title ?? segment.Topic)</strong>
+                                @if (segment.Kind == "Podcast")
+                                {
+                                    <span class="tag amber">podcast</span>
+                                }
+                                @if (segment.ShowName is not null)
+                                {
+                                    <span class="dim"> @segment.ShowName</span>
+                                }
+                                <div class="dim">@string.Join(", ", segment.Participants.Select(p => p.DisplayName))</div>
+                            </td>
+                            <td><StatusBadge Text="@segment.Status" Title="@(segment.FailureReason ?? segment.ProductionState)" /></td>
+                            <td class="dim">
+                                @if (segment.Status is "Planned" or "Scripted")
+                                {
+                                    <span class="blink">▮</span>
+                                    @(" " + (segment.ProductionState ?? "waiting"))
+                                    @if (segment.StepTotal > 0)
+                                    {
+                                        <span> (@segment.StepIndex/@segment.StepTotal)</span>
+                                    }
+                                }
+                                else if (segment.Status == "Failed")
+                                {
+                                    @segment.FailureReason
+                                }
+                                else if (segment.TargetUtc is { } target)
+                                {
+                                    <span>airs @target.ToLocalTime().ToString("ddd HH:mm")</span>
+                                }
+                                else if (segment.UsedAtUtc is { } used)
+                                {
+                                    <span>aired <TimeAgo Date="@used" /></span>
+                                }
+                            </td>
+                            <td style="white-space:nowrap">
+                                @if (segment.AnnouncementId is { } announcementId
+                                    && segment.Status is "Produced" or "Queued" or "Used")
+                                {
+                                    <button class="btn small icon-btn" title="preview in player"
+                                            @onclick="() => PlayPreview(segment, announcementId)">
+                                        <Icon Name="play" Size="16" />
+                                    </button>
+                                }
+                                @if (segment.Status == "Produced" && segment.TargetUtc is null)
+                                {
+                                    <button class="btn small" title="play right after the current item"
+                                            @onclick="() => AirNextAsync(segment.Id)">Air next</button>
+                                }
+                                @if (segment.Status == "Failed")
+                                {
+                                    <button class="btn small icon-only" title="retry production"
+                                            @onclick="() => RetryAsync(segment.Id)">
+                                        <Icon Name="refresh" />
+                                    </button>
+                                }
+                                <button class="btn small icon-only danger" title="delete conversation"
+                                        @onclick="() => _deleteTarget = segment">
+                                    <Icon Name="trash" />
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        @if (_error is not null)
+        {
+            <div class="dim">@_error</div>
+        }
+    </div>
+}
+
+<Modal Visible="@_showModalOpen"
+       Title="@(_editShowId is null ? "Add Podcast Show" : "Edit Podcast Show")"
+       Class="modal-wide"
+       OnClose="CloseShowModal">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field"><label>Name</label><input @bind="_showName" placeholder="Night Static Weekly" /></div>
+            <div class="field">
+                <label>Weekday</label>
+                <select @bind="_showDay">
+                    @for (var day = 0; day < 7; day++)
+                    {
+                        <option value="@day">@DayName(day)</option>
+                    }
+                </select>
+            </div>
+            <div class="field"><label>Start (HH:mm)</label><input @bind="_showStart" placeholder="21:00" /></div>
+            <div class="field"><label>Slot (min)</label><input type="number" min="30" max="240" @bind="_showSlotMinutes" /></div>
+            <div class="field"><label>Episode (min)</label><input type="number" min="10" max="30" @bind="_showEpisodeMinutes" /></div>
+        </div>
+        <div class="field">
+            <label>Brief</label>
+            <textarea rows="3" @bind="_showBrief" placeholder="What is this show about? Every episode invents a fresh angle within this brief."></textarea>
+        </div>
+        @SpeakerPicker()
+        @if (_modalError is not null)
+        {
+            <div class="dim">@_modalError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn small" @onclick="CloseShowModal">Cancel</button>
+        <button class="btn small primary @(_saving ? "working-button" : null)" disabled="@_saving" @onclick="SaveShowAsync">
+            @(_editShowId is null ? "Add Show" : "Save Show")
+        </button>
+    </Footer>
+</Modal>
+
+<Modal Visible="@_talkModalOpen"
+       Title="New Talk"
+       Class="modal-wide"
+       OnClose="CloseTalkModal">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field"><label>Topic</label><input @bind="_talkTopic" placeholder="The new record" /></div>
+            <div class="field">
+                <label>Kind</label>
+                <select @bind="_talkKind">
+                    <option value="Talk">Talk (tight exchange)</option>
+                    <option value="Podcast">Podcast (host-led)</option>
+                </select>
+            </div>
+            <div class="field"><label>Length (min)</label><input type="number" min="5" max="30" @bind="_talkMinutes" /></div>
+        </div>
+        <div class="field">
+            <label>Brief</label>
+            <textarea rows="3" @bind="_talkBrief" placeholder="What should the conversation dig into?"></textarea>
+        </div>
+        @SpeakerPicker()
+        @if (_modalError is not null)
+        {
+            <div class="dim">@_modalError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn small" @onclick="CloseTalkModal">Cancel</button>
+        <button class="btn small primary @(_saving ? "working-button" : null)" disabled="@_saving" @onclick="CreateTalkAsync">
+            Queue Talk
+        </button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete conversation"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Delete <strong>"@(doomed.Title ?? doomed.Topic)"</strong> including its produced audio?</text>
+    }
+</ConfirmDialog>
+
+<ConfirmDialog Visible="@(_deleteShowTarget is not null)"
+               Title="Delete podcast show"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteShowConfirmedAsync"
+               OnCancel="() => _deleteShowTarget = null">
+    @if (_deleteShowTarget is { } doomedShow)
+    {
+        <text>Delete <strong>@doomedShow.Name</strong>? Its grid slot is removed; produced episodes stay listed.</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private List<PodcastShowDto>? _shows;
+    private List<ConversationSegmentDto>? _conversations;
+    private List<ConversationSpeakerOptionDto> _speakerOptions = [];
+    private ConversationSegmentDto? _deleteTarget;
+    private PodcastShowDto? _deleteShowTarget;
+    private string? _loadError;
+    private string? _error;
+    private string? _modalError;
+    private bool _saving;
+
+    private bool _showModalOpen;
+    private Guid? _editShowId;
+    private string _showName = "";
+    private string _showBrief = "";
+    private int _showDay = 3;
+    private string _showStart = "21:00";
+    private int _showSlotMinutes = 30;
+    private int _showEpisodeMinutes = 20;
+
+    private bool _talkModalOpen;
+    private string _talkTopic = "";
+    private string _talkBrief = "";
+    private string _talkKind = "Talk";
+    private int _talkMinutes = 10;
+
+    private readonly List<ConversationParticipantDto> _pickedSpeakers = [];
+    private string _speakerToAdd = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.ConversationsChanged += OnConversationsChanged;
+        await Live.EnsureStartedAsync();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _shows = await Api.GetPodcastShowsAsync();
+        _conversations = await Api.GetConversationsAsync();
+        _speakerOptions = await Api.GetConversationSpeakersAsync();
+        if (_shows is null || _conversations is null)
+        {
+            _loadError = "Failed to load conversations — backend unreachable.";
+            return;
+        }
+
+        _loadError = null;
+    }
+
+    private void OnConversationsChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            await LoadAsync();
+            StateHasChanged();
+        });
+
+    // --- speaker picker (shared by both modals) ---------------------------
+
+    private RenderFragment SpeakerPicker() => __builder =>
+    {
+        <div class="field">
+            <label>Speakers (first one leads)</label>
+            <div class="btn-row">
+                <select @bind="_speakerToAdd">
+                    <option value="">Add speaker…</option>
+                    @foreach (var option in _speakerOptions.Where(o => _pickedSpeakers.All(p => p.SpeakerKey != o.SpeakerKey)))
+                    {
+                        <option value="@option.SpeakerKey">@option.DisplayName (@option.Subtitle)@(option.VoiceReady ? "" : " — voice pending")</option>
+                    }
+                </select>
+                <button class="btn small" @onclick="AddPickedSpeaker">Add</button>
+            </div>
+            @foreach (var picked in _pickedSpeakers)
+            {
+                <div class="btn-row">
+                    <span class="tag">@picked.ConversationRole</span>
+                    <span>@picked.DisplayName</span>
+                    <button class="btn small icon-only" title="remove speaker" @onclick="() => _pickedSpeakers.Remove(picked)">
+                        <Icon Name="trash" Size="14" />
+                    </button>
+                </div>
+            }
+        </div>
+    };
+
+    private void AddPickedSpeaker()
+    {
+        var option = _speakerOptions.FirstOrDefault(o => o.SpeakerKey == _speakerToAdd);
+        if (option is null || _pickedSpeakers.Any(p => p.SpeakerKey == option.SpeakerKey))
+        {
+            return;
+        }
+
+        var role = _pickedSpeakers.Count == 0
+            ? "Host"
+            : option.SpeakerKey.StartsWith("host:", StringComparison.Ordinal) ? "Cohost" : "Guest";
+        _pickedSpeakers.Add(new ConversationParticipantDto(option.SpeakerKey, option.DisplayName, role));
+        _speakerToAdd = "";
+    }
+
+    // --- shows -------------------------------------------------------------
+
+    private void OpenAddShow()
+    {
+        _editShowId = null;
+        _showName = "";
+        _showBrief = "";
+        _showDay = 3;
+        _showStart = "21:00";
+        _showSlotMinutes = 30;
+        _showEpisodeMinutes = 20;
+        _pickedSpeakers.Clear();
+        _modalError = null;
+        _showModalOpen = true;
+    }
+
+    private void OpenEditShow(PodcastShowDto show)
+    {
+        _editShowId = show.Id;
+        _showName = show.Name;
+        _showBrief = show.Brief;
+        _showDay = show.DayOfWeek;
+        _showStart = Clock(show.StartMinute);
+        _showSlotMinutes = show.SlotDurationMinutes;
+        _showEpisodeMinutes = show.EpisodeMinutes;
+        _pickedSpeakers.Clear();
+        _pickedSpeakers.AddRange(show.Participants);
+        _deleteShowTarget = null;
+        _modalError = null;
+        _showModalOpen = true;
+    }
+
+    private void CloseShowModal() => _showModalOpen = false;
+
+    private async Task SaveShowAsync()
+    {
+        if (!TimeOnly.TryParse(_showStart, out var start))
+        {
+            _modalError = "Start time must be HH:mm.";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+        try
+        {
+            var request = new SavePodcastShowDto(
+                _showName,
+                _showBrief,
+                _showEpisodeMinutes,
+                _showDay,
+                start.Hour * 60 + start.Minute,
+                _showSlotMinutes,
+                _pickedSpeakers.ToList());
+            var (show, error) = _editShowId is { } id
+                ? await Api.UpdatePodcastShowAsync(id, request)
+                : await Api.CreatePodcastShowAsync(request);
+            _modalError = error;
+            if (show is not null)
+            {
+                _showModalOpen = false;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ToggleShowAsync(Guid id)
+    {
+        await Api.TogglePodcastShowAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteShowConfirmedAsync()
+    {
+        if (_deleteShowTarget is not { } show)
+        {
+            return;
+        }
+
+        _error = await Api.DeletePodcastShowAsync(show.Id);
+        _deleteShowTarget = null;
+        await LoadAsync();
+    }
+
+    // --- one-off talks -------------------------------------------------------
+
+    private void OpenAddConversation()
+    {
+        _talkTopic = "";
+        _talkBrief = "";
+        _talkKind = "Talk";
+        _talkMinutes = 10;
+        _pickedSpeakers.Clear();
+        _modalError = null;
+        _talkModalOpen = true;
+    }
+
+    private void CloseTalkModal() => _talkModalOpen = false;
+
+    private async Task CreateTalkAsync()
+    {
+        _saving = true;
+        _modalError = null;
+        try
+        {
+            var (segment, error) = await Api.CreateConversationAsync(new CreateConversationRequestDto(
+                _talkKind,
+                "Freeform",
+                _talkTopic,
+                _talkBrief,
+                _talkMinutes,
+                _pickedSpeakers.ToList()));
+            _modalError = error;
+            if (segment is not null)
+            {
+                _talkModalOpen = false;
+                await LoadAsync();
+            }
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task AirNextAsync(Guid id)
+    {
+        _error = await Api.AirConversationNextAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task RetryAsync(Guid id)
+    {
+        _error = await Api.RetryConversationAsync(id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } segment)
+        {
+            return;
+        }
+
+        _error = await Api.DeleteConversationAsync(segment.Id);
+        _deleteTarget = null;
+        await LoadAsync();
+    }
+
+    private void PlayPreview(ConversationSegmentDto segment, Guid announcementId)
+        => Player.PlayAnnouncement(
+            announcementId,
+            segment.Title ?? segment.Topic,
+            Api.AnnouncementAudioUrl(announcementId),
+            segment.DurationSeconds,
+            segment.Transcript);
+
+    private static string DayName(int day)
+        => System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat
+            .GetAbbreviatedDayName((DayOfWeek)(((day % 7) + 7) % 7));
+
+    private static string Clock(int minutes)
+        => $"{Math.Clamp(minutes / 60, 0, 23):00}:{Math.Clamp(minutes % 60, 0, 59):00}";
+
+    public ValueTask DisposeAsync()
+    {
+        Live.ConversationsChanged -= OnConversationsChanged;
+        return ValueTask.CompletedTask;
+    }
+}

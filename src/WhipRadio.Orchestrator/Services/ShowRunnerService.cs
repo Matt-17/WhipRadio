@@ -341,6 +341,23 @@ public class ShowRunnerService(
                     .Select(package => (DateTime?)package.TargetUtc)
                     .FirstOrDefaultAsync(ct);
 
+                // Scheduled podcast episodes are timed interrupts too — approach
+                // them with the same capped-track/jingle-fill strategy.
+                var episodeTarget = await db.ConversationSegments.AsNoTracking()
+                    .Where(segment => segment.TargetUtc != null
+                        && segment.TargetUtc >= horizon
+                        && (segment.Status == ConversationStatus.Planned
+                            || segment.Status == ConversationStatus.Scripted
+                            || segment.Status == ConversationStatus.Produced
+                            || segment.Status == ConversationStatus.Queued))
+                    .OrderBy(segment => segment.TargetUtc)
+                    .Select(segment => segment.TargetUtc)
+                    .FirstOrDefaultAsync(ct);
+                if (episodeTarget is { } episodeUtc && (target is null || episodeUtc < target))
+                {
+                    target = episodeUtc;
+                }
+
                 if (target is not null)
                 {
                     jingles = await db.Jingles.AsNoTracking()

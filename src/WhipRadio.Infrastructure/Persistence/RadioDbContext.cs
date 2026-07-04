@@ -56,6 +56,10 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<NewsPackage> NewsPackages => Set<NewsPackage>();
 
+    public DbSet<ConversationSegment> ConversationSegments => Set<ConversationSegment>();
+
+    public DbSet<PodcastShow> PodcastShows => Set<PodcastShow>();
+
     public DbSet<ChatChannel> ChatChannels => Set<ChatChannel>();
 
     public DbSet<ChatMessage> ChatMessages => Set<ChatMessage>();
@@ -282,6 +286,33 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             package.HasOne<Announcement>()
                 .WithMany()
                 .HasForeignKey(p => p.AnnouncementId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ConversationSegment>(segment =>
+        {
+            segment.Property(s => s.Kind).HasConversion<string>();
+            segment.Property(s => s.Structure).HasConversion<string>();
+            segment.Property(s => s.Status).HasConversion<string>();
+            segment.HasIndex(s => s.Status);
+            segment.HasIndex(s => new { s.PodcastShowId, s.TargetUtc });
+            segment.HasIndex(s => s.TargetUtc);
+            segment.HasOne<Announcement>()
+                .WithMany()
+                .HasForeignKey(s => s.AnnouncementId)
+                .OnDelete(DeleteBehavior.SetNull);
+            segment.HasOne<PodcastShow>()
+                .WithMany()
+                .HasForeignKey(s => s.PodcastShowId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<PodcastShow>(show =>
+        {
+            show.HasIndex(s => s.IsEnabled);
+            show.HasOne<Format>()
+                .WithMany()
+                .HasForeignKey(s => s.FormatId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

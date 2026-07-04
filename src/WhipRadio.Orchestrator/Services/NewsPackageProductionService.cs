@@ -62,6 +62,8 @@ public sealed partial class NewsPackageProductionService(
         }
     }
 
+    internal Task RunCycleForTestsAsync(CancellationToken ct) => RunCycleAsync(ct);
+
     private async Task RunCycleAsync(CancellationToken ct)
     {
         StationSettings settings;
@@ -80,11 +82,26 @@ public sealed partial class NewsPackageProductionService(
                 return;
             }
 
+            // A podcast show owns its slot outright: never produce a news package for
+            // a boundary where an enabled podcast episode airs (the episode lands
+            // through the same timed interrupt — two interrupts at one target would
+            // air back to back).
+            var podcastSlots = await db.PodcastShows.AsNoTracking()
+                .Where(show => show.IsEnabled)
+                .Select(show => new { show.DayOfWeek, show.StartMinute })
+                .ToListAsync(ct);
+
             // Multiple preparation windows can be open at once (a short package at :30
             // plus a long block at :00 an hour out) — take the first one that still
             // needs production; the rest get picked up by later cycles.
             foreach (var candidate in ResolvePreparationPlans(settings, timeProvider.GetLocalNow()))
             {
+                if (podcastSlots.Any(slot =>
+                    PodcastShowScheduler.IsOccurrenceAt(candidate.TargetLocal, slot.DayOfWeek, slot.StartMinute)))
+                {
+                    continue;
+                }
+
                 var targetUtc = candidate.TargetLocal.UtcDateTime;
                 var existing = await db.NewsPackages.AsNoTracking()
                     .Where(package => package.TargetUtc == targetUtc)
@@ -325,8 +342,12 @@ public sealed partial class NewsPackageProductionService(
         }
 
         // Clear any pending timed interrupt that references the old composite so the
-        // mixer doesn't play it at the target time.
-        timedInterrupts.Clear();
+        // mixer doesn't play it at the target time. Targeted: other dispatchers'
+        // interrupts (podcast episodes) must survive a news recreate.
+        if (oldAnnouncementId is { } staleAnnouncementId)
+        {
+            timedInterrupts.Clear(staleAnnouncementId);
+        }
 
         await productionUpdates.PublishNewsChangedAsync(ct);
 

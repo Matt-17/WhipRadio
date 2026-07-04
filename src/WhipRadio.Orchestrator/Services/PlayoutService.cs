@@ -274,23 +274,33 @@ public class PlayoutService(
         {
             var now = DateTime.UtcNow;
             var settings = await settingsCache.GetAsync(ct);
-            if (!settings.NewsEnabled && !settings.WeatherEnabled)
-            {
-                return false;
-            }
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
             var minTarget = now.AddSeconds(-lateWindow);
             var maxTarget = now.AddSeconds(introGrace);
-            return await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.TargetUtc >= minTarget
-                    && package.TargetUtc <= maxTarget
-                    && (package.Status == NewsPackageStatus.Pending
-                        || package.Status == NewsPackageStatus.Retrying
-                        || package.Status == NewsPackageStatus.Ready
-                        || package.Status == NewsPackageStatus.Queued), ct);
+            if ((settings.NewsEnabled || settings.WeatherEnabled)
+                && await db.NewsPackages.AsNoTracking()
+                    .AnyAsync(package => package.TargetUtc >= minTarget
+                        && package.TargetUtc <= maxTarget
+                        && (package.Status == NewsPackageStatus.Pending
+                            || package.Status == NewsPackageStatus.Retrying
+                            || package.Status == NewsPackageStatus.Ready
+                            || package.Status == NewsPackageStatus.Queued), ct))
+            {
+                return true;
+            }
+
+            // Scheduled podcast episodes hold new tracks off their slot boundary too.
+            return await db.ConversationSegments.AsNoTracking()
+                .AnyAsync(segment => segment.TargetUtc != null
+                    && segment.TargetUtc >= minTarget
+                    && segment.TargetUtc <= maxTarget
+                    && (segment.Status == ConversationStatus.Planned
+                        || segment.Status == ConversationStatus.Scripted
+                        || segment.Status == ConversationStatus.Produced
+                        || segment.Status == ConversationStatus.Queued), ct);
         }
         catch (OperationCanceledException)
         {
@@ -309,19 +319,26 @@ public class PlayoutService(
         {
             var now = DateTime.UtcNow;
             var settings = await settingsCache.GetAsync(ct);
-            if (!settings.NewsEnabled && !settings.WeatherEnabled)
-            {
-                return false;
-            }
 
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
             var minTarget = now.AddSeconds(-lateWindow);
-            return await db.NewsPackages.AsNoTracking()
-                .AnyAsync(package => package.TargetUtc <= now
-                    && package.TargetUtc >= minTarget
-                    && (package.Status == NewsPackageStatus.Ready
-                        || package.Status == NewsPackageStatus.Queued), ct);
+            if ((settings.NewsEnabled || settings.WeatherEnabled)
+                && await db.NewsPackages.AsNoTracking()
+                    .AnyAsync(package => package.TargetUtc <= now
+                        && package.TargetUtc >= minTarget
+                        && (package.Status == NewsPackageStatus.Ready
+                            || package.Status == NewsPackageStatus.Queued), ct))
+            {
+                return true;
+            }
+
+            return await db.ConversationSegments.AsNoTracking()
+                .AnyAsync(segment => segment.TargetUtc != null
+                    && segment.TargetUtc <= now
+                    && segment.TargetUtc >= minTarget
+                    && (segment.Status == ConversationStatus.Produced
+                        || segment.Status == ConversationStatus.Queued), ct);
         }
         catch (OperationCanceledException)
         {

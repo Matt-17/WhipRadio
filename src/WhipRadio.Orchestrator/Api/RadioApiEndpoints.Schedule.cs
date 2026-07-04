@@ -89,7 +89,8 @@ public static partial class RadioApiEndpoints
                 s.Id, s.DayOfWeek, s.StartMinute, s.DurationMinutes, s.FormatId,
                 s.Format?.Name, s.Format?.Moderator?.Name,
                 s.Format is null ? null : string.IsNullOrEmpty(s.Format.Subgenre) ? s.Format.Genre : s.Format.Subgenre,
-                s.Format?.SelectionRules.Mode == SelectionMode.NewsShow)).ToList());
+                s.Format?.SelectionRules.Mode == SelectionMode.NewsShow,
+                s.Format?.SelectionRules.Mode == SelectionMode.PodcastShow)).ToList());
         });
     }
 }

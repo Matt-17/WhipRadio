@@ -100,5 +100,7 @@ public class SpecialistHostCreationServiceTests
         public Task PublishNewsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
 
         public Task PublishWeatherChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task PublishConversationsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 }

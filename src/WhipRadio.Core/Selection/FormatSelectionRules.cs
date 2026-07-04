@@ -30,6 +30,12 @@ public enum SelectionMode
     /// treats this like StandardRotation for whatever plays around the package.
     /// </summary>
     NewsShow,
+
+    /// <summary>
+    /// A recurring podcast show block. Pure discriminator like <see cref="NewsShow"/>:
+    /// the slot is filled by a pre-produced ConversationSegment episode.
+    /// </summary>
+    PodcastShow,
 }
 
 /// <summary>

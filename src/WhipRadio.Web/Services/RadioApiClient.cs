@@ -522,6 +522,81 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
     }
 
+    public async Task<List<ConversationSegmentDto>> GetConversationsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ConversationSegmentDto>>("/api/conversations", ct) ?? [];
+
+    public async Task<ConversationSegmentDto?> GetConversationAsync(Guid id, CancellationToken ct = default)
+        => await SafeGetAsync<ConversationSegmentDto>($"/api/conversations/{id}", ct);
+
+    public async Task<(ConversationSegmentDto? Segment, string? Error)> CreateConversationAsync(
+        CreateConversationRequestDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/conversations", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<ConversationSegmentDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<string?> AirConversationNextAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/conversations/{id}/air-next", null, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<string?> RetryConversationAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/conversations/{id}/retry", null, ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<string?> DeleteConversationAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/conversations/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
+    public async Task<List<ConversationSpeakerOptionDto>> GetConversationSpeakersAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<ConversationSpeakerOptionDto>>("/api/conversations/speakers", ct) ?? [];
+
+    public async Task<List<PodcastShowDto>> GetPodcastShowsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<PodcastShowDto>>("/api/podcast-shows", ct) ?? [];
+
+    public async Task<(PodcastShowDto? Show, string? Error)> CreatePodcastShowAsync(
+        SavePodcastShowDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PostAsJsonAsync("/api/podcast-shows", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<PodcastShowDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<(PodcastShowDto? Show, string? Error)> UpdatePodcastShowAsync(
+        Guid id,
+        SavePodcastShowDto request,
+        CancellationToken ct = default)
+    {
+        using var response = await http.PutAsJsonAsync($"/api/podcast-shows/{id}", request, ct);
+        return response.IsSuccessStatusCode
+            ? (await response.Content.ReadFromJsonAsync<PodcastShowDto>(ct), null)
+            : (null, await response.Content.ReadAsStringAsync(ct));
+    }
+
+    public async Task<PodcastShowDto?> TogglePodcastShowAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.PostAsync($"/api/podcast-shows/{id}/toggle", null, ct);
+        return response.IsSuccessStatusCode
+            ? await response.Content.ReadFromJsonAsync<PodcastShowDto>(ct)
+            : null;
+    }
+
+    public async Task<string?> DeletePodcastShowAsync(Guid id, CancellationToken ct = default)
+    {
+        using var response = await http.DeleteAsync($"/api/podcast-shows/{id}", ct);
+        return response.IsSuccessStatusCode ? null : await response.Content.ReadAsStringAsync(ct);
+    }
+
     public async Task<WeatherProductionDto?> GetWeatherProductionAsync(CancellationToken ct = default)
         => await SafeGetAsync<WeatherProductionDto>("/api/production/weather", ct);
 

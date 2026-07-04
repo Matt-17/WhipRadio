@@ -191,6 +191,19 @@ For vocal ACE-Step songs, artist history can provide:
 The reference audio sent to ACE-Step should be short. Sending a whole previous
 song makes ACE-Step spend minutes decoding reference audio before generation.
 
+### Conversations And Podcasts
+
+1. `ConversationProductionService` ensures a `ConversationSegment` episode
+   exists for every upcoming podcast-show slot (and produces operator-created
+   one-off talks): one LLM call writes the speaker-tagged script, each turn is
+   voiced with that speaker's designed voice (hosts or artist members), and
+   `ConversationAssembler` joins the turns into one WAV under
+   `library/conversations/`.
+2. `ConversationDispatcher` lands scheduled episodes at their grid slot start
+   through the multi-slot `TimedPlayoutInterruptService`; one-off talks air via
+   a queue-front "Air next" action. A slot with no produced episode falls back
+   to normal music under the show's format.
+
 ### Talk And Announcements
 
 1. `ShowRunnerService`, `ProgramDirectorService`, or listener/message flows

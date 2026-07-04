@@ -395,3 +395,38 @@ breathe in the chapter gaps, and streams the composite chunk-wise to disk (a
 30-minute mix never sits in memory). Beds are adapted to the TTS PCM layout by
 channel downmix + linear resampling. No bed available → the block airs spoken-only
 with a logged degradation reason.
+
+## Conversations And Podcast Shows (Phase 3c.2)
+
+**Conversation engine.** Multi-speaker talks/podcasts are `ConversationSegment`s:
+one schema-constrained LLM call (`ConversationScriptWriter`,
+`Prompts/speech/ConversationWriter.*`) writes the whole speaker-tagged script;
+each turn is voiced with the speaker's own designed `qv-` voice (hosts and artist
+members share the identical Qwen TTS path); `ConversationAssembler` joins the
+turn WAVs with short silence gaps (v1 rule: simple ordered spacing, no beds) and
+adapts mismatched PCM layouts instead of failing. Turns persist as
+generation-agnostic `ConversationTurn` JSON records so a later multi-agent
+dialogue engine changes the writer, not the schema. Produced audio lives in
+`library/conversations/` (outside both cleanup sweeps) wrapped in a
+`ScheduledOnly` `AnnouncementKind.Conversation` announcement. Resume is
+status-level only: a restart mid-voicing re-voices from the persisted script.
+Guests without a designed voice are allowed — production enqueues priority voice
+design and waits.
+
+**Podcast shows are grid formats (firm decision).** Each `PodcastShow` owns one
+weekly `ProgramSlot` via a seeded `Format` (`SelectionMode.PodcastShow`, pure
+discriminator like `NewsShow`), maintained by `PodcastShowScheduleSeeder`.
+`ConversationProductionService` fills every upcoming occurrence (90-minute
+prepare-ahead, 60-minute budget, airtime-ramped GPU priority) and
+`ConversationDispatcher` lands the episode at slot start. A slot with no
+produced episode falls back to normal music under the show's format (logged).
+A podcast slot owns its boundary outright: the news pipeline skips any package
+target that coincides with an enabled podcast occurrence.
+
+**Multi-slot timed interrupts.** `TimedPlayoutInterruptService` now holds a
+LIST of pending interrupts (news + podcasts with different targets), releases
+the earliest due one inside its claim window, and supports a targeted
+`Clear(itemId)` so a news recreate cannot drop a pending podcast episode. All
+approach-timing machinery (TimingPlanner track capping, jingle fill, playout
+holds, mixer guard) treats scheduled conversation targets exactly like news
+package targets.

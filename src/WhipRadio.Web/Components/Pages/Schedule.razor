@@ -53,6 +53,10 @@
                                 {
                                     <span class="tag green">news</span>
                                 }
+                                @if (slot.IsPodcastShow)
+                                {
+                                    <span class="tag amber">podcast</span>
+                                }
                                 @if (string.IsNullOrWhiteSpace(slot.ModeratorName))
                                 {
                                     <div class="cell-host">no host</div>

@@ -41,6 +41,7 @@ builder.Services.AddHealthChecks()
 builder.Services.AddScoped<RadioDbContext>(sp =>
     sp.GetRequiredService<IDbContextFactory<RadioDbContext>>().CreateDbContext());
 builder.Services.AddScoped<MusicCopywriter>();
+builder.Services.AddScoped<ConversationScriptWriter>();
 builder.Services.AddScoped<ArtistSocialFeedService>();
 builder.Services.AddScoped<ArtistCreationService>();
 builder.Services.AddScoped<SpecialistHostCreationService>();
@@ -108,6 +109,7 @@ builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 builder.Services.AddSingleton<EmergencyFallbackTrackService>();
 builder.Services.AddSingleton<NewsShowScheduleSeeder>();
+builder.Services.AddSingleton<PodcastShowScheduleSeeder>();
 
 builder.Services.AddSignalR();
 
@@ -129,7 +131,10 @@ builder.Services.AddHostedService<AnnouncementProductionService>();
         builder.Services.AddSingleton<ITopOfHourSegmentContributor, ShowReturnSegmentContributor>();
         builder.Services.AddSingleton<NewsPackageProductionService>();
         builder.Services.AddHostedService(sp => sp.GetRequiredService<NewsPackageProductionService>());
+builder.Services.AddSingleton<ConversationProductionService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ConversationProductionService>());
 builder.Services.AddHostedService<TopOfHourPackageDispatcher>();
+builder.Services.AddHostedService<ConversationDispatcher>();
 builder.Services.AddHostedService<ProgramDirectorService>();
 builder.Services.AddHostedService<MessageModerationService>();
 builder.Services.AddHostedService<NightlyModeratorMemoryDistillationService>();
@@ -186,7 +191,8 @@ app.Services.GetRequiredService<ILoggerFactory>()
 // The station language is the main language: hosts in another language are aligned.
 await app.Services.GetRequiredService<HostLanguageAligner>().AlignAsync();
 
-// Long-news-format settings own their grid slots; re-sync them on every start.
+// Long-news-format settings and podcast shows own their grid slots; re-sync on every start.
 await app.Services.GetRequiredService<NewsShowScheduleSeeder>().SyncAsync(CancellationToken.None);
+await app.Services.GetRequiredService<PodcastShowScheduleSeeder>().SyncAsync(CancellationToken.None);
 
 app.Run();

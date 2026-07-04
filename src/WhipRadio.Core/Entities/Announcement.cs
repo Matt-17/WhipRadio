@@ -32,6 +32,9 @@ public enum AnnouncementKind
 
     /// <summary>Original rewritten news copy sourced from configured news feeds.</summary>
     News,
+
+    /// <summary>A produced multi-speaker talk or podcast episode (ConversationSegment wrapper).</summary>
+    Conversation,
 }
 
 public enum AnnouncementPlayoutIntent

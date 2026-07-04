@@ -3,9 +3,12 @@ namespace WhipRadio.Core.Api;
 public static class RadioDisplayNames
 {
     public static string AnnouncementTitle(string? announcementKind)
-        => string.Equals(announcementKind, "News", StringComparison.Ordinal)
-            ? "News"
-            : "Announcement";
+        => announcementKind switch
+        {
+            "News" => "News",
+            "Conversation" => "Podcast",
+            _ => "Announcement",
+        };
 }
 
 /// <summary>Wire contracts between the Orchestrator API/hub and the Web app.</summary>
@@ -599,7 +602,80 @@ public sealed record ProgramSlotDto(
     string? FormatName,
     string? ModeratorName,
     string? Genre,
-    bool IsNewsShow = false);
+    bool IsNewsShow = false,
+    bool IsPodcastShow = false);
+
+// --- Conversations / podcasts (Phase 3c.2) ---------------------------------
+
+public sealed record ConversationSpeakerOptionDto(
+    string SpeakerKey,
+    string DisplayName,
+    string Subtitle,
+    bool VoiceReady);
+
+public sealed record ConversationParticipantDto(
+    string SpeakerKey,
+    string DisplayName,
+    string ConversationRole);
+
+public sealed record ConversationChapterDto(
+    string Title,
+    string Intent,
+    int TargetMinutes);
+
+public sealed record ConversationSegmentDto(
+    Guid Id,
+    string Kind,
+    string Structure,
+    string Topic,
+    string? Title,
+    string Status,
+    int TargetDurationMinutes,
+    double DurationSeconds,
+    string? ProductionState,
+    int StepIndex,
+    int StepTotal,
+    string? FailureReason,
+    Guid? AnnouncementId,
+    Guid? PodcastShowId,
+    string? ShowName,
+    DateTime? TargetUtc,
+    DateTime CreatedAtUtc,
+    DateTime? ProducedAtUtc,
+    DateTime? UsedAtUtc,
+    IReadOnlyList<ConversationParticipantDto> Participants,
+    string? Transcript = null);
+
+public sealed record CreateConversationRequestDto(
+    string Kind,
+    string Structure,
+    string Topic,
+    string Brief,
+    int TargetDurationMinutes,
+    IReadOnlyList<ConversationParticipantDto> Participants,
+    IReadOnlyList<ConversationChapterDto>? Chapters = null);
+
+public sealed record PodcastShowDto(
+    Guid Id,
+    string Name,
+    string Brief,
+    int EpisodeMinutes,
+    int DayOfWeek,
+    int StartMinute,
+    int SlotDurationMinutes,
+    bool IsEnabled,
+    IReadOnlyList<ConversationParticipantDto> Participants,
+    DateTime CreatedAtUtc);
+
+public sealed record SavePodcastShowDto(
+    string Name,
+    string Brief,
+    int EpisodeMinutes,
+    int DayOfWeek,
+    int StartMinute,
+    int SlotDurationMinutes,
+    IReadOnlyList<ConversationParticipantDto> Participants,
+    bool IsEnabled = true);
 
 public sealed record StatsDto(
     int CurrentListeners,

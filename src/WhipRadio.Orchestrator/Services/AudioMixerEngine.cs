@@ -839,10 +839,6 @@ public sealed class AudioMixerEngine(
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-            if (!settings.NewsEnabled && !settings.WeatherEnabled)
-            {
-                return null;
-            }
 
             var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
             var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
@@ -857,17 +853,44 @@ public sealed class AudioMixerEngine(
             // until production finishes. The rule is: keep playing music while the news
             // is pending; the dispatcher + timed interrupt cut it in the instant it
             // becomes Ready (immediately, even past the top of the hour).
-            var package = await db.NewsPackages.AsNoTracking()
-                .Where(package => package.TargetUtc >= minTarget
-                    && package.TargetUtc <= maxTarget
-                    && (package.Status == NewsPackageStatus.Ready
-                        || package.Status == NewsPackageStatus.Queued))
-                .OrderBy(package => package.TargetUtc)
+            NewsPackage? package = null;
+            if (settings.NewsEnabled || settings.WeatherEnabled)
+            {
+                package = await db.NewsPackages.AsNoTracking()
+                    .Where(package => package.TargetUtc >= minTarget
+                        && package.TargetUtc <= maxTarget
+                        && (package.Status == NewsPackageStatus.Ready
+                            || package.Status == NewsPackageStatus.Queued))
+                    .OrderBy(package => package.TargetUtc)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            // Scheduled podcast episodes land through the same timed interrupt and
+            // need the same hold. Produced ≈ Ready, Queued ≈ Queued.
+            var episode = await db.ConversationSegments.AsNoTracking()
+                .Where(segment => segment.TargetUtc != null
+                    && segment.TargetUtc >= minTarget
+                    && segment.TargetUtc <= maxTarget
+                    && (segment.Status == ConversationStatus.Produced
+                        || segment.Status == ConversationStatus.Queued))
+                .OrderBy(segment => segment.TargetUtc)
+                .Select(segment => new { TargetUtc = segment.TargetUtc!.Value, segment.Status })
                 .FirstOrDefaultAsync(ct);
 
-            return package is null
-                ? null
-                : new TopOfHourGuard(package.TargetUtc, introGrace, lateWindow, fadeOut, package.Status);
+            if (package is null && episode is null)
+            {
+                return null;
+            }
+
+            if (episode is not null && (package is null || episode.TargetUtc < package.TargetUtc))
+            {
+                var episodeStatus = episode.Status == ConversationStatus.Queued
+                    ? NewsPackageStatus.Queued
+                    : NewsPackageStatus.Ready;
+                return new TopOfHourGuard(episode.TargetUtc, introGrace, lateWindow, fadeOut, episodeStatus);
+            }
+
+            return new TopOfHourGuard(package!.TargetUtc, introGrace, lateWindow, fadeOut, package.Status);
         }
         catch (OperationCanceledException)
         {

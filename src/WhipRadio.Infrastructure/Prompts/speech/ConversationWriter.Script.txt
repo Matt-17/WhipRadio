@@ -1,0 +1,25 @@
+Station: {StationName} — {StationSlogan}
+
+Write a complete {KindLabel} script.
+
+{KindGuidance}
+
+Topic: {Topic}
+Editorial brief: {Brief}
+
+Target length: about {DurationMinutes} minutes of speech (roughly {WordBudget}
+words total across all turns).
+
+Speakers (use these names exactly; the first speaker leads, opens the
+conversation, and closes it):
+{SpeakerRoster}
+
+{StructureBlock}
+
+{RecentEpisodesBlock}
+
+Output:
+- "title": a short, catchy episode title in {Language} (no station name in it).
+- "turns": the full conversation as an ordered array; each turn has "speaker"
+  (exact roster name) and "text" (the spoken words, optionally with
+  [pause:NNNms] or [breath] markers).

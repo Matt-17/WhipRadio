@@ -43,6 +43,7 @@ public static partial class RadioApiEndpoints
         MapModerators(api);
         MapSettings(api);
         MapProduction(api);
+        MapConversations(api);
         MapBranding(api);
         MapFormatsAndSchedule(api);
         MapStats(api);
