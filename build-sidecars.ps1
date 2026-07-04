@@ -3,17 +3,21 @@
 # under sidecars\. GPU torch wheels are used when nvidia-smi reports a GPU.
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-$torchIndex = "cpu"
+$hasGpu = $false
 try {
     nvidia-smi -L | Out-Null
-    if ($LASTEXITCODE -eq 0) { $torchIndex = "cu121" }
+    if ($LASTEXITCODE -eq 0) { $hasGpu = $true }
 } catch {}
-Write-Host "TORCH_INDEX = $torchIndex" -ForegroundColor Cyan
+Write-Host "GPU wheels: $hasGpu" -ForegroundColor Cyan
 
+# Each image pins its own torch, so the CUDA wheel index differs per image:
+# tts pins torch 2.8 (cu128); musicgen's audiocraft pins torch 2.1 (cu121 tops
+# out where 2.1 still exists). A single shared index would break one of them.
 $builds = @(
-    @{ Tag = "whipradio-tts:local";      Path = "sidecars\tts";      TorchArg = $true  },
-    @{ Tag = "whipradio-musicgen:local"; Path = "sidecars\musicgen"; TorchArg = $true  },
-    @{ Tag = "whipradio-acestep:local";  Path = "sidecars\acestep";  TorchArg = $false }
+    @{ Tag = "whipradio-tts:local";      Path = "sidecars\tts";      GpuIndex = "cu128" },
+    @{ Tag = "whipradio-musicgen:local"; Path = "sidecars\musicgen"; GpuIndex = "cu121" },
+    @{ Tag = "whipradio-acestep:local";  Path = "sidecars\acestep";  GpuIndex = $null   },
+    @{ Tag = "whipradio-analysis:local"; Path = "sidecars\analysis"; GpuIndex = $null   }
 )
 
 $failed = $false
@@ -21,7 +25,9 @@ foreach ($b in $builds) {
     Write-Host ""
     Write-Host "=== $($b.Tag) ===" -ForegroundColor Cyan
     $context = Join-Path $root $b.Path
-    if ($b.TorchArg) {
+    if ($b.GpuIndex) {
+        $torchIndex = if ($hasGpu) { $b.GpuIndex } else { "cpu" }
+        Write-Host "  TORCH_INDEX = $torchIndex"
         docker build -t $b.Tag --build-arg "TORCH_INDEX=$torchIndex" $context
     } else {
         docker build -t $b.Tag $context

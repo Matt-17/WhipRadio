@@ -11,5 +11,6 @@
     <Project Path="tests/WhipRadio.Core.Tests/WhipRadio.Core.Tests.csproj" />
     <Project Path="tests/WhipRadio.Infrastructure.Tests/WhipRadio.Infrastructure.Tests.csproj" />
     <Project Path="tests/WhipRadio.Orchestrator.Tests/WhipRadio.Orchestrator.Tests.csproj" />
+    <Project Path="tests/WhipRadio.Web.Tests/WhipRadio.Web.Tests.csproj" />
   </Folder>
 </Solution>

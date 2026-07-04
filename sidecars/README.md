@@ -31,15 +31,21 @@ together.
 
 ## Dependency pinning
 
-The four sidecars intentionally use different strategies:
-
 - `analysis/requirements.txt` — exact `==` pins (CPU-only, cheap to rebuild).
-- `tts` and `musicgen` — ranged pins (`>=,<`); the torch wheel variant
-  (CPU/GPU) is auto-detected at build time by `build-sidecars.ps1`, so exact
-  pins would fight the wheel selection. Known-fragile constraints are
-  documented in the memory note "Sidecar build pins" and `docs/licenses/`.
+- `tts/requirements.txt` — exact `==` pins taken from the verified working
+  image's `pip freeze`; **torch is deliberately unpinned** because the wheel
+  variant (CPU/CUDA) is selected at build time via the `TORCH_INDEX` build arg.
+- `musicgen` — ranged pins on purpose: the MusicGen studio is optional
+  (`-IncludeMusicGen`) and no verified local image exists to derive exact
+  versions from. Pin from a working image's `pip freeze` before relying on it.
 - `acestep` — no requirements file of its own; the image builds from the
   upstream ACE-Step repository via `uv sync --frozen` (upstream lockfile).
+
+The FastAPI boilerplate (health payload shape, WAV response writing, the
+per-process generation lock) is intentionally duplicated per sidecar: each
+image builds from its own directory as the Docker context, so a shared module
+would need build-script copy steps for ~50 lines of code. Revisit only if the
+sidecars grow a real shared surface.
 
 When adding or upgrading anything here, update `docs/licenses/` per the
 repository guidelines.
