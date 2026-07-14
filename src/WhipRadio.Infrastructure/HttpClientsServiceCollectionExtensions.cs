@@ -105,6 +105,39 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddScoped<INewsFeedReader, RssNewsFeedReader>();
         services.AddScoped<INewsArticleExtractor, HtmlArticleExtractor>();
 
+        // Open music metadata (Phase 6a): keyless, CC0-friendly sources.
+        // MusicBrainz drops the resilience handler — automatic retries would
+        // violate its 1-req/s etiquette; the rate gate owns all pacing.
+        services.Configure<Metadata.MusicMetadataOptions>(
+            configuration.GetSection(Metadata.MusicMetadataOptions.SectionName));
+        services.AddSingleton<Metadata.MusicBrainzRateGate>();
+        services.AddHttpClient<Metadata.IMusicBrainzClient, Metadata.MusicBrainzClient>((sp, client) =>
+            {
+                var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Metadata.MusicMetadataOptions>>().Value;
+                client.BaseAddress = new Uri(configuration["MusicMetadata:MusicBrainzEndpoint"] ?? options.MusicBrainzEndpoint);
+                client.Timeout = TimeSpan.FromSeconds(30);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+            })
+            .RemoveAllResilienceHandlers();
+
+        services.AddHttpClient<Metadata.WikidataClient>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Metadata.MusicMetadataOptions>>().Value;
+            client.BaseAddress = new Uri(options.WikidataEndpoint);
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+        });
+        services.AddScoped<Metadata.IWikidataClient>(sp => sp.GetRequiredService<Metadata.WikidataClient>());
+
+        services.AddHttpClient<Metadata.IWikipediaClient, Metadata.WikipediaClient>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<Metadata.MusicMetadataOptions>>().Value;
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(options.UserAgent);
+        });
+
+        services.AddScoped<Metadata.KnowledgeDigestWriter>();
+
         // Mixer audio analysis sidecar (CPU-only; started by start-studios.ps1).
         services.AddHttpClient<IAudioAnalysisClient, HttpAudioAnalysisClient>(client =>
             {
@@ -117,8 +150,6 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<ICharacterToolCallParser, CharacterToolCallParser>();
         services.AddSingleton<IChatReplyParser, ChatReplyParser>();
         services.AddSingleton<ICharacterToolCatalog, CharacterToolCatalog>();
-        services.AddSingleton<ICharacterTool, AnnounceTool>();
-        services.AddSingleton<ICharacterTool, PlayTool>();
         services.AddSingleton<ICharacterTool, MessageTool>();
         services.AddSingleton<ICharacterTool, AnnouncementTool>();
         services.AddSingleton<ICharacterTool, SearchMusicTool>();
@@ -130,10 +161,7 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<ICharacterTool, RemoveFromChannelTool>();
         services.AddSingleton<ICharacterTool, MakeSongTool>();
         services.AddSingleton<ICharacterTool, BriefPodcastTool>();
-        services.AddSingleton<ICharacterTool, StartTalkBreakTool>();
-        services.AddSingleton<ICharacterTool, RememberTool>();
-        services.AddSingleton<ICharacterTool, RequestBitTool>();
-        services.AddSingleton<ICharacterTool, NoOpTool>();
+        services.AddSingleton<ICharacterTool, LookupKnowledgeTool>();
 
         return services;
     }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
@@ -92,7 +93,7 @@ public sealed class EmergencyFallbackTrackService(
             : (Guid?)null;
 
         var playable = candidates
-            .Where(candidate => File.Exists(Path.Combine(radioOptions.Value.DataRoot, candidate.FilePath)))
+            .Where(candidate => File.Exists(MediaPaths.ResolveAbsolute(radioOptions.Value.DataRoot, candidate.FilePath)))
             .ToList();
         if (playable.Count == 0)
         {

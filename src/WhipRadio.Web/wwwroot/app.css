@@ -4832,6 +4832,144 @@ table.console-table {
 
 .field select:focus { border-color: var(--amber-dim); }
 
+/* ---------- archive (imported music) ---------- */
+
+.archive-song-grid {
+    display: grid;
+    grid-template-columns: 40px minmax(0, 1fr) 74px 96px 64px 48px 70px 40px;
+    column-gap: 14px;
+    align-items: center;
+}
+
+.archive-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.archive-toolbar-meta {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1 1 auto;
+}
+
+.archive-search { max-width: 280px; }
+
+.archive-artist { font-size: 12px; }
+
+.archive-dropzone {
+    border: 1.5px dashed var(--line);
+    border-radius: 8px;
+    padding: 22px 18px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.archive-dropzone.drag-over {
+    border-color: var(--amber-dim);
+    background: rgba(255, 180, 84, 0.06);
+}
+
+.archive-dropzone-copy {
+    font-family: var(--font-mono);
+    color: var(--amber-hot);
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.archive-browse-btn { cursor: pointer; }
+
+.archive-file-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.archive-upload-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 4px 0;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+}
+
+.archive-upload-name {
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.archive-metadata-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.archive-review-current { margin-bottom: 12px; }
+
+.archive-review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.archive-review-candidate {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.archive-review-candidate.settled { opacity: 0.6; }
+
+.archive-review-line { font-family: var(--font-mono); font-size: 13px; }
+
+.archive-review-meta {
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+@media (max-width: 760px) {
+    .archive-song-grid {
+        grid-template-columns: 36px minmax(0, 1fr) 64px 84px 36px;
+    }
+
+    .archive-song-grid .library-length-cell,
+    .archive-song-grid .library-plays-cell,
+    .archive-song-grid .library-created-cell {
+        display: none;
+    }
+}
+
+/* Compact immediate-save select for card/table action rows (e.g. guest voice fx). */
+.fx-select {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--amber-hot);
+    background: #0b0a07;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 8px;
+    outline: none;
+}
+
+.fx-select:focus { border-color: var(--amber-dim); }
+
 /* ---------- server stat meters ---------- */
 
 .meter-row { margin-bottom: 16px; }

@@ -78,19 +78,13 @@ media validation, loudness, and copyright handling in the identity page.
 **Done when:** operators can import vetted jingle WAVs without bypassing storage,
 metadata, or audio safety checks.
 
-## 6. Conversation Cross-Talk Overlap (Phase 5 Leftover)
+## 6. Conversation Cross-Talk Overlap (Phase 5 Leftover) — DONE 2026-07-05
 
-**Problem:** `ConversationRenderer` already supports overlapping a speaker's
-tail with the next speaker's head (the `overlapMs` parameter over `MixerCore`),
-but nothing feeds it: natural cross-talk needs the LLM to mark WHAT overlaps
-WHEN and still sound right.
-
-**Fix:** extend the director's turn schema with overlap markers, map them to
-per-turn negative gaps, and tune bounds. No schema change needed —
-`ConversationTurn.PauseAfterMs` and the renderer parameter already exist.
-
-**Done when:** a podcast can contain short, natural interjections without
-clipped words or doubled sentences.
+**Implemented:** the director's turn schema gained an `interject` flag; when a
+turn interjects, the previous turn gets a negative `PauseAfterMs` (350–700 ms,
+only after turns of ≥ 12 words, never on the opening/closing turn).
+`ConversationRenderer` clamps per-turn overlap to 1200 ms and to at most half
+of the previous turn; the concat fallback treats negative pauses as zero.
 
 ## 7. pgvector Threshold (Phase 5 Leftover)
 
@@ -104,15 +98,13 @@ in `ParticipantMemoryRetriever`.
 
 **Done when:** retrieval stays under a few ms at the station's real memory size.
 
-## 8. Guest Voice Fx Chain (Phase 5 Leftover)
+## 8. Guest Voice Fx Chain (Phase 5 Leftover) — DONE 2026-07-05
 
-**Problem:** the Phase 5 brief reserves an Fx chain (telephone/lo-fi caller
-effect) on guest voices; nothing is stored or applied yet.
-
-**Fix:** add an optional Fx descriptor to `Guest` (and possibly members), apply
-it as a post-TTS filter in conversation voicing.
-
-**Done when:** a "caller" guest sounds like a phone line without a new voice.
+**Implemented:** `Guest.VoiceFx` ("telephone" | null, immediate-save select on
+the Guests page) applied as a post-TTS filter in `ConversationProductionService`
+via `Core/Audio/VoiceFx` (RBJ 300–3400 Hz band-pass + mild tanh saturation,
+unity small-signal gain). Unknown effects and unparsable audio pass through.
+Artist members can get the same descriptor later if a need appears.
 
 ## 9. Artist Autonomy Between Appearances (Phase 5 Open Question)
 
@@ -125,3 +117,40 @@ fresh material. Needs cost limits and operator control.
 
 **Done when:** returning guests/artists reference plausible off-air happenings
 without an operator scripting them.
+
+## 10. Local MusicBrainz Index (Phase 6a Option)
+
+**Problem:** Archive enrichment uses the live keyless MusicBrainz web API at
+1 request/second. A very large first import (thousands of tracks) takes hours
+to enrich — acceptable as a background job, but not fast.
+
+**Fix (if wanted):** implement the original Phase 6a M3/M7 design — download
+the CC0 MusicBrainz core data package, build a local search index, and add an
+Admin/Settings package install/update flow. `IMusicBrainzClient` is the seam;
+matching and claims stay unchanged.
+
+**Done when:** a multi-thousand-track import matches offline in minutes.
+
+## 11. Genre Mapping For Imported Tags (Phase 6a Follow-Up)
+
+**Problem:** imported tracks carry free-text tag genres ("Trip-Hop", "Alt Rock")
+that rarely match the station's format genres, so the selector's genre chain
+usually falls through to "anything" for imported music (playable, but format
+shows don't prefer fitting imported tracks).
+
+**Fix (if wanted):** a small mapping layer (LLM- or operator-driven) from tag
+genres to station genres, editable on the Archive page.
+
+**Done when:** a "trip hop" format show prefers imported trip-hop over random
+imports.
+
+## 12. AnalysisRequired Setting Is Dormant
+
+**Problem:** `StationSettings.AnalysisRequired` claims "the track selector
+skips unanalysed items", but no selector/repository consumer exists — the flag
+is only stored and surfaced by the Mixer settings.
+
+**Fix (if wanted):** either honor it in `EfTrackRepository.GetCandidatesAsync`
+(exclude tracks without a current-version `MediaAnalysis`) or drop the setting.
+
+**Done when:** the toggle does what its description says, or it is gone.

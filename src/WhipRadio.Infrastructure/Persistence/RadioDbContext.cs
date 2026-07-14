@@ -74,15 +74,47 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<AgentActionLog> AgentActionLogs => Set<AgentActionLog>();
 
+    public DbSet<Core.Entities.Metadata.MetadataClaim> MetadataClaims => Set<Core.Entities.Metadata.MetadataClaim>();
+
+    public DbSet<Core.Entities.Metadata.MetadataCandidate> MetadataCandidates => Set<Core.Entities.Metadata.MetadataCandidate>();
+
+    public DbSet<Core.Entities.Metadata.ExternalId> ExternalIds => Set<Core.Entities.Metadata.ExternalId>();
+
+    public DbSet<Core.Entities.Metadata.KnowledgeEntry> KnowledgeEntries => Set<Core.Entities.Metadata.KnowledgeEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Track>(track =>
         {
             track.HasIndex(t => t.Genre);
             track.HasIndex(t => t.IsRetired);
+            track.HasIndex(t => t.Source);
+            track.HasIndex(t => t.FileHash);
             track.HasOne(t => t.Artist)
                 .WithMany()
                 .HasForeignKey(t => t.ArtistId);
+        });
+
+        modelBuilder.Entity<Core.Entities.Metadata.MetadataClaim>(claim =>
+        {
+            claim.HasIndex(c => new { c.OwnerType, c.OwnerId });
+        });
+
+        modelBuilder.Entity<Core.Entities.Metadata.MetadataCandidate>(candidate =>
+        {
+            candidate.HasIndex(c => c.TrackId);
+        });
+
+        modelBuilder.Entity<Core.Entities.Metadata.ExternalId>(externalId =>
+        {
+            externalId.HasIndex(e => new { e.OwnerType, e.OwnerId });
+            externalId.HasIndex(e => new { e.Source, e.Value });
+        });
+
+        modelBuilder.Entity<Core.Entities.Metadata.KnowledgeEntry>(entry =>
+        {
+            entry.HasIndex(e => new { e.Source, e.SourceEntityId }).IsUnique();
+            entry.HasIndex(e => e.DisplayName);
         });
 
         modelBuilder.Entity<Artist>(artist =>

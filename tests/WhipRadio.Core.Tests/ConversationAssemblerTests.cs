@@ -46,6 +46,22 @@ public class ConversationAssemblerTests
     }
 
     [TestMethod]
+    public void Assemble_TreatsNegativePauseAsZeroGap()
+    {
+        // The concat fallback cannot overlap turns; a cross-talk hint degrades to
+        // back-to-back speech instead of corrupting the layout.
+        var result = ConversationAssembler.Assemble(
+        [
+            new ConversationTurnAudio(ConstantWav(1000, 1.0), PauseAfterMs: -500),
+            new ConversationTurnAudio(ConstantWav(2000, 1.0)),
+        ]);
+
+        Assert.Equal(2.0, WavFile.GetDurationSeconds(result), precision: 2);
+        Assert.Equal((short)1000, SampleAt(result, 0.9));
+        Assert.Equal((short)2000, SampleAt(result, 1.1));
+    }
+
+    [TestMethod]
     public void Assemble_HonorsPerTurnPauseHints()
     {
         var result = ConversationAssembler.Assemble(

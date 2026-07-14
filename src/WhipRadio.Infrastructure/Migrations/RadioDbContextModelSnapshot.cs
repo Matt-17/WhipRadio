@@ -672,6 +672,9 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<DateTime?>("VoiceDesignedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("VoiceFx")
+                        .HasColumnType("text");
+
                     b.Property<string>("VoiceId")
                         .HasColumnType("text");
 
@@ -876,6 +879,194 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("MediaAnalyses");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Metadata.ExternalId", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("OwnerType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerType", "OwnerId");
+
+                    b.HasIndex("Source", "Value");
+
+                    b.ToTable("ExternalIds");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Metadata.KnowledgeEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Digest")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("EntityKind")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FactsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("LicenseClass")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("RetrievedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceEntityId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName");
+
+                    b.HasIndex("Source", "SourceEntityId")
+                        .IsUnique();
+
+                    b.ToTable("KnowledgeEntries");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Metadata.MetadataCandidate", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ArtistEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("DisplayAlbum")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayArtist")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DisplayTitle")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int?>("DisplayYear")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReasonsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<double>("Score")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceEntityId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TrackId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TrackId");
+
+                    b.ToTable("MetadataCandidates");
+                });
+
+            modelBuilder.Entity("WhipRadio.Core.Entities.Metadata.MetadataClaim", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("Confidence")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsApplied")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("LicenseClass")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("OwnerType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SourceEntityId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OwnerType", "OwnerId");
+
+                    b.ToTable("MetadataClaims");
                 });
 
             modelBuilder.Entity("WhipRadio.Core.Entities.Moderator", b =>
@@ -1408,6 +1599,15 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<int>("AnnouncementEveryNTracks")
                         .HasColumnType("integer");
 
+                    b.Property<bool>("ArchiveEnrichmentEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ArchivePlayoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("ArchiveUploadEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<double>("BeatAlignBpmTolerancePct")
                         .HasColumnType("double precision");
 
@@ -1542,6 +1742,9 @@ namespace WhipRadio.Infrastructure.Migrations
                         .HasColumnType("text");
 
                     b.Property<bool>("PlayoutEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("PodcastKnowledgeEnabled")
                         .HasColumnType("boolean");
 
                     b.Property<int>("PostHitSafetyMs")
@@ -1965,9 +2168,21 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<double>("DurationSeconds")
                         .HasColumnType("double precision");
 
+                    b.Property<string>("FileHash")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("FileMissing")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("FileModifiedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("FilePath")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<long?>("FileSizeBytes")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("GenerationPrompt")
                         .IsRequired()
@@ -1980,6 +2195,15 @@ namespace WhipRadio.Infrastructure.Migrations
                     b.Property<bool>("HasVocals")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("ImportedAlbum")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ImportedArtist")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ImportedYear")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsRetired")
                         .HasColumnType("boolean");
 
@@ -1987,14 +2211,26 @@ namespace WhipRadio.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("LastEnrichmentAttemptUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Lyrics")
                         .HasColumnType("text");
+
+                    b.Property<double?>("MetadataConfidence")
+                        .HasColumnType("double precision");
+
+                    b.Property<int>("MetadataStatus")
+                        .HasColumnType("integer");
 
                     b.Property<int>("PlayCount")
                         .HasColumnType("integer");
 
                     b.Property<string>("SongStory")
                         .HasColumnType("text");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Style")
                         .IsRequired()
@@ -2018,9 +2254,13 @@ namespace WhipRadio.Infrastructure.Migrations
 
                     b.HasIndex("ArtistId");
 
+                    b.HasIndex("FileHash");
+
                     b.HasIndex("Genre");
 
                     b.HasIndex("IsRetired");
+
+                    b.HasIndex("Source");
 
                     b.ToTable("Tracks");
                 });

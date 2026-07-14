@@ -1,5 +1,10 @@
 # WhipRadio — Phase 3 (Emergency Insert): Qwen3-TTS Engine
 
+> **Status 2026-07-05 (doc cleanup):** implemented — Qwen3-TTS is the primary
+> engine, all host/guest/member voices are designed `qv-` voices
+> (`HostVoicePreparationService` and friends), and Kokoro/Piper/ElevenLabs
+> remain fallbacks. Unticked checkboxes below are historical.
+
 > **Why this is an "emergency insert":** Phase 3a (mixer) is nearly done and the loudness
 > normalization there assumes consistent, good speech. The current TTS quality is the
 > weakest link, so we upgrade it *now*, before building more on top of it. This is a

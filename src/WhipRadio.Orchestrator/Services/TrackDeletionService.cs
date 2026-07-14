@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
 
@@ -158,7 +159,8 @@ public sealed class TrackDeletionService(
         }
 
         string title = track.Title;
-        string relativePath = track.FilePath;
+        string filePath = track.FilePath;
+        TrackSource source = track.Source;
 
         await db.MediaAnalyses
             .Where(a => a.ItemType == PlayoutItemType.Track && a.ItemId == trackId)
@@ -166,15 +168,25 @@ public sealed class TrackDeletionService(
         db.Tracks.Remove(track);
         await db.SaveChangesAsync(ct);
 
-        TryDeleteAudioFile(relativePath);
+        TryDeleteAudioFile(source, filePath);
         return new TrackDeletionResult(TrackDeletionStatus.Deleted, title);
     }
 
-    private void TryDeleteAudioFile(string relativePath)
+    private void TryDeleteAudioFile(TrackSource source, string filePath)
     {
+        string dataRoot = radioOptions.Value.DataRoot;
+        // External-library files are not ours: "delete" removes only the DB
+        // rows. The data-root check is a second guard against any rooted path
+        // that slipped into a non-external track.
+        if (source == TrackSource.External || !MediaPaths.IsUnderDataRoot(dataRoot, filePath))
+        {
+            logger.LogDebug("Keeping external audio file untouched: {FilePath}", filePath);
+            return;
+        }
+
         try
         {
-            string absolutePath = Path.Combine(radioOptions.Value.DataRoot, relativePath);
+            string absolutePath = MediaPaths.ResolveAbsolute(dataRoot, filePath);
             if (File.Exists(absolutePath))
             {
                 File.Delete(absolutePath);
@@ -182,7 +194,7 @@ public sealed class TrackDeletionService(
         }
         catch (Exception ex)
         {
-            logger.LogDebug(ex, "Track DB row is gone; leaving stray audio file {RelativePath}", relativePath);
+            logger.LogDebug(ex, "Track DB row is gone; leaving stray audio file {FilePath}", filePath);
         }
     }
 }

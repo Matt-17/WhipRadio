@@ -34,6 +34,9 @@ public static class TestAssert
     public static void NotEqual(object? notExpected, object? actual)
         => MsAssert.AreNotEqual(notExpected, actual);
 
+    public static void Same(object? expected, object? actual)
+        => MsAssert.AreSame(expected, actual);
+
     public static void True(bool condition, string? message = null)
         => MsAssert.IsTrue(condition, message);
 

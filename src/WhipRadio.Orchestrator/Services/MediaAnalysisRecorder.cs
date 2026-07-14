@@ -12,6 +12,7 @@ namespace WhipRadio.Orchestrator.Services;
 /// </summary>
 public class MediaAnalysisRecorder(
     IAudioAnalysisClient client,
+    ImportedAudioStager stager,
     IDbContextFactory<RadioDbContext> dbFactory,
     ILogger<MediaAnalysisRecorder> logger)
 {
@@ -24,7 +25,10 @@ public class MediaAnalysisRecorder(
         try
         {
             var mode = itemType == PlayoutItemType.Announcement ? AnalysisMode.Speech : AnalysisMode.Music;
-            var dto = await client.AnalyzeAsync(relativePath, mode, ct);
+            // Imported audio (outside the data root, or MP3) is staged as a
+            // temp WAV the sidecar can reach; in-root WAVs pass through.
+            using var staged = await stager.StageAsync(itemId, relativePath, ct);
+            var dto = await client.AnalyzeAsync(staged.SidecarRelativePath, mode, ct);
             row = Map(itemType, itemId, dto);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -43,6 +47,34 @@ public class MediaAnalysisRecorder(
         }
 
         await UpsertAsync(row, ct);
+        if (itemType == PlayoutItemType.Track && row.AnalyzerVersion > 0)
+        {
+            await UpdateImportedDurationAsync(itemId, row.DurationSeconds, ct);
+        }
+    }
+
+    /// <summary>
+    /// Imported tracks start with tag-claimed durations (tags lie); the probed
+    /// analysis duration is authoritative. Generated tracks are untouched.
+    /// </summary>
+    private async Task UpdateImportedDurationAsync(Guid trackId, double durationSeconds, CancellationToken ct)
+    {
+        if (durationSeconds <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            await db.Tracks
+                .Where(t => t.Id == trackId && t.Source != TrackSource.Generated)
+                .ExecuteUpdateAsync(s => s.SetProperty(t => t.DurationSeconds, durationSeconds), ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to update imported track duration for {TrackId}", trackId);
+        }
     }
 
     private static MediaAnalysis Map(PlayoutItemType itemType, Guid itemId, MediaAnalysisDto dto) => new()

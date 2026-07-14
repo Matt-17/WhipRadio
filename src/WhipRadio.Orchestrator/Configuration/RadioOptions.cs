@@ -12,6 +12,27 @@ public class RadioOptions
     public string TracksDirectory => Path.Combine(DataRoot, "library", "tracks");
 
     public string AnnouncementsDirectory => Path.Combine(DataRoot, "library", "announcements");
+
+    /// <summary>Copyright-sensitive uploads live apart from generated tracks.</summary>
+    public string ArchiveUploadsDirectory => Path.Combine(DataRoot, "archive", "uploads");
+}
+
+/// <summary>External/imported music library configuration (Phase 6a).</summary>
+public class LibraryOptions
+{
+    public const string SectionName = "Library";
+
+    /// <summary>
+    /// Read-only folders scanned for existing music (WAV/MP3). WhipRadio never
+    /// writes to, renames, or deletes anything inside these folders.
+    /// </summary>
+    public string[] ExternalMusicFolders { get; set; } = [];
+
+    /// <summary>Minutes between incremental rescans of the external folders.</summary>
+    public int RescanMinutes { get; set; } = 15;
+
+    /// <summary>Upload size cap for the Archive page.</summary>
+    public long MaxUploadBytes { get; set; } = 500L * 1024 * 1024;
 }
 
 public class IcecastOptions

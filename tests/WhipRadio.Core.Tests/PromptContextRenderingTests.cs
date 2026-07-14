@@ -56,4 +56,39 @@ public class PromptContextRenderingTests
         Assert.DoesNotContain("Tracks already aired in this show", rendered);
         Assert.DoesNotContain("Tracks aired in the previous show", rendered);
     }
+
+    [TestMethod]
+    public void RenderSituation_IncludesTrackFactsWithParaphraseRule()
+    {
+        var context = new PromptContext
+        {
+            StationName = "WhipRadio",
+            FrequencyMhz = 104.4,
+            Purpose = "test",
+            RelatedTrack = "Massive Attack - Teardrop (trip hop)",
+            RelatedTrackFacts = "Massive Attack formed in Bristol in 1988.",
+        };
+
+        var rendered = context.RenderSituation();
+
+        Assert.Contains("Current track facts: Massive Attack formed in Bristol in 1988.", rendered);
+        Assert.Contains("Do not quote source text", rendered);
+        Assert.Contains("never recite lyrics", rendered);
+    }
+
+    [TestMethod]
+    public void RenderSituation_OmitsTrackFactsWhenAbsent()
+    {
+        var context = new PromptContext
+        {
+            StationName = "WhipRadio",
+            FrequencyMhz = 104.4,
+            Purpose = "test",
+            RelatedTrack = "Unknown Uploader - Mystery Song (unknown)",
+        };
+
+        var rendered = context.RenderSituation();
+
+        Assert.DoesNotContain("Current track facts", rendered);
+    }
 }

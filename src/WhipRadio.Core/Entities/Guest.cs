@@ -52,6 +52,12 @@ public class Guest
 
     public string? VoiceDesignLastError { get; set; }
 
+    /// <summary>
+    /// Optional post-TTS effect chain applied to this guest's on-air audio
+    /// ("telephone" = band-limited caller sound); null = clean voice.
+    /// </summary>
+    public string? VoiceFx { get; set; }
+
     /// <summary>Archived guests are kept for history but no longer offered for invites.</summary>
     public bool IsArchived { get; set; }
 

@@ -94,6 +94,7 @@ public sealed class PromptContextBuilder(
             CurrentTraits = currentTraits,
             TalkProfile = moderator is null ? null : HostTalkProfile.FromModerator(moderator),
             RelatedTrack = FormatTrack(input.RelatedTrack),
+            RelatedTrackFacts = await GetRelatedTrackFactsAsync(db, input.RelatedTrack, ct),
             AlreadySpokenContext = input.AlreadySpokenContext,
             SpeechRate = speechRate,
             WordsPerSecond = wordsPerSecond,
@@ -108,8 +109,63 @@ public sealed class PromptContextBuilder(
             MemorySlices = await GetCombinedMemorySlicesAsync(db, input, moderator, chatHistory, ct),
             ChatHistory = chatHistory,
             ChatAudience = ResolveChatAudience(input),
-            Tools = toolCatalog.GetTools(input.Scope, role),
+            Tools = FilterTools(toolCatalog.GetTools(input.Scope, role), settings),
         };
+    }
+
+    /// <summary>Settings-gated tools: the catalog knows scope/role, not station toggles.</summary>
+    private static IReadOnlyList<CharacterToolDefinition> FilterTools(
+        IReadOnlyList<CharacterToolDefinition> tools, StationSettings settings)
+        => settings.PodcastKnowledgeEnabled
+            ? tools
+            : tools.Where(tool => !string.Equals(tool.Name, "LookupKnowledge", StringComparison.OrdinalIgnoreCase)).ToList();
+
+    /// <summary>
+    /// Factual digest for a real (imported) track, gated by metadata status
+    /// (Phase 6a §9): Verified/AutoMatched get the full digest, Matched a
+    /// cautious one, everything else nothing. Stored digests stay usable even
+    /// while gathering toggles are off — they contain no source prose.
+    /// </summary>
+    private async Task<string?> GetRelatedTrackFactsAsync(RadioDbContext db, Track? track, CancellationToken ct)
+    {
+        if (track is null || track.Source == TrackSource.Generated)
+        {
+            return null;
+        }
+
+        var cautious = track.MetadataStatus switch
+        {
+            MetadataStatus.Verified or MetadataStatus.AutoMatched => false,
+            MetadataStatus.Matched => true,
+            _ => (bool?)null,
+        };
+        if (cautious is null)
+        {
+            return null;
+        }
+
+        var qids = await db.ExternalIds.AsNoTracking()
+            .Where(e => e.OwnerType == Core.Entities.Metadata.MetadataOwnerType.Track
+                && e.OwnerId == track.Id && e.Source == "Wikidata")
+            .Select(e => e.Value)
+            .ToListAsync(ct);
+        if (qids.Count == 0)
+        {
+            return null;
+        }
+
+        var digest = await db.KnowledgeEntries.AsNoTracking()
+            .Where(e => qids.Contains(e.SourceEntityId) && e.Digest != "")
+            .Select(e => e.Digest)
+            .FirstOrDefaultAsync(ct);
+        if (digest is null)
+        {
+            return null;
+        }
+
+        return cautious.Value
+            ? $"{digest} (Metadata match is unconfirmed — keep factual claims light.)"
+            : digest;
     }
 
     private static CharacterRole ResolveRole(PromptContextInput input, Moderator? moderator)
@@ -172,7 +228,9 @@ public sealed class PromptContextBuilder(
             return null;
         }
 
-        var artist = track.Artist?.Name;
+        // Imported real music has no station Artist entity — its display artist
+        // lives on the track itself.
+        var artist = track.Artist?.Name ?? track.ImportedArtist;
         return string.IsNullOrWhiteSpace(artist)
             ? $"{track.Title} ({track.Genre})"
             : $"{artist} - {track.Title} ({track.Genre})";

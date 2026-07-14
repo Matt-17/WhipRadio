@@ -34,6 +34,7 @@ public static partial class RadioApiEndpoints
         MapNowPlaying(api);
         MapStationStatus(api);
         MapLibrary(api);
+        MapArchive(api);
         MapArtistPosts(api);
         MapGuests(api);
         MapChat(api);
@@ -256,7 +257,11 @@ public static partial class RadioApiEndpoints
         s.WeatherFullHandoverEnabled,
         s.WeatherLocationName,
         s.WeatherLatitude,
-        s.WeatherLongitude);
+        s.WeatherLongitude,
+        s.ArchiveUploadEnabled,
+        s.ArchivePlayoutEnabled,
+        s.ArchiveEnrichmentEnabled,
+        s.PodcastKnowledgeEnabled);
 
     private static NewsFeedDto ToDto(NewsFeed feed, int itemCount) => new(
         feed.Id,

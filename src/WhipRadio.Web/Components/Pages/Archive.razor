@@ -1,0 +1,555 @@
+@page "/archive"
+@using WhipRadio.Core.Api
+@using WhipRadio.Core.Helpers
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+@inject PlayerState Player
+@inject ProductionLiveClient Live
+@inject IJSRuntime Js
+
+<PageTitle>WhipRadio — Archive</PageTitle>
+
+<h1 class="stage-title">Archive</h1>
+<div class="stage-sub">existing music • imported from your folders or uploaded • kept apart from the record collection</div>
+
+@if (_status is { UploadEnabled: true })
+{
+    <div class="panel reveal">
+        <div class="panel-label">Add music</div>
+        <div class="archive-dropzone" @ref="_dropZone">
+            <div class="archive-dropzone-copy">
+                Drop WAV or MP3 files here — or
+                <label class="btn small archive-browse-btn" for="archive-file-input">Browse</label>
+            </div>
+            <div class="dim micro-copy">
+                Uploaded music may be copyrighted: it is stored separately, never leaves this station,
+                and can be deleted here at any time. Duplicates are detected automatically.
+            </div>
+            <InputFile id="archive-file-input" class="archive-file-input" multiple
+                       OnChange="OnFilesSelectedAsync" accept=".wav,.mp3" @ref="_fileInput" />
+        </div>
+        @foreach (var pending in _uploads)
+        {
+            <div class="archive-upload-row">
+                <span class="archive-upload-name" title="@pending.FileName">@pending.FileName</span>
+                <StatusBadge Text="@UploadStatusText(pending)"
+                             Tone="@(pending.Status == PendingUploadStatus.Failed ? StatusBadgeTone.Red : StatusBadgeTone.Amber)"
+                             Title="@pending.Error" />
+                @if (pending.Status == PendingUploadStatus.Failed)
+                {
+                    <button class="btn small" @onclick="() => _uploads.Remove(pending)">Dismiss</button>
+                }
+            </div>
+        }
+    </div>
+}
+
+<div class="panel reveal archive-toolbar">
+    <span class="panel-label">Imported music</span>
+    <div class="archive-toolbar-meta dim">
+        @if (_status is { } status)
+        {
+            <span>@status.ExternalTracks from folders</span>
+            <span class="library-meta-dot">&bull;</span>
+            <span>@status.UploadedTracks uploaded</span>
+            @if (status.ConfiguredFolders > 0)
+            {
+                <span class="library-meta-dot">&bull;</span>
+                <span>
+                    last scan @(status.LastScanUtc is { } scan ? $"{scan.ToLocalTime():HH:mm}" : "pending")
+                </span>
+            }
+        }
+    </div>
+    <input class="library-search archive-search" type="text" placeholder="search title, artist or album..."
+           value="@_search" @oninput="e => _search = e.Value?.ToString() ?? string.Empty" />
+    <div class="seg" role="radiogroup" aria-label="metadata status filter">
+        <button class="seg-btn @(_statusFilter is null ? "active" : null)" @onclick="() => _statusFilter = null">all</button>
+        <button class="seg-btn @(_statusFilter == "review" ? "active" : null)" @onclick="@(() => _statusFilter = "review")">review</button>
+        <button class="seg-btn @(_statusFilter == "matched" ? "active" : null)" @onclick="@(() => _statusFilter = "matched")">matched</button>
+        <button class="seg-btn @(_statusFilter == "local" ? "active" : null)" @onclick="@(() => _statusFilter = "local")">local</button>
+    </div>
+    <button class="btn small" title="promote every matched track to verified"
+            disabled="@(_tracks?.Any(t => t.MetadataStatus is "Matched" or "AutoMatched") != true)"
+            @onclick="AcceptAllMatchedAsync">
+        Accept matched
+    </button>
+    <button class="btn small" title="scan the configured folders now"
+            disabled="@(_status?.ScanRunning == true)"
+            @onclick="RescanAsync">
+        <Icon Name="refresh" /> @(_status?.ScanRunning == true ? "Scanning..." : "Rescan")
+    </button>
+</div>
+
+<div class="panel reveal">
+    @if (_tracks is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> opening the archive...</div>
+    }
+    else
+    {
+        var filtered = FilteredTracks();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)PageSize));
+        var currentPage = Math.Min(_page, totalPages);
+
+        if (_actionError is not null)
+        {
+            <div class="vote-down-text" style="margin-bottom:10px">@_actionError</div>
+        }
+        if (filtered.Count == 0)
+        {
+            <div class="empty-state">
+                @(string.IsNullOrWhiteSpace(_search)
+                    ? "Nothing imported yet — add folders in appsettings (Library:ExternalMusicFolders) or drop files above."
+                    : "No archived music matches your search.")
+            </div>
+        }
+        else
+        {
+            <div class="library-song-list">
+                <div class="archive-song-grid library-song-head">
+                    <span class="library-action-cell"></span>
+                    <span>Title</span>
+                    <span>Source</span>
+                    <span>Metadata</span>
+                    <span class="library-length-cell num">Length</span>
+                    <span class="library-plays-cell num">Plays</span>
+                    <span class="library-created-cell">Added</span>
+                    <span class="library-delete-cell"></span>
+                </div>
+
+                @foreach (var track in filtered.Skip((currentPage - 1) * PageSize).Take(PageSize))
+                {
+                    var addedLocal = track.CreatedAt.ToLocalTime();
+                    <div class="archive-song-grid library-song-item">
+                        <div class="library-action-cell">
+                            <button class="btn small library-preview-btn" title="listen in the footer player (does not count as play)"
+                                    @onclick="() => Preview(track)">▶</button>
+                        </div>
+                        <div class="library-title-line" title="@TrackTooltip(track)">
+                            <span class="track-title">@track.Title</span>
+                            @if (!string.IsNullOrEmpty(track.Artist))
+                            {
+                                <span class="dim archive-artist">@track.Artist</span>
+                            }
+                            @if (track.IsRetired)
+                            {
+                                <StatusBadge Text="off rotation" />
+                            }
+                            @if (track.DeletionPending)
+                            {
+                                <StatusBadge Text="delete queued" />
+                            }
+                        </div>
+                        <div><span class="tag">@SourceLabel(track)</span></div>
+                        <div class="archive-metadata-cell">
+                            <StatusBadge Text="@MetadataLabel(track)" Tone="@MetadataTone(track)"
+                                         Title="@MetadataTooltip(track)" />
+                            @if (track.CandidateCount > 0 && track.MetadataStatus == "Ambiguous")
+                            {
+                                <button class="btn small" title="review the possible matches"
+                                        @onclick="() => OpenReviewAsync(track)">Review</button>
+                            }
+                        </div>
+                        <div class="library-length-cell num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</div>
+                        <div class="library-plays-cell num">@track.PlayCount</div>
+                        <div class="library-created-cell dim" title="@addedLocal.ToString("dd.MM.yyyy HH:mm")">@addedLocal.ToString("dd.MM.")</div>
+                        <div class="library-delete-cell">
+                            @if (track.Source == "Uploaded")
+                            {
+                                <button class="btn small vote-down"
+                                        disabled="@track.DeletionPending"
+                                        title="@(track.DeletionPending ? "delete queued after playback" : "delete this upload")"
+                                        @onclick="() => _deleteTarget = track"><Icon Name="trash" /></button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            if (totalPages > 1)
+            {
+                <div class="btn-row" style="margin-top:14px">
+                    <button class="btn small" disabled="@(currentPage <= 1)" @onclick="() => _page = currentPage - 1">‹ prev</button>
+                    <span class="dim">page @currentPage of @totalPages (@filtered.Count tracks)</span>
+                    <button class="btn small" disabled="@(currentPage >= totalPages)" @onclick="() => _page = currentPage + 1">next ›</button>
+                </div>
+            }
+        }
+    }
+</div>
+
+<Modal Visible="@(_reviewTarget is not null)" Title="Review match" Class="modal-wide" OnClose="CloseReview">
+    <ChildContent>
+        @if (_reviewTarget is { } reviewed)
+        {
+            <div class="archive-review-current">
+                <div class="panel-label">File says</div>
+                <div class="archive-review-line">
+                    <span class="track-title">@reviewed.Title</span>
+                    @if (!string.IsNullOrEmpty(reviewed.Artist))
+                    {
+                        <span class="dim"> — @reviewed.Artist</span>
+                    }
+                    @if (!string.IsNullOrEmpty(reviewed.Album))
+                    {
+                        <span class="dim"> (@reviewed.Album)</span>
+                    }
+                </div>
+            </div>
+            @if (_candidates is null)
+            {
+                <div class="empty-state"><span class="blink">▮</span> loading candidates...</div>
+            }
+            else
+            {
+                <div class="archive-review-list">
+                    @foreach (var candidate in _candidates)
+                    {
+                        <div class="archive-review-candidate @(candidate.Status != "Pending" ? "settled" : null)">
+                            <div class="archive-review-line">
+                                <span class="track-title">@candidate.Title</span>
+                                <span class="dim"> — @candidate.Artist</span>
+                                @if (!string.IsNullOrEmpty(candidate.Album))
+                                {
+                                    <span class="dim"> (@candidate.Album@(candidate.Year is { } y ? $", {y}" : ""))</span>
+                                }
+                            </div>
+                            <div class="archive-review-meta dim">
+                                score @candidate.Score.ToString("P0")
+                                @if (candidate.Reasons.Count > 0)
+                                {
+                                    <span> • @string.Join("; ", candidate.Reasons)</span>
+                                }
+                            </div>
+                            <div class="btn-row">
+                                @if (candidate.Status == "Pending")
+                                {
+                                    <button class="btn small primary" @onclick="() => AcceptCandidateAsync(reviewed, candidate)">Accept</button>
+                                    <button class="btn small" @onclick="() => RejectCandidateAsync(reviewed, candidate)">Reject</button>
+                                }
+                                else
+                                {
+                                    <StatusBadge Text="@candidate.Status.ToLowerInvariant()" />
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="() => KeepLocalAsync(_reviewTarget)">Keep local</button>
+        <button class="btn" @onclick="CloseReview">Close</button>
+    </Footer>
+</Modal>
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete upload"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Delete <strong>"@doomed.Title"</strong>? The uploaded audio file is removed for good.
+        Music from your external folders is never deleted — only uploads can be.</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private const int PageSize = 25;
+
+    private List<ArchiveTrackDto>? _tracks;
+    private ArchiveStatusDto? _status;
+    private string _search = string.Empty;
+    private string? _statusFilter;
+    private int _page = 1;
+    private string? _actionError;
+    private ArchiveTrackDto? _deleteTarget;
+    private ArchiveTrackDto? _reviewTarget;
+    private List<MetadataCandidateDto>? _candidates;
+    private ElementReference _dropZone;
+    private InputFile? _fileInput;
+    private bool _dropZoneWired;
+    private bool _uploadPumpRunning;
+    private readonly List<PendingUpload> _uploads = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Live.ArchiveChanged += OnArchiveChanged;
+        await Live.EnsureStartedAsync();
+        await ReloadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_dropZoneWired || _status is not { UploadEnabled: true } || _fileInput is null)
+        {
+            return;
+        }
+
+        _dropZoneWired = true;
+        await Js.InvokeVoidAsync("whipArchive.initDropZone", _dropZone, _fileInput.Element);
+    }
+
+    private void OnArchiveChanged()
+        => _ = InvokeAsync(async () =>
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        });
+
+    private async Task ReloadAsync()
+    {
+        _tracks = await Api.GetArchiveAsync();
+        _status = await Api.GetArchiveStatusAsync();
+    }
+
+    private List<ArchiveTrackDto> FilteredTracks()
+        => (_tracks ?? [])
+            .Where(MatchesStatusFilter)
+            .Where(t => string.IsNullOrWhiteSpace(_search)
+                || t.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)
+                || t.Artist?.Contains(_search, StringComparison.OrdinalIgnoreCase) == true
+                || t.Album?.Contains(_search, StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
+
+    private bool MatchesStatusFilter(ArchiveTrackDto track) => _statusFilter switch
+    {
+        "review" => track.MetadataStatus == "Ambiguous",
+        "matched" => track.MetadataStatus is "Matched" or "AutoMatched" or "Verified",
+        "local" => track.MetadataStatus is "LocalOnly" or "NeedsReview" or "Rejected" or "None",
+        _ => true,
+    };
+
+    private async Task OpenReviewAsync(ArchiveTrackDto track)
+    {
+        _reviewTarget = track;
+        _candidates = null;
+        _candidates = await Api.GetArchiveCandidatesAsync(track.Id);
+    }
+
+    private void CloseReview()
+    {
+        _reviewTarget = null;
+        _candidates = null;
+    }
+
+    private async Task AcceptCandidateAsync(ArchiveTrackDto track, MetadataCandidateDto candidate)
+    {
+        _actionError = null;
+        if (!await Api.AcceptArchiveCandidateAsync(track.Id, candidate.Id))
+        {
+            _actionError = "Accepting the match failed.";
+            return;
+        }
+
+        CloseReview();
+        await ReloadAsync();
+    }
+
+    private async Task RejectCandidateAsync(ArchiveTrackDto track, MetadataCandidateDto candidate)
+    {
+        _actionError = null;
+        if (!await Api.RejectArchiveCandidateAsync(track.Id, candidate.Id))
+        {
+            _actionError = "Rejecting the match failed.";
+            return;
+        }
+
+        _candidates = await Api.GetArchiveCandidatesAsync(track.Id);
+        await ReloadAsync();
+    }
+
+    private async Task KeepLocalAsync(ArchiveTrackDto? track)
+    {
+        if (track is null)
+        {
+            return;
+        }
+
+        _actionError = null;
+        if (!await Api.KeepArchiveTrackLocalAsync(track.Id))
+        {
+            _actionError = "Pinning the track to local metadata failed.";
+        }
+
+        CloseReview();
+        await ReloadAsync();
+    }
+
+    private async Task AcceptAllMatchedAsync()
+    {
+        _actionError = null;
+        await Api.AcceptAllMatchedArchiveTracksAsync();
+        await ReloadAsync();
+    }
+
+    private void Preview(ArchiveTrackDto track)
+        => Player.PlayTrack(new TrackDto(
+            track.Id,
+            track.Title,
+            track.Genre,
+            Subgenre: string.Empty,
+            ArtistName: track.Artist ?? "Unknown artist",
+            ArtistId: null,
+            HasVocals: true,
+            track.DurationSeconds,
+            track.PlayCount,
+            track.UpVotes,
+            track.DownVotes,
+            track.IsRetired,
+            Backend: "library",
+            track.CreatedAt));
+
+    private async Task OnFilesSelectedAsync(InputFileChangeEventArgs e)
+    {
+        var maxBytes = _status?.MaxUploadBytes ?? 500L * 1024 * 1024;
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 50))
+        {
+            _uploads.Add(new PendingUpload(file, maxBytes));
+        }
+
+        await ProcessUploadQueueAsync();
+    }
+
+    private async Task ProcessUploadQueueAsync()
+    {
+        if (_uploadPumpRunning)
+        {
+            return;
+        }
+
+        _uploadPumpRunning = true;
+        try
+        {
+            while (_uploads.FirstOrDefault(u => u.Status == PendingUploadStatus.Queued) is { } pending)
+            {
+                pending.Status = PendingUploadStatus.Uploading;
+                await InvokeAsync(StateHasChanged);
+                try
+                {
+                    await using var stream = pending.File.OpenReadStream(pending.MaxBytes);
+                    var (track, error) = await Api.UploadArchiveFileAsync(stream, pending.FileName);
+                    if (track is null)
+                    {
+                        pending.Status = PendingUploadStatus.Failed;
+                        pending.Error = error?.Trim().Trim('"');
+                        continue;
+                    }
+
+                    _uploads.Remove(pending);
+                    await ReloadAsync();
+                }
+                catch (Exception ex)
+                {
+                    pending.Status = PendingUploadStatus.Failed;
+                    pending.Error = ex.Message;
+                }
+                finally
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        finally
+        {
+            _uploadPumpRunning = false;
+        }
+    }
+
+    private async Task RescanAsync()
+    {
+        _actionError = null;
+        if (!await Api.RescanArchiveAsync())
+        {
+            _actionError = "Rescan request failed — backend unreachable.";
+            return;
+        }
+
+        _status = await Api.GetArchiveStatusAsync();
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } doomed)
+        {
+            return;
+        }
+
+        _deleteTarget = null;
+        _actionError = null;
+        var result = await Api.DeleteArchiveTrackAsync(doomed.Id);
+        if (!result.Deleted && !result.Deferred)
+        {
+            _actionError = result.Error?.Trim().Trim('"');
+        }
+
+        await ReloadAsync();
+    }
+
+    private static string SourceLabel(ArchiveTrackDto track)
+        => track.Source == "External" ? "folder" : "upload";
+
+    private static string TrackTooltip(ArchiveTrackDto track)
+        => string.Join(" — ", new[] { track.Title, track.Artist, track.Album, track.Year?.ToString() }
+            .Where(part => !string.IsNullOrWhiteSpace(part)));
+
+    private static string MetadataLabel(ArchiveTrackDto track) => track.MetadataStatus switch
+    {
+        "AutoMatched" or "Matched" => "matched",
+        "Ambiguous" => "review",
+        "Verified" => "verified",
+        "Rejected" => "local only",
+        _ => "local only",
+    };
+
+    private static StatusBadgeTone MetadataTone(ArchiveTrackDto track) => track.MetadataStatus switch
+    {
+        "AutoMatched" or "Matched" => StatusBadgeTone.Green,
+        "Ambiguous" => StatusBadgeTone.Amber,
+        "Verified" => StatusBadgeTone.Green,
+        _ => StatusBadgeTone.Default,
+    };
+
+    private static string MetadataTooltip(ArchiveTrackDto track)
+        => track.MetadataConfidence is { } confidence
+            ? $"match confidence {confidence:P0}"
+            : "file tags and audio analysis only";
+
+    private static string UploadStatusText(PendingUpload pending) => pending.Status switch
+    {
+        PendingUploadStatus.Uploading => "uploading",
+        PendingUploadStatus.Failed => "failed",
+        _ => "queued",
+    };
+
+    private static string FormatClock(TimeSpan span)
+        => span.TotalHours >= 1 ? span.ToString(@"h\:mm\:ss") : span.ToString(@"m\:ss");
+
+    public void Dispose() => Live.ArchiveChanged -= OnArchiveChanged;
+
+    private sealed class PendingUpload(Microsoft.AspNetCore.Components.Forms.IBrowserFile file, long maxBytes)
+    {
+        public Microsoft.AspNetCore.Components.Forms.IBrowserFile File { get; } = file;
+
+        public string FileName { get; } = file.Name;
+
+        public long MaxBytes { get; } = maxBytes;
+
+        public PendingUploadStatus Status { get; set; } = PendingUploadStatus.Queued;
+
+        public string? Error { get; set; }
+    }
+
+    private enum PendingUploadStatus
+    {
+        Queued,
+        Uploading,
+        Failed,
+    }
+}

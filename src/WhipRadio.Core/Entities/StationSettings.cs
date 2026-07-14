@@ -183,6 +183,20 @@ public class StationSettings
     /// <summary>Play-count fatigue coefficient in TrackWeighting. Higher = heavy-rotation tracks fade faster.</summary>
     public double FatigueFactor { get; set; } = 0.15;
 
+    // --- Archive (imported real music, Phase 6a) --------------------------------
+
+    /// <summary>Allow uploading music files on the Archive page.</summary>
+    public bool ArchiveUploadEnabled { get; set; } = true;
+
+    /// <summary>Let imported (uploaded/external) tracks enter normal rotation.</summary>
+    public bool ArchivePlayoutEnabled { get; set; } = true;
+
+    /// <summary>Background metadata enrichment (MusicBrainz/Wikidata/Wikipedia) for imported tracks.</summary>
+    public bool ArchiveEnrichmentEnabled { get; set; } = true;
+
+    /// <summary>Give podcast/chat hosts access to the knowledge base (digests + LookupKnowledge verb).</summary>
+    public bool PodcastKnowledgeEnabled { get; set; } = true;
+
     // --- Chat control ---------------------------------------------------------
 
     public int ChatMaxAgentHops { get; set; } = 6;

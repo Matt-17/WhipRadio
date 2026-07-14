@@ -11,6 +11,8 @@ public enum PromptScope
     VoiceDirection,
     ProgramDirector,
     MessageModeration,
+    // Unused: retained for prompt-scope stability. No production path builds a
+    // PromptContext with this scope, and the tool catalog offers nothing here.
     CharacterDecision,
     Chat,
     Utility,
@@ -82,6 +84,12 @@ public sealed class PromptContext
     public HostTalkProfile? TalkProfile { get; init; }
 
     public string? RelatedTrack { get; init; }
+
+    /// <summary>
+    /// Verified/matched background facts about the related track's real artist
+    /// (Phase 6a §9). Null unless the metadata status is trustworthy enough.
+    /// </summary>
+    public string? RelatedTrackFacts { get; init; }
 
     public string? AlreadySpokenContext { get; init; }
 
@@ -203,6 +211,13 @@ public sealed class PromptContext
         if (!string.IsNullOrWhiteSpace(RelatedTrack))
         {
             builder.AppendLine($"- Related track: {RelatedTrack}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(RelatedTrackFacts))
+        {
+            builder.AppendLine(
+                $"- Current track facts: {RelatedTrackFacts.Trim()} " +
+                "Use these as background facts. Do not quote source text; never recite lyrics.");
         }
 
         if (!string.IsNullOrWhiteSpace(AlreadySpokenContext))

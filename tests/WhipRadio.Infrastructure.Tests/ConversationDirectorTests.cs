@@ -101,6 +101,62 @@ public class ConversationDirectorTests
     }
 
     [TestMethod]
+    public async Task WriteAsync_InterjectionOverlapsThePreviousLongTurn()
+    {
+        var llm = new SequencedLlm(
+            PlanReply,
+            """{"text":"Welcome to Bees After Dark. Ivy, tell me how a parking garage in the middle of the city became home to two of the busiest hives around.","wrapUp":false}""",
+            """{"text":"Oh, I have to jump in there!","wrapUp":false,"interject":true}""",
+            """{"text":"And that's the show — good night.","wrapUp":true}""");
+        var director = new ConversationDirector(
+            llm, new AddressedToRoundRobinPolicy(), NullLogger<ConversationDirector>.Instance);
+
+        var script = await director.WriteAsync(Request(), memorySlices: null, CancellationToken.None);
+
+        // The interjecting turn pulls itself into the previous speaker's tail.
+        var overlap = script.Turns[0].PauseAfterMs;
+        Assert.NotNull(overlap);
+        Assert.True(overlap < 0);
+        Assert.True(overlap >= -700 && overlap <= -350, $"overlap {overlap} outside [-700,-350]");
+        // No other turn carries a pause hint.
+        Assert.Null(script.Turns[1].PauseAfterMs);
+        Assert.Null(script.Turns[2].PauseAfterMs);
+    }
+
+    [TestMethod]
+    public async Task WriteAsync_InterjectionIsIgnoredAfterAShortTurn()
+    {
+        var llm = new SequencedLlm(
+            PlanReply,
+            """{"text":"Welcome to the show, Ivy.","wrapUp":false}""",
+            """{"text":"Thanks for having me!","wrapUp":false,"interject":true}""",
+            """{"text":"And that's the show — good night.","wrapUp":true}""");
+        var director = new ConversationDirector(
+            llm, new AddressedToRoundRobinPolicy(), NullLogger<ConversationDirector>.Instance);
+
+        var script = await director.WriteAsync(Request(), memorySlices: null, CancellationToken.None);
+
+        // The previous turn is under the word floor: no overlap applied.
+        Assert.Null(script.Turns[0].PauseAfterMs);
+    }
+
+    [TestMethod]
+    public void ShouldInterject_RequiresPreviousTurnNotClosingAndEnoughWords()
+    {
+        var longTurn = new ConversationTurn
+        {
+            Text = "one two three four five six seven eight nine ten eleven twelve",
+        };
+        var shortTurn = new ConversationTurn { Text = "too short to talk over" };
+
+        Assert.True(ConversationDirector.ShouldInterject(true, closing: false, longTurn));
+        Assert.False(ConversationDirector.ShouldInterject(false, closing: false, longTurn));
+        Assert.False(ConversationDirector.ShouldInterject(true, closing: true, longTurn));
+        Assert.False(ConversationDirector.ShouldInterject(true, closing: false, previousTurn: null));
+        Assert.False(ConversationDirector.ShouldInterject(true, closing: false, shortTurn));
+    }
+
+    [TestMethod]
     public async Task WriteAsync_RetriesOnceThenThrowsAfterConsecutiveFailures()
     {
         var llm = new SequencedLlm(

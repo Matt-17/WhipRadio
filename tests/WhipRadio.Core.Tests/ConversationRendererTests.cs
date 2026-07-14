@@ -79,6 +79,65 @@ public class ConversationRendererTests
     }
 
     [TestMethod]
+    public void NegativePauseAfterMs_OverlapsTheNextTurnByExactlyThatAmount()
+    {
+        var turns = new List<ConversationTurnAudio>
+        {
+            new(ToneWav(8000, 1, 1600, 1000), PauseAfterMs: -100),
+            new(ToneWav(8000, 1, 1600, 1000)),
+        };
+
+        var sequentialLength = ConversationRenderer.Render(
+        [
+            new ConversationTurnAudio(ToneWav(8000, 1, 1600, 1000), PauseAfterMs: 0),
+            new ConversationTurnAudio(ToneWav(8000, 1, 1600, 1000)),
+        ]).Length;
+        var overlapped = ConversationRenderer.Render(turns);
+
+        Assert.Equal(800 * 2, sequentialLength - overlapped.Length); // 100 ms at 8 kHz mono
+
+        // In the overlap window both tones sum: 1000 + 1000 = 2000.
+        var pcm = overlapped.AsSpan(44);
+        var overlapStartFrame = 1600 - 800;
+        var sample = BinaryPrimitives.ReadInt16LittleEndian(pcm[(overlapStartFrame * 2)..]);
+        Assert.Equal(2000, sample);
+    }
+
+    [TestMethod]
+    public void NegativePauseAfterMs_ClampsToMaxOverlap()
+    {
+        // 5000 ms requested overlap on a 3200 ms first turn: the MaxOverlapMs cap
+        // (1200 ms) binds before the half-turn guard (1600 ms).
+        var clamped = ConversationRenderer.Render(
+        [
+            new ConversationTurnAudio(ToneWav(8000, 1, 25600, 1000), PauseAfterMs: -5000),
+            new ConversationTurnAudio(ToneWav(8000, 1, 800, 1000)),
+        ]);
+        var atCap = ConversationRenderer.Render(
+        [
+            new ConversationTurnAudio(ToneWav(8000, 1, 25600, 1000), PauseAfterMs: -ConversationRenderer.MaxOverlapMs),
+            new ConversationTurnAudio(ToneWav(8000, 1, 800, 1000)),
+        ]);
+
+        Assert.Equal(atCap.Length, clamped.Length);
+    }
+
+    [TestMethod]
+    public void NegativePauseAfterMs_NeverSwallowsMoreThanHalfTheTurn()
+    {
+        // First turn is only 100 ms (800 frames); a 1200 ms overlap request must
+        // clamp to 50 ms (400 frames), so the second turn starts mid-first-turn.
+        var rendered = ConversationRenderer.Render(
+        [
+            new ConversationTurnAudio(ToneWav(8000, 1, 800, 1000), PauseAfterMs: -ConversationRenderer.MaxOverlapMs),
+            new ConversationTurnAudio(ToneWav(8000, 1, 800, 1000)),
+        ]);
+
+        // 800 + 800 frames total minus 400 overlapping frames.
+        Assert.Equal((800 + 800 - 400) * 2, rendered.Length - 44);
+    }
+
+    [TestMethod]
     public void NonOverlappingSpeech_NeverClips()
     {
         var turns = new List<ConversationTurnAudio>

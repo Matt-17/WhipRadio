@@ -81,6 +81,10 @@ Important hosted services include:
 - `NightlyModeratorMemoryDistillationService`: compresses host memory.
 - `TalkBreakCleanupService`: removes stale generated talk content.
 - `AnalysisBackfillService`: backfills audio analysis.
+- `LibraryImportService`: scans the read-only external music folders
+  (`Library:ExternalMusicFolders`) into the Archive; never writes to them.
+- `ArchiveEnrichmentService`: enriches imported tracks with keyless open
+  metadata (MusicBrainz/Wikidata/Wikipedia digests), rate-gated, failure-soft.
 - `ConsoleLogBroadcaster`: publishes live logs to the console UI.
 - `ChatAgentWorker`: runs queued host/director chat turns through the writer room.
 - `ChatCleanupService`: trims retained chat history and expires stale pending actions.

@@ -9,4 +9,5 @@ public sealed record PlayedTrackRef(
     Guid TrackId,
     Guid? ArtistId,
     string? Subgenre,
-    DateTime PlayedAt);
+    DateTime PlayedAt,
+    string? ImportedArtist = null);

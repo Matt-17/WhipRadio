@@ -16,6 +16,12 @@ public static class ConversationRenderer
     public const int DefaultGapMs = ConversationAssembler.DefaultGapMs;
     public const int MaxGapMs = ConversationAssembler.MaxGapMs;
 
+    /// <summary>
+    /// Cap for per-turn cross-talk: a negative <see cref="ConversationTurnAudio.PauseAfterMs"/>
+    /// pulls the next turn into this one's tail by at most this much.
+    /// </summary>
+    public const int MaxOverlapMs = 1200;
+
     public static byte[] Render(
         IReadOnlyList<ConversationTurnAudio> turns,
         int defaultGapMs = DefaultGapMs,
@@ -51,10 +57,11 @@ public static class ConversationRenderer
             totalFrames = Math.Max(totalFrames, startAt + frames);
             if (i < parsed.Count - 1)
             {
-                var gapMs = Math.Clamp(turns[i].PauseAfterMs ?? defaultGapMs, 0, MaxGapMs) - overlapMs;
+                var gapMs = Math.Clamp(turns[i].PauseAfterMs ?? defaultGapMs, -MaxOverlapMs, MaxGapMs) - overlapMs;
                 var gapFrames = (long)Math.Round(gapMs / 1000.0 * layout.SampleRate);
-                // Overlap may pull the next turn into this one's tail, but never
-                // before this turn's start.
+                // Cross-talk never swallows more than half of this turn, and the
+                // next turn never starts before this one.
+                gapFrames = Math.Max(gapFrames, -(frames / 2));
                 cursor = Math.Max(startAt, startAt + frames + gapFrames);
             }
         }

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Api;
+using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
@@ -103,6 +104,23 @@ public static partial class RadioApiEndpoints
             return Results.NoContent();
         });
 
+        // Immediate-save voice effect chain (Phase-0-Deferred §8): "telephone"
+        // makes the guest sound like a phone-line caller; null clears it.
+        api.MapPut("/guests/{id:guid}/voice-fx", async (
+            Guid id, UpdateGuestVoiceFxRequestDto request, RadioDbContext db, CancellationToken ct) =>
+        {
+            var fx = string.IsNullOrWhiteSpace(request.VoiceFx) ? null : request.VoiceFx.Trim().ToLowerInvariant();
+            if (fx is not null && !VoiceFx.KnownEffects.Contains(fx))
+            {
+                return Results.BadRequest(new { error = $"Unknown voice effect \"{fx}\"." });
+            }
+
+            var updated = await db.Guests
+                .Where(g => g.Id == id)
+                .ExecuteUpdateAsync(s => s.SetProperty(g => g.VoiceFx, fx), ct);
+            return updated == 0 ? Results.NotFound() : Results.Ok();
+        });
+
         // Plays the guest's voice reference clip in the footer preview player.
         api.MapGet("/guests/{id:guid}/voice", async (
             Guid id, RadioDbContext db, IOptions<RadioOptions> radioOptions, CancellationToken ct) =>
@@ -161,5 +179,6 @@ public static partial class RadioApiEndpoints
                 && System.IO.File.Exists(Path.Combine(dataRoot, guest.VoiceReferencePath)),
             guest.VoiceDesignLastError,
             guest.IsArchived,
-            guest.CreatedAtUtc);
+            guest.CreatedAtUtc,
+            guest.VoiceFx);
 }

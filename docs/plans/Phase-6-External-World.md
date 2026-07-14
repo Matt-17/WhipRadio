@@ -3,6 +3,13 @@
 > Design brief. WhipRadio reaches outside itself: real-world facts for real songs,
 > a live audience via Twitch, and your own voice via the browser mic. Three fairly
 > independent features — they can ship in any order.
+>
+> **Status 2026-07-05:** §2 (external knowledge) shipped together with Phase 6a as
+> the Archive feature — `IWikidataClient`/`IWikipediaClient`, cached `KnowledgeEntry`
+> digests, `PromptContextBuilder` track facts, `LookupKnowledge` chat verb, and
+> podcast brief injection. §3 (Twitch) remains a future feature. §4 (browser
+> microphone) was **REMOVED from scope by user decision** — it is no longer part
+> of this phase; revisit only if the user asks again.
 
 ---
 
@@ -64,7 +71,7 @@ a natural follow-on through the existing greeting pipeline.
 
 ---
 
-## 4. Browser microphone recording
+## 4. Browser microphone recording — REMOVED FROM SCOPE (2026-07-05, user decision)
 
 Two motivations: insert your own voice occasionally, or run TTS-free entirely.
 
@@ -99,13 +106,15 @@ closer to Phase 7 hardening.
 ---
 
 ## 6. Definition of Done (themes)
-- [ ] A real (imported) track gets a paraphrased factual intro from a knowledge source;
-      no verbatim text or lyrics ever reproduced
-- [ ] Knowledge is cached and the station works offline between fetches
-- [ ] Twitch chat flows in, is moderated, and the host *chooses* what to react to
-- [ ] No raw audience text is ever spoken without host-agent paraphrasing
-- [ ] You can record an announcement in the browser and hear it on air, level-matched
-- [ ] Manual mode lets the station run with human recordings instead of TTS
+- [x] A real (imported) track gets a paraphrased factual intro from a knowledge source;
+      no verbatim text or lyrics ever reproduced *(Phase 6a Archive: digests gated by
+      MetadataStatus in `PromptContextBuilder`; summaries are paraphrase input only)*
+- [x] Knowledge is cached and the station works offline between fetches
+      *(`KnowledgeEntry` table, ~90-day refresh window)*
+- [ ] Twitch chat flows in, is moderated, and the host *chooses* what to react to *(future)*
+- [ ] No raw audience text is ever spoken without host-agent paraphrasing *(future, with Twitch)*
+- ~~You can record an announcement in the browser and hear it on air, level-matched~~ *(removed from scope)*
+- ~~Manual mode lets the station run with human recordings instead of TTS~~ *(removed from scope)*
 
 ---
 

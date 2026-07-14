@@ -7,29 +7,22 @@ namespace WhipRadio.Infrastructure.Tests;
 public class CharacterToolCatalogTests
 {
     [TestMethod]
-    public void GetTools_HostDecision_IncludesActionTools()
+    public void GetTools_NonChatScopes_OfferNothingForAnyRole()
     {
         var catalog = CreateCatalog();
 
-        var tools = catalog.GetTools(PromptScope.CharacterDecision, CharacterRole.Host);
-        var names = tools.Select(tool => tool.Name).ToList();
+        foreach (PromptScope scope in Enum.GetValues<PromptScope>())
+        {
+            if (scope == PromptScope.Chat)
+            {
+                continue;
+            }
 
-        Assert.Contains("Announce", names);
-        Assert.Contains("Play", names);
-        Assert.Contains("StartTalkBreak", names);
-        Assert.Contains("Remember", names);
-        Assert.Contains("RequestBit", names);
-        Assert.Contains("NoOp", names);
-    }
-
-    [TestMethod]
-    public void GetTools_UtilityScope_HidesCharacterActions()
-    {
-        var catalog = CreateCatalog();
-
-        var tools = catalog.GetTools(PromptScope.Utility, CharacterRole.System);
-
-        Assert.Empty(tools);
+            foreach (CharacterRole role in Enum.GetValues<CharacterRole>())
+            {
+                Assert.Empty(catalog.GetTools(scope, role));
+            }
+        }
     }
 
     [TestMethod]
@@ -37,14 +30,24 @@ public class CharacterToolCatalogTests
     {
         var catalog = CreateCatalog();
 
-        var tool = catalog.GetTool("announce", PromptScope.CharacterDecision, CharacterRole.Host);
+        var tool = catalog.GetTool("searchmusic", PromptScope.Chat, CharacterRole.Host);
 
         Assert.NotNull(tool);
-        Assert.Equal("Announce", tool!.Definition.Name);
+        Assert.Equal("SearchMusic", tool!.Definition.Name);
     }
 
     [TestMethod]
-    public void GetTools_ChatHost_IncludesHostChatToolsOnly()
+    public void GetTool_NonChatScope_ReturnsNull()
+    {
+        var catalog = CreateCatalog();
+
+        var tool = catalog.GetTool("searchmusic", PromptScope.ProgramDirector, CharacterRole.Host);
+
+        Assert.Null(tool);
+    }
+
+    [TestMethod]
+    public void GetTools_ChatHost_IncludesHostChatTools()
     {
         var catalog = CreateCatalog();
 
@@ -58,11 +61,10 @@ public class CharacterToolCatalogTests
         Assert.DoesNotContain("PlanFormat", names);
         Assert.DoesNotContain("HireHost", names);
         Assert.DoesNotContain("AssignHost", names);
-        Assert.DoesNotContain("StatusReport", names);
     }
 
     [TestMethod]
-    public void GetTools_ChatDirector_IncludesDirectorToolsOnly()
+    public void GetTools_ChatDirector_IncludesDirectorTools()
     {
         var catalog = CreateCatalog();
 
@@ -82,8 +84,6 @@ public class CharacterToolCatalogTests
     private static CharacterToolCatalog CreateCatalog()
         => new(
         [
-            new AnnounceTool(),
-            new PlayTool(),
             new MessageTool(),
             new AnnouncementTool(),
             new SearchMusicTool(),
@@ -91,9 +91,10 @@ public class CharacterToolCatalogTests
             new HireHostTool(),
             new AssignHostTool(),
             new StatusReportTool(),
-            new StartTalkBreakTool(),
-            new RememberTool(),
-            new RequestBitTool(),
-            new NoOpTool(),
+            new InviteTool(),
+            new RemoveFromChannelTool(),
+            new MakeSongTool(),
+            new BriefPodcastTool(),
+            new LookupKnowledgeTool(),
         ]);
 }

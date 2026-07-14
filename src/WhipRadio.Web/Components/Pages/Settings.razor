@@ -52,6 +52,46 @@ else
             <span class="flash">✓ applied</span>
         }
     </div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Archive — Imported Music</div>
+        <div class="admin-row">
+            <div>
+                <strong>Uploads</strong>
+                <div class="dim">Allow dropping existing music files on the <a href="/archive">Archive page</a>.</div>
+            </div>
+            <UiSwitch Value="@_settings.ArchiveUploadEnabled"
+                      ValueChanged="@(_ => ToggleArchiveAsync(s => s with { ArchiveUploadEnabled = !s.ArchiveUploadEnabled }))"
+                      Title="@(_settings.ArchiveUploadEnabled ? "Uploads enabled" : "Uploads off")" />
+        </div>
+        <div class="admin-row">
+            <div>
+                <strong>Play imported music</strong>
+                <div class="dim">Imported tracks join normal rotation next to generated songs.</div>
+            </div>
+            <UiSwitch Value="@_settings.ArchivePlayoutEnabled"
+                      ValueChanged="@(_ => ToggleArchiveAsync(s => s with { ArchivePlayoutEnabled = !s.ArchivePlayoutEnabled }))"
+                      Title="@(_settings.ArchivePlayoutEnabled ? "Imported playout enabled" : "Imported playout off")" />
+        </div>
+        <div class="admin-row">
+            <div>
+                <strong>Metadata enrichment</strong>
+                <div class="dim">Improve imported metadata with open local data and audio analysis. No API keys required.</div>
+            </div>
+            <UiSwitch Value="@_settings.ArchiveEnrichmentEnabled"
+                      ValueChanged="@(_ => ToggleArchiveAsync(s => s with { ArchiveEnrichmentEnabled = !s.ArchiveEnrichmentEnabled }))"
+                      Title="@(_settings.ArchiveEnrichmentEnabled ? "Enrichment enabled" : "Enrichment off")" />
+        </div>
+        <div class="admin-row">
+            <div>
+                <strong>Host knowledge</strong>
+                <div class="dim">Podcast and chat hosts may look up gathered artist facts (Wikipedia/Wikidata digests).</div>
+            </div>
+            <UiSwitch Value="@_settings.PodcastKnowledgeEnabled"
+                      ValueChanged="@(_ => ToggleArchiveAsync(s => s with { PodcastKnowledgeEnabled = !s.PodcastKnowledgeEnabled }))"
+                      Title="@(_settings.PodcastKnowledgeEnabled ? "Host knowledge enabled" : "Host knowledge off")" />
+        </div>
+    </div>
 }
 
 @code {
@@ -93,5 +133,18 @@ else
             FirstDayOfWeek = _firstDayOfWeek,
         });
         _saved = true;
+    }
+
+    // The Archive switches save immediately (design guide) — independent of
+    // the staged "Save to Console" form above.
+    private async Task ToggleArchiveAsync(Func<StationSettingsDto, StationSettingsDto> mutate)
+    {
+        var fresh = await Api.GetSettingsAsync();
+        if (fresh is null)
+        {
+            return;
+        }
+
+        _settings = await Api.SaveSettingsAsync(mutate(fresh));
     }
 }

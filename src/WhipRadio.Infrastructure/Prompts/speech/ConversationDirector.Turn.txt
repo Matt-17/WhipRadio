@@ -24,5 +24,6 @@ Rules:
 - Never narrate, never add stage directions, never speak for anyone else, never say chapter names.
 - If you address one specific speaker, put their exact name in "addressedTo"; otherwise omit it.
 - Set "wrapUp" to true only when you are delivering a natural closing line for the whole episode.
+- Set "interject" to true only rarely, when your turn is a short spontaneous reaction that would naturally start while the previous speaker is still finishing; keep such turns brief.
 - Return valid JSON only, exactly one object in this schema:
-{"text": "<what you say>", "addressedTo": "<speaker name or omit>", "wrapUp": false}
+{"text": "<what you say>", "addressedTo": "<speaker name or omit>", "wrapUp": false, "interject": false}

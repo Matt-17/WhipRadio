@@ -1,6 +1,6 @@
 # .NET and NuGet Licenses
 
-Last reviewed: 2026-06-20
+Last reviewed: 2026-07-05
 
 Sources used:
 
@@ -31,6 +31,7 @@ NuGet reports `NU1903` for `SQLitePCLRaw.lib.e_sqlite3` 2.1.11: GHSA-2m69-gcr7-j
 | Infrastructure | `Microsoft.EntityFrameworkCore.Relational` | 10.0.9 | MIT |
 | Infrastructure | `Microsoft.Extensions.Http` | 10.0.9 | MIT |
 | Infrastructure | `Microsoft.Extensions.Http.Resilience` | 10.7.0 | MIT |
+| Infrastructure | `z440.atl.core` (ATL) | 7.15.3 | MIT |
 | Orchestrator | `Microsoft.EntityFrameworkCore.Design` | 10.0.9 | MIT |
 | Web | `Microsoft.AspNetCore.SignalR.Client` | 10.0.9 | MIT |
 | Tests | `coverlet.collector` | 6.0.4 | MIT |

@@ -104,6 +104,12 @@ else
                                     @onclick="() => _redefineTarget = guest">
                                 <Icon Name="refresh" /> Redefine
                             </button>
+                            <select class="fx-select" title="voice effect (saves immediately)"
+                                    value="@(guest.VoiceFx ?? "")"
+                                    @onchange="e => SetVoiceFxAsync(guest, e.Value?.ToString())">
+                                <option value="">Clean</option>
+                                <option value="telephone">Phone line</option>
+                            </select>
                             <button class="btn small vote-down" title="remove guest"
                                     @onclick="() => _deleteTarget = guest">
                                 <Icon Name="trash" />
@@ -299,6 +305,18 @@ else
 
     private void PlayVoice(GuestDto guest)
         => Player.PlayVoice($"{guest.Name} — voice reference", Api.GuestVoiceUrl(guest.Id), 0);
+
+    private async Task SetVoiceFxAsync(GuestDto guest, string? voiceFx)
+    {
+        _actionError = null;
+        var fx = string.IsNullOrWhiteSpace(voiceFx) ? null : voiceFx;
+        if (!await Api.SetGuestVoiceFxAsync(guest.Id, fx))
+        {
+            _actionError = "Saving the voice effect failed.";
+        }
+
+        _guests = await Api.GetGuestsAsync();
+    }
 
     private async Task RecreateVoiceAsync(GuestDto guest)
     {

@@ -5,13 +5,24 @@ using WhipRadio.Core.Selection;
 
 namespace WhipRadio.Infrastructure.Persistence;
 
-public class EfTrackRepository(RadioDbContext db) : ITrackRepository
+public class EfTrackRepository(RadioDbContext db, StationSettingsCache settingsCache) : ITrackRepository
 {
     public async Task<IReadOnlyList<Track>> GetCandidatesAsync(CancellationToken ct)
-        => await db.Tracks.AsNoTracking()
+    {
+        // Imported (uploaded/external) tracks rotate only while the Archive
+        // playout toggle is on; files missing from an external drive never
+        // reach the queue at all.
+        var settings = await settingsCache.GetAsync(ct);
+        var query = db.Tracks.AsNoTracking()
             .Include(t => t.Artist)
-            .Where(t => !t.IsRetired)
-            .ToListAsync(ct);
+            .Where(t => !t.IsRetired && !t.FileMissing);
+        if (!settings.ArchivePlayoutEnabled)
+        {
+            query = query.Where(t => t.Source == TrackSource.Generated);
+        }
+
+        return await query.ToListAsync(ct);
+    }
 
     public async Task<IReadOnlyList<Guid>> GetRecentlyPlayedTrackIdsAsync(int count, CancellationToken ct)
         => await db.PlayLog.AsNoTracking()
@@ -37,9 +48,9 @@ public class EfTrackRepository(RadioDbContext db) : ITrackRepository
             .Join(db.Tracks.AsNoTracking(),
                 entry => entry.ItemId,
                 track => track.Id,
-                (entry, track) => new { track.Id, track.ArtistId, track.Subgenre, entry.PlayedAt })
+                (entry, track) => new { track.Id, track.ArtistId, track.Subgenre, entry.PlayedAt, track.ImportedArtist })
             // A JOIN does not preserve the inner Take's order; re-sort so refs[0] is reliably newest.
             .OrderByDescending(x => x.PlayedAt)
-            .Select(x => new PlayedTrackRef(x.Id, x.ArtistId, x.Subgenre, x.PlayedAt))
+            .Select(x => new PlayedTrackRef(x.Id, x.ArtistId, x.Subgenre, x.PlayedAt, x.ImportedArtist))
             .ToListAsync(ct);
 }

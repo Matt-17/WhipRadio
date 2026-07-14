@@ -213,6 +213,52 @@ public class ConversationProductionServiceTests
     }
 
     [TestMethod]
+    public async Task Produce_GuestWithTelephoneFx_FiltersOnlyTheGuestTurns()
+    {
+        await using var fixture = await DbFixture.CreateAsync();
+        var (hostId, _) = await SeedSpeakersAsync(fixture, memberVoiceId: "qv-guest");
+        var guestId = await SeedGuestAsync(fixture, voiceId: "qv-ivy", voiceFx: "telephone");
+        var segmentId = await SeedGuestSegmentAsync(fixture, hostId, guestId);
+
+        var dataRoot = TestRoot();
+        try
+        {
+            var service = CreateService(fixture, dataRoot, out _, out _, """
+{
+  "title": "Beekeeping After Dark",
+  "turns": [
+    { "speaker": "Nova Quinn", "text": "Ivy, welcome." },
+    { "speaker": "Ivy Sparks", "text": "Happy to be here." },
+    { "speaker": "Nova Quinn", "text": "Tell us about the rooftops." }
+  ]
+}
+""");
+            await service.RunCycleForTestsAsync(CancellationToken.None);
+
+            await using var db = fixture.CreateDbContext();
+            var segment = await db.ConversationSegments.AsNoTracking().SingleAsync(s => s.Id == segmentId);
+            Assert.Equal(ConversationStatus.Produced, segment.Status);
+
+            // FakeTts emits constant DC (2000); the telephone high-pass removes
+            // DC, so the guest's turn decays to silence while host turns keep it.
+            var wav = await File.ReadAllBytesAsync(Path.Combine(dataRoot, segment.OutputFilePath!));
+            var audio = WavFile.ParsePcm16Audio(wav);
+            short SampleAtFrame(long frame)
+                => BinaryPrimitives.ReadInt16LittleEndian(
+                    audio.Data.Span[(int)(frame * audio.BytesPerFrame)..]);
+
+            // Turn layout at 8 kHz mono: host 0..4000, gap 3200, guest 7200..11200.
+            Assert.Equal((short)2000, SampleAtFrame(2000));
+            var guestTail = Math.Abs((int)SampleAtFrame(7200 + 3800));
+            Assert.True(guestTail < 200, $"guest turn still carries DC ({guestTail}) — fx not applied");
+        }
+        finally
+        {
+            DeleteRoot(dataRoot);
+        }
+    }
+
+    [TestMethod]
     public async Task EnsureEpisodes_CreatesOnePlannedSegmentPerUpcomingShowSlot()
     {
         await using var fixture = await DbFixture.CreateAsync();
@@ -319,6 +365,10 @@ public class ConversationProductionServiceTests
                 Options.Create(new WhipRadio.Infrastructure.Llm.LlmOptions()),
                 NullLogger<ParticipantMemoryWriter>.Instance),
             new ParticipantMemoryRetriever(fixture, embedding, NullLogger<ParticipantMemoryRetriever>.Instance),
+            new KnowledgeContextResolver(
+                fixture,
+                new WhipRadio.Infrastructure.Persistence.StationSettingsCache(fixture, TimeProvider.System),
+                NullLogger<KnowledgeContextResolver>.Instance),
             TimeProvider.System,
             new NoOpPublisher(),
             new NoOpMetrics(),
@@ -394,7 +444,7 @@ public class ConversationProductionServiceTests
         return segment.Id;
     }
 
-    private static async Task<Guid> SeedGuestAsync(DbFixture fixture, string? voiceId)
+    private static async Task<Guid> SeedGuestAsync(DbFixture fixture, string? voiceId, string? voiceFx = null)
     {
         await using var db = fixture.CreateDbContext();
         var guest = new Guest
@@ -409,6 +459,7 @@ public class ConversationProductionServiceTests
             VoiceCreationPrompt = "Bright, quick, enthusiastic.",
             TtsEngine = TtsEngines.Qwen,
             VoiceId = voiceId,
+            VoiceFx = voiceFx,
             CreatedAtUtc = DateTime.UtcNow,
         };
         db.Guests.Add(guest);
@@ -521,6 +572,7 @@ public class ConversationProductionServiceTests
         public Task PublishNewsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task PublishWeatherChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task PublishConversationsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task PublishArchiveChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     private sealed class NoOpMetrics : IStationMetrics

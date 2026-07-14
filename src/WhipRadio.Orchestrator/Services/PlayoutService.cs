@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
@@ -404,7 +405,7 @@ public class PlayoutService(
     /// <returns>false when playback was aborted because the station went off air.</returns>
     private async Task<bool> PlayItemAsync(PlayoutItem item, Stream encoderInput, CancellationToken ct)
     {
-        var absolutePath = Path.Combine(radioOptions.Value.DataRoot, item.FilePath);
+        var absolutePath = MediaPaths.ResolveAbsolute(radioOptions.Value.DataRoot, item.FilePath);
         if (!File.Exists(absolutePath))
         {
             logger.LogWarning("Skipping missing file {Path}", absolutePath);

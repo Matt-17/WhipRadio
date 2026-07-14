@@ -21,6 +21,7 @@ builder.Services.Configure<RadioOptions>(builder.Configuration.GetSection(RadioO
 builder.Services.Configure<IcecastOptions>(builder.Configuration.GetSection(IcecastOptions.SectionName));
 builder.Services.Configure<StreamOptions>(builder.Configuration.GetSection(StreamOptions.SectionName));
 builder.Services.Configure<MusicOptions>(builder.Configuration.GetSection(MusicOptions.SectionName));
+builder.Services.Configure<LibraryOptions>(builder.Configuration.GetSection(LibraryOptions.SectionName));
 
 builder.Services.AddRadioPersistence(builder.Configuration);
 builder.Services.AddRadioHttpClients(builder.Configuration);
@@ -64,6 +65,7 @@ builder.Services.AddScoped<SegmentRenderer>();
 builder.Services.AddScoped<JingleProductionService>();
 builder.Services.AddScoped<MessageModerator>();
 builder.Services.AddScoped<MediaAnalysisRecorder>();
+builder.Services.AddSingleton<ImportedAudioStager>();
 builder.Services.AddScoped<ModeratorMemoryService>();
 builder.Services.AddSingleton<ProductionGate>();
 builder.Services.AddSingleton<ChatTurnQueue>();
@@ -120,6 +122,14 @@ builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 builder.Services.AddSingleton<EmergencyFallbackTrackService>();
 builder.Services.AddSingleton<NewsShowScheduleSeeder>();
 builder.Services.AddSingleton<PodcastShowScheduleSeeder>();
+builder.Services.AddSingleton<WhipRadio.Core.Metadata.IFileTagReader, WhipRadio.Infrastructure.Metadata.AtlFileTagReader>();
+builder.Services.AddSingleton<LibraryImportService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<LibraryImportService>());
+builder.Services.AddSingleton<ArchiveUploadService>();
+builder.Services.AddSingleton<ArchiveEnrichmentService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<ArchiveEnrichmentService>());
+builder.Services.AddSingleton<MetadataReviewService>();
+builder.Services.AddSingleton<KnowledgeContextResolver>();
 
 builder.Services.AddSignalR();
 

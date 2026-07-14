@@ -30,6 +30,8 @@ internal static class SegmentTestFixtures
         var radioOptions = Options.Create(new RadioOptions { DataRoot = dataRoot });
         var analysisRecorder = new MediaAnalysisRecorder(
             new ThrowingAnalysisClient(),
+            new ImportedAudioStager(
+                radioOptions, Options.Create(new StreamOptions()), NullLogger<ImportedAudioStager>.Instance),
             db,
             NullLogger<MediaAnalysisRecorder>.Instance);
         return new AnnouncementFactory(
@@ -252,6 +254,7 @@ internal static class SegmentTestFixtures
         public Task PublishNewsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task PublishWeatherChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task PublishConversationsChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task PublishArchiveChangedAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 }
 

@@ -65,6 +65,7 @@ public sealed class ChatActionExecutor(
                 "RemoveFromChannel" => await ExecuteRemoveFromChannelAsync(call, context, ct),
                 "MakeSong" => await ExecuteMakeSongAsync(call, context, ct),
                 "BriefPodcast" => await ExecuteBriefPodcastAsync(call, ct),
+                "LookupKnowledge" => await ExecuteLookupKnowledgeAsync(call, ct),
                 _ => Failed(call, $"Tool '{call.Name}' has no chat executor."),
             };
             logger.LogInformation(
@@ -272,6 +273,63 @@ public sealed class ChatActionExecutor(
         string summary = string.Join("; ", results.Select(result =>
             $"{result.ArtistName} - {result.Title} ({result.Genre}, {TimeSpan.FromSeconds(result.DurationSeconds):m\\:ss})"));
         return Succeeded(call, $"{results.Count} track(s): {summary}");
+    }
+
+    private async Task<ChatActionRecord> ExecuteLookupKnowledgeAsync(CharacterToolCall call, CancellationToken ct)
+    {
+        string query = Require(call, "query");
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+        // Defense in depth: PromptContextBuilder already drops the tool when
+        // the knowledge setting is off; refuse here too for direct calls.
+        var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
+        if (!settings.PodcastKnowledgeEnabled)
+        {
+            return Failed(call, "The knowledge base is switched off in the station settings.");
+        }
+
+        var pattern = $"%{query}%";
+        var entries = await db.KnowledgeEntries.AsNoTracking()
+            .Where(e => EF.Functions.ILike(e.DisplayName, pattern))
+            .OrderBy(e => e.DisplayName)
+            .Take(3)
+            .ToListAsync(ct);
+        if (entries.Count == 0)
+        {
+            // Second try: an imported track title leads to its artist's knowledge.
+            var qids = await db.Tracks.AsNoTracking()
+                .Where(t => t.Source != TrackSource.Generated && EF.Functions.ILike(t.Title, pattern))
+                .Join(
+                    db.ExternalIds.AsNoTracking().Where(e =>
+                        e.OwnerType == Core.Entities.Metadata.MetadataOwnerType.Track && e.Source == "Wikidata"),
+                    track => track.Id,
+                    externalId => externalId.OwnerId,
+                    (track, externalId) => externalId.Value)
+                .Distinct()
+                .Take(3)
+                .ToListAsync(ct);
+            if (qids.Count > 0)
+            {
+                entries = await db.KnowledgeEntries.AsNoTracking()
+                    .Where(e => qids.Contains(e.SourceEntityId))
+                    .Take(3)
+                    .ToListAsync(ct);
+            }
+        }
+
+        if (entries.Count == 0)
+        {
+            return Succeeded(call, $"No gathered knowledge about \"{query}\" yet.");
+        }
+
+        var summary = string.Join(" | ", entries
+            .Where(e => !string.IsNullOrWhiteSpace(e.Digest))
+            .Select(e => $"{e.DisplayName}: {e.Digest}"));
+        return Succeeded(
+            call,
+            string.IsNullOrEmpty(summary)
+                ? $"Knowledge entries exist for \"{query}\" but carry no digest yet."
+                : $"Background facts (paraphrase in your own words, never quote): {summary}");
     }
 
     private async Task<ChatActionRecord> ExecutePlanFormatAsync(CharacterToolCall call, CancellationToken ct)

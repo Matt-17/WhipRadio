@@ -30,6 +30,7 @@ public sealed class ConversationProductionService(
     GuestVoiceQueue guestVoiceQueue,
     ParticipantMemoryWriter memoryWriter,
     ParticipantMemoryRetriever memoryRetriever,
+    KnowledgeContextResolver knowledgeResolver,
     TimeProvider timeProvider,
     IProductionUpdatePublisher productionUpdates,
     IStationMetrics metrics,
@@ -279,7 +280,8 @@ public sealed class ConversationProductionService(
                         Operation: "Recording conversation turn",
                         SpeakerName: voice.DisplayName),
                     ct);
-                recorded.Add(new ConversationTurnAudio(result.WavData, turn.PauseAfterMs));
+                var wav = voice.Fx is null ? result.WavData : VoiceFx.Apply(voice.Fx, result.WavData);
+                recorded.Add(new ConversationTurnAudio(wav, turn.PauseAfterMs));
             }
 
             step = "assembling audio";
@@ -322,7 +324,8 @@ public sealed class ConversationProductionService(
     }
 
     private sealed record ResolvedVoice(
-        string DisplayName, string VoiceId, string Engine, string Language, double Rate, string? Instruction);
+        string DisplayName, string VoiceId, string Engine, string Language, double Rate, string? Instruction,
+        string? Fx = null);
 
     private sealed record ResolvedSpeakers(
         IReadOnlyList<ConversationSpeakerBrief> Briefs,
@@ -446,7 +449,8 @@ public sealed class ConversationProductionService(
                     guest.TtsEngine,
                     language,
                     Rate: 1.0,
-                    BuildInstruction(guest.TtsEngine, "Invited guest, natural conversational delivery."));
+                    BuildInstruction(guest.TtsEngine, "Invited guest, natural conversational delivery."),
+                    guest.VoiceFx);
             }
             else
             {
@@ -505,7 +509,8 @@ public sealed class ConversationProductionService(
             string.IsNullOrWhiteSpace(settings.StationName) ? "WhipRadio" : settings.StationName,
             settings.StationSlogan,
             StationLanguages.Normalize(settings.DefaultLanguage),
-            recentTitles);
+            recentTitles,
+            KnowledgeFacts: await knowledgeResolver.ResolveForSegmentAsync(segment, ct));
 
         var director = services.GetRequiredService<ConversationDirector>();
         try

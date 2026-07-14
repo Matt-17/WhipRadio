@@ -6,30 +6,24 @@ namespace WhipRadio.Infrastructure.Tests;
 [TestClass]
 public class CharacterToolCatalogMatrixTests
 {
-    private static CharacterToolCatalog FullCatalog() => new(
-    [
-        new AnnounceTool(),
-        new PlayTool(),
-        new MessageTool(),
-        new AnnouncementTool(),
-        new SearchMusicTool(),
-        new PlanFormatTool(),
-        new HireHostTool(),
-        new AssignHostTool(),
-        new StatusReportTool(),
-        new InviteTool(),
-        new RemoveFromChannelTool(),
-        new StartTalkBreakTool(),
-        new RememberTool(),
-        new RequestBitTool(),
-        new NoOpTool(),
-    ]);
+    // Reflection so the matrix always reflects every registered tool: any new
+    // ICharacterTool with a parameterless constructor is picked up automatically.
+    private static CharacterToolCatalog FullCatalog()
+    {
+        var tools = typeof(MessageTool).Assembly.GetTypes()
+            .Where(type => typeof(ICharacterTool).IsAssignableFrom(type)
+                && !type.IsAbstract
+                && type.GetConstructor(Type.EmptyTypes) is not null)
+            .Select(type => (ICharacterTool)Activator.CreateInstance(type)!)
+            .ToArray();
+        return new CharacterToolCatalog(tools);
+    }
 
     private static IReadOnlyList<string> ChatTools(CharacterRole role)
         => FullCatalog().GetTools(PromptScope.Chat, role).Select(tool => tool.Name).ToList();
 
     [TestMethod]
-    public void Chat_DirectorGetsFullControlVerbSet()
+    public void Chat_DirectorGetsControlTools()
     {
         var tools = ChatTools(CharacterRole.ProgramDirector);
         Assert.Contains("Message", tools);
@@ -40,7 +34,10 @@ public class CharacterToolCatalogMatrixTests
         Assert.Contains("StatusReport", tools);
         Assert.Contains("Invite", tools);
         Assert.Contains("RemoveFromChannel", tools);
-        Assert.DoesNotContain("Announce", tools);
+        Assert.Contains("MakeSong", tools);
+        Assert.Contains("BriefPodcast", tools);
+        // The director commissions announcements through hosts, not directly.
+        Assert.DoesNotContain("Announcement", tools);
     }
 
     [TestMethod]
@@ -52,36 +49,50 @@ public class CharacterToolCatalogMatrixTests
         Assert.Contains("SearchMusic", tools);
         Assert.DoesNotContain("PlanFormat", tools);
         Assert.DoesNotContain("Invite", tools);
+        Assert.DoesNotContain("HireHost", tools);
     }
 
     [TestMethod]
-    public void Chat_ArtistAndGuestHaveNoStationVerbs()
+    public void Chat_ArtistGetsMakeSongOnly_NoStationControlTools()
     {
-        foreach (CharacterRole role in new[] { CharacterRole.Artist, CharacterRole.Guest })
-        {
-            var tools = ChatTools(role);
-            Assert.DoesNotContain("Message", tools);
-            Assert.DoesNotContain("Announcement", tools);
-            Assert.DoesNotContain("SearchMusic", tools);
-            Assert.DoesNotContain("PlanFormat", tools);
-            Assert.DoesNotContain("HireHost", tools);
-            Assert.DoesNotContain("Invite", tools);
-            Assert.DoesNotContain("RemoveFromChannel", tools);
-        }
+        var tools = ChatTools(CharacterRole.Artist);
+        Assert.Contains("MakeSong", tools);
+        Assert.DoesNotContain("Message", tools);
+        Assert.DoesNotContain("Announcement", tools);
+        Assert.DoesNotContain("SearchMusic", tools);
+        Assert.DoesNotContain("PlanFormat", tools);
+        Assert.DoesNotContain("Invite", tools);
     }
 
     [TestMethod]
-    public void OnAirTools_AreNeverOfferedInChat()
+    public void Chat_GuestHasNoTools()
     {
-        foreach (CharacterRole role in Enum.GetValues<CharacterRole>())
+        Assert.Empty(ChatTools(CharacterRole.Guest));
+    }
+
+    [TestMethod]
+    public void Chat_LookupKnowledgeIsOfferedToHostsDirectorAndNewsOnly()
+    {
+        Assert.Contains("LookupKnowledge", ChatTools(CharacterRole.Host));
+        Assert.Contains("LookupKnowledge", ChatTools(CharacterRole.ProgramDirector));
+        Assert.Contains("LookupKnowledge", ChatTools(CharacterRole.NewsSpecialist));
+        Assert.DoesNotContain("LookupKnowledge", ChatTools(CharacterRole.WeatherSpecialist));
+    }
+
+    [TestMethod]
+    public void NonChatScopes_OfferNoToolsForAnyRole()
+    {
+        foreach (PromptScope scope in Enum.GetValues<PromptScope>())
         {
-            var tools = ChatTools(role);
-            Assert.DoesNotContain("Announce", tools);
-            Assert.DoesNotContain("Play", tools);
-            Assert.DoesNotContain("StartTalkBreak", tools);
-            Assert.DoesNotContain("Remember", tools);
-            Assert.DoesNotContain("NoOp", tools);
-            Assert.DoesNotContain("RequestBit", tools);
+            if (scope == PromptScope.Chat)
+            {
+                continue;
+            }
+
+            foreach (CharacterRole role in Enum.GetValues<CharacterRole>())
+            {
+                Assert.Empty(FullCatalog().GetTools(scope, role));
+            }
         }
     }
 }

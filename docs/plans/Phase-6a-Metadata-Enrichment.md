@@ -8,6 +8,21 @@
 > Fits before or alongside Phase 6's external-world work. Phase 6 adds real-world
 > knowledge for imported music; this feature first gives imported tracks stable identity,
 > clean metadata, and radio-relevant audio analysis.
+>
+> **Status 2026-07-05: implemented as the "Archive" feature**, with accepted deviations
+> from this brief (see `Phase-0-Tech-Decisions.md` §"Imported Music, Metadata & Knowledge"):
+>
+> - **Live MusicBrainz web API instead of a local CC0 index.** The keyless web service
+>   (1 req/s via `MusicBrainzRateGate`, descriptive User-Agent, no HTTP auto-retries)
+>   anchors identity; results are cached in the DB, so normal operation stays
+>   offline-friendly. Milestones M3 (local index) and M7 (package update flow) are
+>   superseded; the local-index approach remains the escape hatch if rate limits pinch
+>   on very large imports.
+> - **`TrackSource` enum instead of `Backend="library"` alone** as the discriminator
+>   (`Generated`/`Uploaded`/`External`); `Backend` stays a generation-provider id.
+> - Sources: read-only external folders from appsettings (`Library:ExternalMusicFolders`)
+>   plus drag-drop uploads on the Archive page (stored under `data/archive/uploads/`,
+>   deletable — external files never are).
 
 ---
 
@@ -703,18 +718,24 @@ Done when: a normal user can keep metadata indexes current without command-line 
 
 ## 12. Definition of Done
 
-- [ ] Importing a folder of WAV/MP3 files requires no API keys.
-- [ ] Default enrichment uses only supported positive sources: file tags, path heuristics,
-      local MusicBrainz CC0 data, structured Wikidata facts, and WhipRadio audio analysis.
-- [ ] No UI or settings page advertises unavailable external providers.
-- [ ] MusicBrainz matching works against a local index.
-- [ ] Metadata claims store field-level source, confidence, and license class.
-- [ ] Ambiguous matches are not auto-applied.
-- [ ] Host factual intros only use verified or high-confidence metadata.
-- [ ] No unstructured article text, lyrics, or scraped prose is stored by this feature.
-- [ ] Audio analysis produces radio-relevant fields for mixing and cue planning.
-- [ ] The live stream never blocks on import, indexing, or enrichment.
-- [ ] EF migrations are scaffolded normally; `dotnet build` and `dotnet test` stay green.
+- [x] Importing a folder of WAV/MP3 files requires no API keys.
+- [x] Default enrichment uses only supported positive sources: file tags, path heuristics,
+      MusicBrainz CC0 data, structured Wikidata facts, and WhipRadio audio analysis.
+- [x] No UI or settings page advertises unavailable external providers.
+- [x] MusicBrainz matching works *(accepted deviation: live keyless web API with a strict
+      rate gate instead of a local index; DB caching keeps normal operation offline)*.
+- [x] Metadata claims store field-level source, confidence, and license class.
+- [x] Ambiguous matches are not auto-applied *(stored as candidates for the review UI)*.
+- [x] Host factual intros only use verified or high-confidence metadata
+      *(`PromptContextBuilder` gating table by `MetadataStatus`)*.
+- [x] No unstructured article text, lyrics, or scraped prose is stored by this feature
+      *(Wikipedia summaries are paraphrase input only; digests are LLM-paraphrased facts)*.
+- [x] Audio analysis produces radio-relevant fields for mixing and cue planning
+      *(imported/MP3 audio staged to temp WAV by `ImportedAudioStager`)*.
+- [x] The live stream never blocks on import, indexing, or enrichment
+      *(background `LibraryImportService` + `ArchiveEnrichmentService`)*.
+- [x] EF migrations are scaffolded normally; `dotnet build` and `dotnet test` stay green
+      *(`GuestVoiceFx`, `ArchiveTracks`, `ArchiveEnrichment`)*.
 
 ---
 

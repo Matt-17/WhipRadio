@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.News;
 using WhipRadio.Core.Personality;
 using WhipRadio.Core.Slugs;
@@ -276,13 +277,16 @@ public static partial class RadioApiEndpoints
                 return Results.NotFound();
             }
 
-            var absolutePath = Path.Combine(radioOptions.Value.DataRoot, track.FilePath);
+            var absolutePath = MediaPaths.ResolveAbsolute(radioOptions.Value.DataRoot, track.FilePath);
             if (!System.IO.File.Exists(absolutePath))
             {
                 return Results.NotFound();
             }
 
-            return Results.File(absolutePath, "audio/wav", enableRangeProcessing: true);
+            var contentType = absolutePath.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)
+                ? "audio/mpeg"
+                : "audio/wav";
+            return Results.File(absolutePath, contentType, enableRangeProcessing: true);
         });
 
         // Plays a band member's voice reference clip in the footer preview player.

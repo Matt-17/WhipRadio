@@ -247,6 +247,10 @@ public class WeatherSegmentContributorTests
             new WhipRadio.Orchestrator.Configuration.RadioOptions { DataRoot = TempRoot });
         var analysisRecorder = new MediaAnalysisRecorder(
             new SegmentTestFixtures.ThrowingAnalysisClient(),
+            new ImportedAudioStager(
+                radioOptions,
+                Microsoft.Extensions.Options.Options.Create(new WhipRadio.Orchestrator.Configuration.StreamOptions()),
+                NullLogger<ImportedAudioStager>.Instance),
             db,
             NullLogger<MediaAnalysisRecorder>.Instance);
 

@@ -86,6 +86,10 @@ public static partial class RadioApiEndpoints
                     .AnyAsync(m => m.Id == specialistId && m.IsActive && m.IsWeatherSpecialist, ct)
                     ? specialistId
                     : null;
+            settings.ArchiveUploadEnabled = request.ArchiveUploadEnabled;
+            settings.ArchivePlayoutEnabled = request.ArchivePlayoutEnabled;
+            settings.ArchiveEnrichmentEnabled = request.ArchiveEnrichmentEnabled;
+            settings.PodcastKnowledgeEnabled = request.PodcastKnowledgeEnabled;
 
             await db.SaveChangesAsync(ct);
 

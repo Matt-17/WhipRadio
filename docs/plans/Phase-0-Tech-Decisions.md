@@ -480,3 +480,52 @@ columns (no data migration). `ChatSenderKind` gained `ArtistMember`/`Guest`
 with sender-id columns on `ChatMessage`. Artist/guest chat roles are narrow by
 catalog: prose always, `MakeSong` for artists; `Invite`/`RemoveFromChannel`/
 `BriefPodcast` are Director verbs.
+
+## Imported Music, Metadata & Knowledge (Phase 6a "Archive", 2026-07-05)
+
+- **Track source discriminator:** `Track.Source` (`TrackSource` enum:
+  `Generated`/`Uploaded`/`External`) — not `Backend="library"` alone. `Backend`
+  stays a generation-provider id (imported rows carry `Backend="library"` for
+  display only); all import/deletion/rotation logic keys off `Source`.
+- **External folders are read-only:** `Library:ExternalMusicFolders`
+  (appsettings) is scanned incrementally by `LibraryImportService` (hash
+  dedupe, missing files flagged `Track.FileMissing`, never un-retires). WhipRadio
+  never writes to, renames, or deletes anything inside those folders;
+  `TrackDeletionService` refuses file deletion for `External` tracks and for any
+  path outside the data root. External tracks store absolute `FilePath`
+  (resolved via `MediaPaths.ResolveAbsolute`); uploads keep relative paths under
+  `data/archive/uploads/` and are deletable.
+- **No station Artist entities for real artists:** imported tracks carry
+  `ImportedArtist`/`ImportedAlbum`/`ImportedYear` display strings; the selector's
+  artist cap keys on `ArtistId ?? ImportedArtist`.
+- **Analysis staging:** the analysis sidecar only sees `/data` (read-only) and
+  only decodes WAV reliably, so `ImportedAudioStager` transcodes out-of-root or
+  non-WAV audio to `data/cache/analysis/<id>.wav` with local ffmpeg, analyzes,
+  and deletes the temp. Hooked inside `MediaAnalysisRecorder` so producer,
+  backfill, and imports share it. The probed duration overwrites tag-claimed
+  durations for imported tracks.
+- **Tag reading:** ATL (`z440.atl.core`, MIT) — chosen over TagLibSharp
+  (LGPL-2.1) for license simplicity.
+- **Metadata sources (keyless, CC0-friendly):** live MusicBrainz web API
+  (1 req/s `MusicBrainzRateGate`, descriptive UA, resilience handler removed so
+  auto-retries can't violate etiquette; one courteous 503 retry honoring
+  Retry-After) for identity; Wikidata structured claims + Wikipedia REST
+  summaries for artist knowledge. A local CC0 MusicBrainz index remains a
+  documented option (Phase-0-Deferred §10).
+- **Copyright discipline:** Wikipedia summaries are paraphrase input for the
+  writer-room digest and are never stored; `KnowledgeEntry` holds structured
+  facts JSON + a paraphrased digest only. Hosts get digests gated by
+  `MetadataStatus` (Verified/AutoMatched full, Matched cautious, Ambiguous and
+  below nothing) and must paraphrase — never quote, never recite lyrics.
+- **Settings toggles** (`StationSettings`): `ArchiveUploadEnabled`,
+  `ArchivePlayoutEnabled` (imported tracks join normal rotation when on;
+  filtered in `EfTrackRepository`), `ArchiveEnrichmentEnabled`,
+  `PodcastKnowledgeEnabled` (gates the `LookupKnowledge` chat verb and podcast
+  knowledge injection via `KnowledgeContextResolver`).
+- **Provenance model:** field-level `MetadataClaim` rows (source, license
+  class, confidence, applied flag; original file tags preserved as
+  `FileProvided` claims), `MetadataCandidate` rows for ambiguous matches
+  (review UI on the Archive page), `ExternalId` rows (MBIDs, QIDs, ISRCs),
+  cached `KnowledgeEntry` digests (~90-day refresh).
+- **Phase 6 scope change:** the browser-microphone feature was removed from
+  Phase 6 by user decision; Twitch remains a future feature.

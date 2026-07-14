@@ -65,6 +65,49 @@ public sealed record TrackDto(
     string? Style = null,
     bool DeletionPending = false);
 
+public sealed record ArchiveTrackDto(
+    Guid Id,
+    string Title,
+    string? Artist,
+    string? Album,
+    int? Year,
+    string Genre,
+    double DurationSeconds,
+    string Source,
+    string MetadataStatus,
+    double? MetadataConfidence,
+    int PlayCount,
+    int UpVotes,
+    int DownVotes,
+    bool IsRetired,
+    DateTime CreatedAt,
+    int CandidateCount = 0,
+    bool DeletionPending = false);
+
+public sealed record MetadataCandidateDto(
+    Guid Id,
+    string Title,
+    string Artist,
+    string? Album,
+    int? Year,
+    double Score,
+    IReadOnlyList<string> Reasons,
+    string Status);
+
+public sealed record ArchiveStatusDto(
+    int ExternalTracks,
+    int UploadedTracks,
+    int RetiredTracks,
+    int LocalOnly,
+    int Matched,
+    int NeedsReview,
+    int Verified,
+    DateTime? LastScanUtc,
+    int ConfiguredFolders,
+    bool ScanRunning,
+    bool UploadEnabled,
+    long MaxUploadBytes);
+
 public sealed record ArtistDto(
     Guid Id,
     string Name,
@@ -111,7 +154,8 @@ public sealed record GuestDto(
     bool HasVoiceReference,
     string? VoiceError,
     bool IsArchived,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    string? VoiceFx = null);
 
 public sealed record ArtistPostDto(
     Guid Id,
@@ -214,6 +258,8 @@ public sealed record CreateArtistRequestDto(string? Hint);
 public sealed record CreateGuestRequestDto(string? Hint);
 
 public sealed record RedefineGuestRequestDto(string? Hint);
+
+public sealed record UpdateGuestVoiceFxRequestDto(string? VoiceFx);
 
 public sealed record RedefineArtistRequestDto(string? Hint);
 
@@ -365,7 +411,11 @@ public sealed record StationSettingsDto(
     bool WeatherFullHandoverEnabled = false,
     string WeatherLocationName = "New York, US",
     double WeatherLatitude = 40.7128,
-    double WeatherLongitude = -74.0060);
+    double WeatherLongitude = -74.0060,
+    bool ArchiveUploadEnabled = true,
+    bool ArchivePlayoutEnabled = true,
+    bool ArchiveEnrichmentEnabled = true,
+    bool PodcastKnowledgeEnabled = true);
 
 public sealed record NewsFeedDto(
     Guid Id,

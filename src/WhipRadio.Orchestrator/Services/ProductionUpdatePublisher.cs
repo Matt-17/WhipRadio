@@ -10,6 +10,8 @@ public interface IProductionUpdatePublisher
     Task PublishWeatherChangedAsync(CancellationToken ct = default);
 
     Task PublishConversationsChangedAsync(CancellationToken ct = default);
+
+    Task PublishArchiveChangedAsync(CancellationToken ct = default);
 }
 
 public sealed class SignalRProductionUpdatePublisher(
@@ -49,6 +51,18 @@ public sealed class SignalRProductionUpdatePublisher(
         catch (Exception ex)
         {
             logger.LogDebug(ex, "SignalR conversations production publish failed");
+        }
+    }
+
+    public async Task PublishArchiveChangedAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            await hub.Clients.All.SendAsync("ArchiveChanged", ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "SignalR archive publish failed");
         }
     }
 }

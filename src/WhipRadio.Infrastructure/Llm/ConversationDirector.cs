@@ -26,6 +26,13 @@ public sealed class ConversationDirector(
     private const int TranscriptTailTurns = 12;
     private const int MaxConsecutiveTurnFailures = 2;
 
+    // Cross-talk (Phase-0-Deferred §6): an interjection pulls this turn into the
+    // previous speaker's tail. The previous turn must be long enough that a short
+    // overlap reads as natural instead of clipping their point.
+    private const int MinInterjectOverlapMs = 350;
+    private const int MaxInterjectOverlapMs = 700;
+    private const int MinInterjectableWords = 12;
+
     public async Task<ConversationScript> WriteAsync(
         ConversationScriptRequest request,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? memorySlices,
@@ -95,6 +102,12 @@ public sealed class ConversationDirector(
 
             var markers = SpeechMarkerNormalizer.Normalize(parsed.Text, allowBreath: true);
             var text = SpeechMarkerNormalizer.StripMarkers(parsed.Text).Trim();
+            var previous = turns.Count > 0 ? turns[^1] : null;
+            if (ShouldInterject(parsed.Interject, closing, previous))
+            {
+                previous!.PauseAfterMs = -Random.Shared.Next(MinInterjectOverlapMs, MaxInterjectOverlapMs + 1);
+            }
+
             turns.Add(new ConversationTurn
             {
                 SpeakerKey = speakerKey,
@@ -153,7 +166,7 @@ public sealed class ConversationDirector(
             ["StationName"] = request.StationName,
             ["KindLabel"] = request.Kind == ConversationKind.Podcast ? "podcast episode" : "studio talk",
             ["Topic"] = string.IsNullOrWhiteSpace(request.Topic) ? "The lead speaker's choice within the brief." : request.Topic,
-            ["Brief"] = string.IsNullOrWhiteSpace(request.Brief) ? "No additional brief." : request.Brief,
+            ["Brief"] = string.IsNullOrWhiteSpace(request.BriefWithKnowledge) ? "No additional brief." : request.BriefWithKnowledge,
             ["DurationMinutes"] = request.TargetDurationMinutes.ToString(),
             ["SpeakerRoster"] = roster.ToString().TrimEnd(),
             ["RecentEpisodesBlock"] = recentBlock,
@@ -237,7 +250,7 @@ public sealed class ConversationDirector(
             ["MemoryBlock"] = memoryBlock,
             ["EpisodeTitle"] = episodeTitle,
             ["Topic"] = request.Topic,
-            ["Brief"] = string.IsNullOrWhiteSpace(request.Brief) ? "No additional brief." : request.Brief,
+            ["Brief"] = string.IsNullOrWhiteSpace(request.BriefWithKnowledge) ? "No additional brief." : request.BriefWithKnowledge,
             ["ChapterIntent"] = chapter is null
                 ? "One continuous conversation with a natural arc."
                 : $"{chapter.Title} — {chapter.Intent}",
@@ -267,6 +280,18 @@ public sealed class ConversationDirector(
 
         return parsed;
     }
+
+    /// <summary>
+    /// An interjection only lands when there is a previous turn to talk over,
+    /// the episode is not signing off, and the previous turn is long enough
+    /// (≥ <see cref="MinInterjectableWords"/> words) that a short overlap does
+    /// not swallow its point. Exposed for tests.
+    /// </summary>
+    internal static bool ShouldInterject(bool interject, bool closing, ConversationTurn? previousTurn)
+        => interject
+            && !closing
+            && previousTurn is not null
+            && CountWords(previousTurn.Text) >= MinInterjectableWords;
 
     private static ConversationChapter? CurrentChapter(
         IReadOnlyList<ConversationChapter> chapters, int turnsSoFar, int turnCap)
@@ -312,5 +337,6 @@ public sealed class ConversationDirector(
     internal sealed record ConversationAgentTurnJson(
         [property: JsonRequired] string Text,
         string? AddressedTo = null,
-        bool WrapUp = false);
+        bool WrapUp = false,
+        bool Interject = false);
 }

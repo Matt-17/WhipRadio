@@ -294,9 +294,13 @@ public class WeightedTrackSelector(ITrackRepository repository, Random? random =
         }
 
         // No same artist back-to-back (soft: only if alternatives exist).
-        if (lookback[0].ArtistId is Guid lastArtist)
+        // Imported real music has no Artist entity — its display artist name is
+        // the cap key so the same real artist also doesn't repeat back-to-back.
+        if (ArtistKey(lookback[0].ArtistId, lookback[0].ImportedArtist) is { } lastArtist)
         {
-            var withoutLast = pool.Where(t => t.ArtistId != lastArtist).ToList();
+            var withoutLast = pool
+                .Where(t => !string.Equals(ArtistKey(t.ArtistId, t.ImportedArtist), lastArtist, StringComparison.OrdinalIgnoreCase))
+                .ToList();
             if (withoutLast.Count > 0)
             {
                 pool = withoutLast;
@@ -305,15 +309,22 @@ public class WeightedTrackSelector(ITrackRepository repository, Random? random =
 
         // At most maxPerHour plays per artist within the lookback window (soft).
         var artistCounts = lookback
-            .Where(r => r.ArtistId is not null)
-            .GroupBy(r => r.ArtistId!.Value)
-            .ToDictionary(g => g.Key, g => g.Count());
+            .Select(r => ArtistKey(r.ArtistId, r.ImportedArtist))
+            .Where(key => key is not null)
+            .GroupBy(key => key!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
 
         var capped = pool
-            .Where(t => t.ArtistId is not Guid id || !artistCounts.TryGetValue(id, out var count) || count < maxPerHour)
+            .Where(t => ArtistKey(t.ArtistId, t.ImportedArtist) is not { } key
+                || !artistCounts.TryGetValue(key, out var count)
+                || count < maxPerHour)
             .ToList();
         return capped.Count > 0 ? capped : pool;
     }
+
+    private static string? ArtistKey(Guid? artistId, string? importedArtist)
+        => artistId?.ToString()
+            ?? (string.IsNullOrWhiteSpace(importedArtist) ? null : importedArtist.Trim());
 
     private static List<Track> ApplyVocalPreference(List<Track> pool, ShowContext context)
     {

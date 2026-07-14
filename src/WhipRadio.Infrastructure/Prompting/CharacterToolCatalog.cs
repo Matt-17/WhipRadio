@@ -26,29 +26,12 @@ public abstract class CharacterToolBase(
 {
     public CharacterToolDefinition Definition { get; } = new(name, description, arguments);
 
-    // Chat is opt-in: chat verbs have a dedicated executor; on-air tools like
-    // Announce/Remember/NoOp have no chat handler and must not be offered there.
+    // Chat is the only scope with a tool executor (ChatActionExecutor). Every
+    // other scope parses a fixed structured-JSON schema and never runs a tool,
+    // so the base default hides every tool everywhere. Chat-capable tools opt in
+    // explicitly with `scope is PromptScope.Chat && <roles>`.
     public virtual bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is not CharacterRole.System && scope is not PromptScope.Utility && scope is not PromptScope.Chat;
-}
-
-public sealed class AnnounceTool() : CharacterToolBase(
-    "Announce",
-    "Create spoken text for the current character to say on air.",
-    [
-        new("text", "The exact spoken text to announce."),
-    ]);
-
-public sealed class PlayTool() : CharacterToolBase(
-    "Play",
-    "Request a track to play by title or id when the scope allows music selection.",
-    [
-        new("track", "Track title or track id."),
-    ])
-{
-    public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is CharacterRole.Host or CharacterRole.ProgramDirector
-            && scope is PromptScope.CharacterDecision or PromptScope.ProgramDirector;
+        => false;
 }
 
 public sealed class MessageTool() : CharacterToolBase(
@@ -61,8 +44,8 @@ public sealed class MessageTool() : CharacterToolBase(
 {
     // Artists and guests speak in their own channel only — no DM hopping.
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is not CharacterRole.System and not CharacterRole.Artist and not CharacterRole.Guest
-            && scope is not PromptScope.Utility;
+        => scope is PromptScope.Chat
+            && role is not CharacterRole.System and not CharacterRole.Artist and not CharacterRole.Guest;
 }
 
 public sealed class AnnouncementTool() : CharacterToolBase(
@@ -89,6 +72,20 @@ public sealed class SearchMusicTool() : CharacterToolBase(
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
         => scope is PromptScope.Chat
             && role is CharacterRole.Host or CharacterRole.ProgramDirector;
+}
+
+public sealed class LookupKnowledgeTool() : CharacterToolBase(
+    "LookupKnowledge",
+    "Look up gathered background facts about a real artist or an imported track (open-data digests). Paraphrase the facts; never present them as quotes.",
+    [
+        new("query", "Artist name or track title to look up."),
+    ])
+{
+    // Offered in chat only when the station's knowledge setting is on —
+    // PromptContextBuilder filters it out of the tool list when disabled.
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat
+            && role is CharacterRole.Host or CharacterRole.ProgramDirector or CharacterRole.NewsSpecialist;
 }
 
 public sealed class PlanFormatTool() : CharacterToolBase(
@@ -191,40 +188,3 @@ public sealed class StatusReportTool() : CharacterToolBase(
         => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
 }
 
-public sealed class StartTalkBreakTool() : CharacterToolBase(
-    "StartTalkBreak",
-    "Plan an ordered on-air talk break from one or more parts.",
-    [
-        new("parts", "Ordered talk part descriptions."),
-    ])
-{
-    public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is CharacterRole.Host or CharacterRole.ProgramDirector or CharacterRole.WeatherSpecialist
-            && scope is PromptScope.CharacterDecision or PromptScope.ProgramDirector;
-}
-
-public sealed class RememberTool() : CharacterToolBase(
-    "Remember",
-    "Store a short memory note for continuity.",
-    [
-        new("note", "Short memory note."),
-    ]);
-
-public sealed class RequestBitTool() : CharacterToolBase(
-    "RequestBit",
-    "Ask for a reusable joke, anecdote, drop, or station bit around a premise.",
-    [
-        new("premise", "Desired premise or theme."),
-    ])
-{
-    public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => role is CharacterRole.Host or CharacterRole.ProgramDirector
-            && scope is PromptScope.CharacterDecision or PromptScope.ProgramDirector;
-}
-
-public sealed class NoOpTool() : CharacterToolBase(
-    "NoOp",
-    "Choose to do nothing when speaking or acting would be inappropriate.",
-    [
-        new("reason", "Brief reason for staying quiet.", IsRequired: false),
-    ]);

@@ -14,11 +14,14 @@ public class ProductionLiveClient(
 
     public event Action? ConversationsChanged;
 
+    public event Action? ArchiveChanged;
+
     protected override void RegisterHandlers(HubConnection connection)
     {
         connection.On("NewsProductionChanged", () => NewsChanged?.Invoke());
         connection.On("WeatherProductionChanged", () => WeatherChanged?.Invoke());
         connection.On("ConversationsProductionChanged", () => ConversationsChanged?.Invoke());
+        connection.On("ArchiveChanged", () => ArchiveChanged?.Invoke());
     }
 
     // Invalidation-only client: no HTTP snapshot on start, but pages must reload
@@ -30,6 +33,7 @@ public class ProductionLiveClient(
         NewsChanged?.Invoke();
         WeatherChanged?.Invoke();
         ConversationsChanged?.Invoke();
+        ArchiveChanged?.Invoke();
         return Task.CompletedTask;
     }
 }

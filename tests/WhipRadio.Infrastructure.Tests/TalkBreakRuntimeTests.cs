@@ -222,6 +222,10 @@ public class TalkBreakRuntimeTests
 
             var recorder = new MediaAnalysisRecorder(
                 new ThrowingAnalysisClient(),
+                new ImportedAudioStager(
+                    Options.Create(new RadioOptions { DataRoot = root }),
+                    Options.Create(new StreamOptions()),
+                    NullLogger<ImportedAudioStager>.Instance),
                 fixture,
                 NullLogger<MediaAnalysisRecorder>.Instance);
             var renderer = new SegmentRenderer(

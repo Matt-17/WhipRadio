@@ -1,5 +1,11 @@
 # WhipRadio — Phase 3a Plan: Audio Mixer & Intelligent Transitions
 
+> **Status 2026-07-05 (doc cleanup):** implemented — `MixerCore`, `MixPlanner`
+> (incl. talk-over strategies), `AudioMixerEngine`, per-track `MediaAnalysis`
+> via the analysis sidecar, and the Mixer settings/page all exist in code.
+> The DoD checkboxes below were never ticked while the work shipped; treat this
+> document as historical.
+
 > **Audience:** AI coding agent (Claude Fable 5 / Copilot).
 > Phase 1, 1.5 and 2 are running. Phase 3a introduces a real-time **AudioMixerService**
 > sitting between media sources and the Icecast encoder, plus **per-track audio analysis**

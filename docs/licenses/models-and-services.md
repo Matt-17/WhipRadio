@@ -1,6 +1,6 @@
 # AI Models and External Service Terms
 
-Last reviewed: 2026-07-04
+Last reviewed: 2026-07-05
 
 Sources used:
 
@@ -32,6 +32,9 @@ Model weights and hosted APIs are not covered by the license of the wrapper libr
 | ElevenLabs | Optional TTS and music provider | Proprietary service terms. Free use is non-commercial; paid plans allow commercial use subject to the service terms and prohibited-use policy. Voice cloning inputs require rights/consent. |
 | Open-Meteo | Weather source | Free API is non-commercial with rate limits. Data is provided under CC-BY 4.0; paid API plans allow commercial use subject to subscription terms. |
 | OpenAI-compatible endpoint | Optional text provider path | No SDK package is currently referenced, but any configured hosted model/API must be tracked here with its service terms before production use. |
+| MusicBrainz web service | Archive metadata enrichment (Phase 6a) | Keyless. Core database data is CC0. API etiquette requires a descriptive User-Agent and max ~1 request/second for anonymous clients — enforced by `MusicBrainzRateGate`; automatic HTTP retries are removed from the client. Only IDs and normalized facts are stored. |
+| Wikidata | Archive artist facts (Phase 6a) | Keyless. Structured data is CC0. Only structured claims (formation, origin, genres, members, sitelinks) are stored; no article text. |
+| Wikipedia REST API | Archive knowledge digests (Phase 6a) | Keyless, free access. Article text is CC BY-SA 4.0 — **restriction:** page summaries are used only as paraphrase input for the LLM digest and are never stored, reproduced, or read on air. Stored digests contain paraphrased facts only. |
 
 ## Generated Media Notes
 
@@ -53,3 +56,7 @@ Model weights and hosted APIs are not covered by the license of the wrapper libr
 - Qwen3-TTS 1.7B VoiceDesign model card: <https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign>
 - ElevenLabs terms: <https://elevenlabs.io/terms-of-use>
 - Open-Meteo terms: <https://open-meteo.com/en/terms>
+- MusicBrainz data license: <https://musicbrainz.org/doc/About/Data_License>
+- MusicBrainz API rate limiting: <https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting>
+- Wikidata data access/licensing: <https://www.wikidata.org/wiki/Wikidata:Data_access>
+- Wikipedia text licensing (CC BY-SA 4.0): <https://en.wikipedia.org/wiki/Wikipedia:Copyrights>

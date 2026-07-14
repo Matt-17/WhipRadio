@@ -20,7 +20,20 @@ public sealed record ConversationScriptRequest(
     string StationName,
     string StationSlogan,
     string Language,
-    IReadOnlyList<string> RecentEpisodeTitles);
+    IReadOnlyList<string> RecentEpisodeTitles,
+    string? KnowledgeFacts = null)
+{
+    /// <summary>
+    /// The brief plus gathered real-world background facts (Phase 6a). Facts
+    /// ride the brief so both the single-call writer and the multi-agent
+    /// director see them without separate template plumbing; the copyright
+    /// rule (paraphrase, never quote) travels with them.
+    /// </summary>
+    public string BriefWithKnowledge => string.IsNullOrWhiteSpace(KnowledgeFacts)
+        ? Brief
+        : $"{Brief}\n\nBackground facts about the real artists/tracks involved "
+          + $"(paraphrase in your own words; never quote source text, never recite lyrics):\n{KnowledgeFacts}";
+}
 
 /// <summary>A resolved speaker: identity plus the persona brief handed to the writer.</summary>
 public sealed record ConversationSpeakerBrief(
@@ -194,7 +207,7 @@ public sealed class ConversationScriptWriter(
             ["KindLabel"] = kindLabel,
             ["KindGuidance"] = kindGuidance,
             ["Topic"] = string.IsNullOrWhiteSpace(request.Topic) ? "The lead speaker's choice within the brief." : request.Topic,
-            ["Brief"] = string.IsNullOrWhiteSpace(request.Brief) ? "No additional brief." : request.Brief,
+            ["Brief"] = string.IsNullOrWhiteSpace(request.BriefWithKnowledge) ? "No additional brief." : request.BriefWithKnowledge,
             ["DurationMinutes"] = request.TargetDurationMinutes.ToString(),
             ["WordBudget"] = (Math.Max(1, request.TargetDurationMinutes) * WordsPerMinute).ToString(),
             ["SpeakerRoster"] = roster.ToString().TrimEnd(),
