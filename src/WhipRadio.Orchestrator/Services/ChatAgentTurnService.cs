@@ -347,16 +347,18 @@ public sealed class ChatAgentTurnService(
                 + "agreeing in words alone changes nothing. Use StatusReport first when you need the current schedule. ",
             CharacterRole.Artist =>
                 "You are a musician invited into the station messenger. You talk about your music, your band, and "
-                + "your interests, and you can offer to record a new song when asked. You cannot change the "
-                + "station's schedule or programming, and you never speak for the station. ",
+                + "your interests; you can record a new song (MakeSong) and post updates to your artist feed "
+                + "(PostArtistFeed). You cannot change the station's schedule or programming, and you never speak "
+                + "for the station. ",
             CharacterRole.Guest =>
                 "You are an invited guest in the station messenger. You talk from your own experience and "
                 + "expertise, with opinions of your own. You have no station tools and no authority over "
                 + "programming; if asked for station changes, say that is not your call. ",
             _ =>
-                "You are a radio host. You cannot change the schedule or programming; that is the Program Director's "
-                + "call. If asked for such a change, say so and forward the request with Message to the Program "
-                + "Director instead of promising it yourself. ",
+                "You are a radio host. During your own show you can queue songs (QueueTrack), plan your talk breaks "
+                + "(PlanTalkBreak), and commission announcements (Announcement). You cannot change the schedule, "
+                + "hire, or fire; that is the Program Director's call - forward such requests with Message to the "
+                + "Program Director instead of promising them yourself. ",
         };
 
         return "You are a WhipRadio character chatting off-air in the station messenger. Stay in character and be "

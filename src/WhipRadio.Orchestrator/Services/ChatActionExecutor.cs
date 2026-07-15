@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Api;
@@ -6,6 +7,7 @@ using WhipRadio.Core.Entities;
 using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Prompting;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Orchestrator.Api;
 
 namespace WhipRadio.Orchestrator.Services;
 
@@ -24,7 +26,7 @@ public sealed record ChatActionContext(
     public Moderator? SenderModerator => Sender.Moderator;
 }
 
-public sealed class ChatActionExecutor(
+public sealed partial class ChatActionExecutor(
     IDbContextFactory<RadioDbContext> dbFactory,
     ICharacterToolCatalog toolCatalog,
     ChatService chat,
@@ -37,6 +39,13 @@ public sealed class ChatActionExecutor(
     DirectorPlanningService director,
     INotificationBus notifications,
     IServiceScopeFactory scopeFactory,
+    IPlayoutQueue playoutQueue,
+    ModeratorMemoryService moderatorMemory,
+    ParticipantMemoryWriter participantMemory,
+    IProductionUpdatePublisher productionUpdates,
+    ArtistSocialFeedService socialFeed,
+    NewsPackageProductionService newsProduction,
+    IHubContext<RadioHub> hub,
     TimeProvider timeProvider,
     ILogger<ChatActionExecutor> logger)
 {
@@ -66,6 +75,21 @@ public sealed class ChatActionExecutor(
                 "MakeSong" => await ExecuteMakeSongAsync(call, context, ct),
                 "BriefPodcast" => await ExecuteBriefPodcastAsync(call, ct),
                 "LookupKnowledge" => await ExecuteLookupKnowledgeAsync(call, ct),
+                "SearchArtist" => await ExecuteSearchArtistAsync(call, ct),
+                "GetArtistProfile" => await ExecuteGetArtistProfileAsync(call, context, ct),
+                "QueueTrack" => await ExecuteQueueTrackAsync(call, context, ct),
+                "PlanTalkBreak" => await ExecutePlanTalkBreakAsync(call, context, ct),
+                "CreateTalkBit" => await ExecuteCreateTalkBitAsync(call, context, ct),
+                "Remember" => await ExecuteRememberAsync(call, context, ct),
+                "ProduceNewsPackage" => await ExecuteProduceNewsPackageAsync(call, ct),
+                "ProduceWeatherReport" => await ExecuteProduceWeatherReportAsync(call, context, ct),
+                "CreateJingle" => await ExecuteCreateJingleAsync(call, ct),
+                "SetJingleActive" => await ExecuteSetJingleActiveAsync(call, ct),
+                "SetNewsPresenter" => await ExecuteSetPresenterAsync(call, isNews: true, ct),
+                "SetWeatherPresenter" => await ExecuteSetPresenterAsync(call, isNews: false, ct),
+                "RetireTrack" => await ExecuteRetireTrackAsync(call, ct),
+                "PostArtistFeed" => await ExecutePostArtistFeedAsync(call, context, ct),
+                "RequestSongFromArtist" => await ExecuteRequestSongFromArtistAsync(call, context, ct),
                 _ => Failed(call, $"Tool '{call.Name}' has no chat executor."),
             };
             logger.LogInformation(

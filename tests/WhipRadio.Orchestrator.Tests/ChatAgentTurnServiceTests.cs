@@ -97,6 +97,13 @@ public class ChatAgentTurnServiceTests
             director: null!,
             new NoOpNotificationBus(),
             scopeFactory: null!,
+            playoutQueue: null!,
+            moderatorMemory: null!,
+            participantMemory: null!,
+            productionUpdates: null!,
+            socialFeed: null!,
+            newsProduction: null!,
+            hub: null!,
             TimeProvider.System,
             NullLogger<ChatActionExecutor>.Instance);
         var turn = new ChatAgentTurnService(
@@ -188,6 +195,13 @@ public class ChatAgentTurnServiceTests
             director: null!,
             new NoOpNotificationBus(),
             scopeFactory: null!,
+            playoutQueue: null!,
+            moderatorMemory: null!,
+            participantMemory: null!,
+            productionUpdates: null!,
+            socialFeed: null!,
+            newsProduction: null!,
+            hub: null!,
             TimeProvider.System,
             NullLogger<ChatActionExecutor>.Instance);
         var turn = new ChatAgentTurnService(
@@ -291,6 +305,13 @@ public class ChatAgentTurnServiceTests
             director: null!,
             new NoOpNotificationBus(),
             scopeFactory: null!,
+            playoutQueue: null!,
+            moderatorMemory: null!,
+            participantMemory: null!,
+            productionUpdates: null!,
+            socialFeed: null!,
+            newsProduction: null!,
+            hub: null!,
             TimeProvider.System,
             NullLogger<ChatActionExecutor>.Instance);
         var turn = new ChatAgentTurnService(

@@ -162,6 +162,21 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<ICharacterTool, MakeSongTool>();
         services.AddSingleton<ICharacterTool, BriefPodcastTool>();
         services.AddSingleton<ICharacterTool, LookupKnowledgeTool>();
+        services.AddSingleton<ICharacterTool, SearchArtistTool>();
+        services.AddSingleton<ICharacterTool, GetArtistProfileTool>();
+        services.AddSingleton<ICharacterTool, QueueTrackTool>();
+        services.AddSingleton<ICharacterTool, PlanTalkBreakTool>();
+        services.AddSingleton<ICharacterTool, CreateTalkBitTool>();
+        services.AddSingleton<ICharacterTool, RememberTool>();
+        services.AddSingleton<ICharacterTool, ProduceNewsPackageTool>();
+        services.AddSingleton<ICharacterTool, ProduceWeatherReportTool>();
+        services.AddSingleton<ICharacterTool, CreateJingleTool>();
+        services.AddSingleton<ICharacterTool, SetJingleActiveTool>();
+        services.AddSingleton<ICharacterTool, SetNewsPresenterTool>();
+        services.AddSingleton<ICharacterTool, SetWeatherPresenterTool>();
+        services.AddSingleton<ICharacterTool, RetireTrackTool>();
+        services.AddSingleton<ICharacterTool, PostArtistFeedTool>();
+        services.AddSingleton<ICharacterTool, RequestSongFromArtistTool>();
 
         return services;
     }

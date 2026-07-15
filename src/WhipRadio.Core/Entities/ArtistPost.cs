@@ -4,6 +4,9 @@ public enum ArtistPostKind
 {
     ArtistCreated,
     TrackReleased,
+
+    /// <summary>A free-form update the artist wrote themselves via chat.</summary>
+    StatusUpdate,
 }
 
 /// <summary>A text-only public update from a fictional artist or band.</summary>

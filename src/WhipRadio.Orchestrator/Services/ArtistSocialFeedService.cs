@@ -171,6 +171,65 @@ public class ArtistSocialFeedService(
                 track.DownVotes))
             .ToListAsync(ct);
 
+    /// <summary>
+    /// Publishes a feed post the artist wrote themselves (via chat). The body is
+    /// sanitized and length-limited, but not routed through the copywriter.
+    /// </summary>
+    public async Task CreateAgentPostAsync(Guid artistId, string body, Guid? trackId, CancellationToken ct)
+    {
+        string sanitized = SanitizeBody(body);
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            throw new InvalidOperationException("The post body is empty.");
+        }
+
+        if (sanitized.Length > 500)
+        {
+            sanitized = sanitized[..500];
+        }
+
+        ArtistPostDto dto;
+        await using (var db = await dbFactory.CreateDbContextAsync(ct))
+        {
+            Artist artist = await db.Artists.AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == artistId, ct)
+                ?? throw new InvalidOperationException($"Artist {artistId} was not found.");
+
+            Track? track = null;
+            if (trackId is { } id)
+            {
+                track = await db.Tracks.AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.Id == id && t.ArtistId == artistId, ct)
+                    ?? throw new InvalidOperationException($"Track {id} was not found for this artist.");
+            }
+
+            var post = new ArtistPost
+            {
+                Id = Guid.NewGuid(),
+                ArtistId = artistId,
+                TrackId = trackId,
+                Kind = ArtistPostKind.StatusUpdate,
+                Body = sanitized,
+                CreatedAtUtc = DateTime.UtcNow,
+            };
+            db.ArtistPosts.Add(post);
+            await db.SaveChangesAsync(ct);
+            dto = new ArtistPostDto(
+                post.Id,
+                artist.Id,
+                artist.Name,
+                artist.Slug,
+                track?.Id,
+                track?.Title,
+                post.Kind.ToString(),
+                post.Body,
+                post.CreatedAtUtc);
+        }
+
+        await updatePublisher.PublishPostAddedAsync(dto, ct);
+        logger.LogInformation("Artist {ArtistId} posted a chat-written feed update.", artistId);
+    }
+
     private static string SanitizeBody(string value)
     {
         var sanitized = LlmOutputSanitizer.Sanitize(value)

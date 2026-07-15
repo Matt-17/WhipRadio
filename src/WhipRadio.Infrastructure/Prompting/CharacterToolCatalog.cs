@@ -19,6 +19,17 @@ public sealed class CharacterToolCatalog(IEnumerable<ICharacterTool> tools) : IC
             && string.Equals(tool.Definition.Name, name, StringComparison.OrdinalIgnoreCase));
 }
 
+internal static class CharacterRoleToolRules
+{
+    /// <summary>Hosts and the two specialist host roles: the on-air voices.</summary>
+    public static bool IsOnAirVoice(this CharacterRole role)
+        => role is CharacterRole.Host or CharacterRole.NewsSpecialist or CharacterRole.WeatherSpecialist;
+
+    /// <summary>On-air voices plus the Program Director.</summary>
+    public static bool IsOnAirVoiceOrDirector(this CharacterRole role)
+        => role.IsOnAirVoice() || role is CharacterRole.ProgramDirector;
+}
+
 public abstract class CharacterToolBase(
     string name,
     string description,
@@ -70,8 +81,7 @@ public sealed class SearchMusicTool() : CharacterToolBase(
     ])
 {
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
-        => scope is PromptScope.Chat
-            && role is CharacterRole.Host or CharacterRole.ProgramDirector;
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
 }
 
 public sealed class LookupKnowledgeTool() : CharacterToolBase(
@@ -182,9 +192,197 @@ public sealed class RemoveFromChannelTool() : CharacterToolBase(
 public sealed class StatusReportTool() : CharacterToolBase(
     "StatusReport",
     "Summarize current station programming and operational state.",
-    [])
+    [
+        new("scope", "Optional focus: station (default), schedule, music, or production.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class SearchArtistTool() : CharacterToolBase(
+    "SearchArtist",
+    "Find an artist matching a style; when none fits, the station writes a new one (creation takes a while, so do not re-request).",
+    [
+        new("style", "Desired sound or identity brief."),
+        new("genre", "Preferred genre.", IsRequired: false),
+        new("subgenre", "Preferred subgenre.", IsRequired: false),
+        new("createIfMissing", "Create a new artist when no good match exists (default true).", IsRequired: false),
+        new("limit", "Maximum existing matches to return.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class GetArtistProfileTool() : CharacterToolBase(
+    "GetArtistProfile",
+    "Read an artist's public profile, members, and recent songs before an interview or a request.",
+    [
+        new("artist", "Artist name or id."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat
+            && (role.IsOnAirVoiceOrDirector() || role is CharacterRole.Artist);
+}
+
+public sealed class QueueTrackTool() : CharacterToolBase(
+    "QueueTrack",
+    "Request an existing library track for playout. Hosts can queue only during their own show.",
+    [
+        new("track", "Track title or id (search first if unsure)."),
+        new("priority", "normal (default) or next; only the Program Director may jump the line.", IsRequired: false),
+        new("reason", "Why the track should play.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class PlanTalkBreakTool() : CharacterToolBase(
+    "PlanTalkBreak",
+    "Plan an ordered on-air talk break. Hosts plan for their own show; the Program Director can plan for any host.",
+    [
+        new("parts", "Ordered parts as semicolon-separated 'kind: purpose' entries (kinds: Banter, Intro, Outro, Weather, News, Ad, Bit)."),
+        new("title", "Optional operator-visible title.", IsRequired: false),
+        new("host", "Target host name or id (Program Director only; defaults to yourself).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class CreateTalkBitTool() : CharacterToolBase(
+    "CreateTalkBit",
+    "Create a reusable joke, anecdote, drop, or station bit around a premise. Hosts create for themselves; the Program Director for any host.",
+    [
+        new("premise", "Desired premise or theme."),
+        new("kind", "joke, anecdote, drop, station_bit, or personal_note.", IsRequired: false),
+        new("host", "Target host name or id (Program Director only; defaults to yourself).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class RememberTool() : CharacterToolBase(
+    "Remember",
+    "Store a short memory note about yourself for continuity.",
+    [
+        new("note", "Short factual memory note."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat
+            && (role.IsOnAirVoice() || role is CharacterRole.Artist);
+}
+
+public sealed class ProduceNewsPackageTool() : CharacterToolBase(
+    "ProduceNewsPackage",
+    "Produce the next news package, or recreate an existing one.",
+    [
+        new("mode", "next (default) or recreate.", IsRequired: false),
+        new("packageId", "Package id to recreate (required for recreate).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat
+            && role is CharacterRole.ProgramDirector or CharacterRole.NewsSpecialist;
+}
+
+public sealed class ProduceWeatherReportTool() : CharacterToolBase(
+    "ProduceWeatherReport",
+    "Produce a weather segment for the configured station location.",
+    [
+        new("presenter", "Weather specialist name or id (Program Director only; defaults to the configured presenter).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat
+            && role is CharacterRole.ProgramDirector or CharacterRole.WeatherSpecialist;
+}
+
+public sealed class CreateJingleTool() : CharacterToolBase(
+    "CreateJingle",
+    "Generate a new station jingle (music generation takes a while).",
+    [
+        new("label", "Operator-visible label."),
+        new("style", "Musical style prompt."),
+        new("durationSeconds", "Target duration in seconds.", IsRequired: false),
+    ])
 {
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
         => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetJingleActiveTool() : CharacterToolBase(
+    "SetJingleActive",
+    "Enable or disable an existing jingle.",
+    [
+        new("jingle", "Jingle label or id."),
+        new("isActive", "true to enable, false to disable."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetNewsPresenterTool() : CharacterToolBase(
+    "SetNewsPresenter",
+    "Assign the active news specialist used for news packages.",
+    [
+        new("host", "Active news specialist name or id."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetWeatherPresenterTool() : CharacterToolBase(
+    "SetWeatherPresenter",
+    "Assign the active weather specialist used for weather segments.",
+    [
+        new("host", "Active weather specialist name or id."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class RetireTrackTool() : CharacterToolBase(
+    "RetireTrack",
+    "Remove a track from future rotation without deleting its file or history.",
+    [
+        new("track", "Track title or id."),
+        new("reason", "Why the track should leave rotation."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class PostArtistFeedTool() : CharacterToolBase(
+    "PostArtistFeed",
+    "Post an update to your own artist feed in your own voice.",
+    [
+        new("body", "Post body."),
+        new("track", "Optional own track title or id to link.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.Artist;
+}
+
+public sealed class RequestSongFromArtistTool() : CharacterToolBase(
+    "RequestSongFromArtist",
+    "Ask an artist or band to write a new song. They decide whether to record it.",
+    [
+        new("artist", "Artist, band, or band-member name."),
+        new("brief", "Song request or creative direction."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
 }
 
