@@ -3,21 +3,66 @@
 This document is the planning contract for tools available to WhipRadio's
 Program Director, hosts/moderators, artists, and future guests.
 
-The current implementation already has a schema-constrained chat envelope with
-`reply` plus `actions`, and a small shipped tool catalog:
+The station uses a schema-constrained chat envelope with `reply` plus `actions`.
+The names below are canonical English tool names. The chat text itself may be any
+language, but tool names and parameters are stable English contracts.
 
-- `Message`
-- `Announcement`
-- `SearchMusic`
-- `PlanFormat`
-- `HireHost`
-- `AssignHost`
-- `StatusReport`
+Tools are executed only in the **chat** scope, through `ChatActionExecutor`. Every
+other prompt scope (announcement writer, program-director day planner, message
+moderation) parses a fixed structured-JSON schema and renders no tool list.
 
-This catalog keeps those as the baseline and extends them into the larger tool
-set the station will need. The names below are canonical English tool names.
-The chat text itself may be any language, but tool names and parameters are
-stable English contracts.
+## Implementation Status (2026-07)
+
+`Reply` and `NoOp` are not tool classes: an envelope with a `reply` and an empty
+`actions` array is the reply/no-op. Shipped tool names sometimes differ from the
+canonical names in this document; the mapping is noted below. Everything marked
+**Deferred** is not yet executable — until it ships, agents `Message` the Admin
+(the Boss) to request it, and destructive/authority-sensitive actions additionally
+await the planned `RequestBossApproval` confirmation flow.
+
+| Tool (this doc) | Status | Shipped as / note |
+|---|---|---|
+| `Message` | Shipped | — |
+| `Announcement` | Shipped | hosts + news/weather specialists |
+| `SearchMusic` | Shipped | hosts, specialists, director |
+| `StatusReport` | Shipped | gained a `scope` argument; offered to hosts + director |
+| `PlanFormat` | Shipped | director |
+| `HireHost` | Shipped | director (general hosts) |
+| `AssignHost` | Shipped | director |
+| `LookupKnowledge` | Shipped | not previously in this doc; gated by `PodcastKnowledgeEnabled` |
+| `InviteParticipant` | Shipped | as **`Invite`** |
+| (group removal) | Shipped | as **`RemoveFromChannel`** |
+| `SearchArtist` | Shipped | creates when missing via `ArtistCreationService` |
+| `GetArtistProfile` | Shipped | deep background limited to director/self |
+| `QueueTrack` | Shipped | hosts queue only during their own show |
+| `PlanTalkBreak` | Shipped | `parts` is a semicolon `kind: purpose` list |
+| `CreateTalkBit` | Shipped | — |
+| `Remember` | Shipped | implicit self; hosts/specialists/artists (not director) |
+| `ProduceNewsPackage` | Shipped | director + news specialist |
+| `ProduceWeatherReport` | Shipped | director + weather specialist; no location override |
+| `CreateSong` / `RequestSongFromArtist` (self) | Shipped | merged into **`MakeSong`** (artist self / director-named) |
+| `RequestSongFromArtist` (relay) | Shipped | posts into a shared group channel and enqueues the artist |
+| `PostArtistFeed` | Shipped | artist self; free-form body, no copywriter |
+| `PlanConversation` | Shipped | as **`BriefPodcast`** |
+| `CreateJingle` | Shipped | director |
+| `SetJingleActive` | Shipped | director |
+| `SetNewsPresenter` / `SetWeatherPresenter` | Shipped | director |
+| `RetireTrack` | Shipped | director; reversible flag, no confirmation |
+| `RequestBossApproval` | Deferred | confirmation flow not built |
+| `RetireArtist`, `DeleteArtist`, `DeleteTrack`, `DeleteJingle` | Deferred | destructive |
+| `RemoveShow`, `FireHost` | Deferred | destructive |
+| `RedefineArtistProfile`, `CancelSongProduction` | Deferred | — |
+| `CreateSpecialistHost` | Deferred | `HireHost` role arg is the intended path |
+| `EmergencyAnnouncement`, `AnswerListenerMessage` | Deferred | — |
+| `ManageNewsFeed`, `SetNewsProductionSettings`, `SetWeatherSettings` | Deferred | settings/external |
+| `SetStationSettings`, `SetProductionSwitch`, `SetProviderSettings` | Deferred | settings |
+| `StudioStatus`, `ServerStatus`, `PrivacyReport` | Deferred | folded into `StatusReport` for now |
+| `MediaCleanupPreview`, `RunMediaCleanup` | Deferred | destructive filesystem |
+| `PlanGroupConversationTurns`, `RenderConversationSegment` | Deferred | production internals |
+
+The per-tool sections below are the design contract; where a tool is shipped under
+a different name or with flattened string parameters, the shipped catalog
+(`CharacterToolCatalog`) and `ChatActionExecutor` are the source of truth.
 
 ## Roles
 
