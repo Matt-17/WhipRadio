@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Persistence;
 
 namespace WhipRadio.Orchestrator.Services;
@@ -14,7 +15,7 @@ public sealed class ChatCleanupService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Task.Delay(InitialDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+        await stoppingToken.DelayNoThrow(InitialDelay);
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -51,26 +52,25 @@ public sealed class ChatCleanupService(
         await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
         StationSettings settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
         int retention = Math.Max(1, settings.ChatRetainedMessagesPerChannel);
-        List<Guid> channelIds = await db.ChatChannels.AsNoTracking()
-            .Select(channel => channel.Id)
-            .ToListAsync(ct);
 
-        int deleted = 0;
-        foreach (Guid channelId in channelIds)
-        {
-            List<Guid> retainedIds = await db.ChatMessages.AsNoTracking()
-                .Where(message => message.ChannelId == channelId)
-                .OrderByDescending(message => message.CreatedAtUtc)
-                .Take(retention)
-                .Select(message => message.Id)
-                .ToListAsync(ct);
-
-            deleted += await db.ChatMessages
-                .Where(message => message.ChannelId == channelId
-                    && message.CreatedAtUtc < recentFloor
-                    && !retainedIds.Contains(message.Id))
-                .ExecuteDeleteAsync(ct);
-        }
+        // Single windowed delete: drop messages older than the recent floor that are
+        // not among the newest `retention` messages in their channel. This replaces the
+        // previous per-channel retained-id + delete loop (2 round-trips per channel).
+        int deleted = await db.Database.ExecuteSqlAsync(
+            $"""
+            DELETE FROM "ChatMessages"
+            WHERE "CreatedAtUtc" < {recentFloor}
+              AND "Id" IN (
+                  SELECT ranked."Id"
+                  FROM (
+                      SELECT "Id",
+                             ROW_NUMBER() OVER (PARTITION BY "ChannelId" ORDER BY "CreatedAtUtc" DESC) AS rn
+                      FROM "ChatMessages"
+                  ) ranked
+                  WHERE ranked.rn > {retention}
+              )
+            """,
+            ct);
 
         int expired = await ExpirePendingActionsAsync(db, pendingCutoff, now, ct);
         int archived = await db.ChatChannels

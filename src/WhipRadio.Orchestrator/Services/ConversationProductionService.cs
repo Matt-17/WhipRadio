@@ -68,7 +68,7 @@ public sealed class ConversationProductionService(
                 logger.LogError(ex, "Conversation production cycle failed");
             }
 
-            await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(CycleDelay);
         }
     }
 

@@ -111,10 +111,32 @@ public sealed class DirectorPlanningService(
         return new SlotPlanResult(format.Id, slot.Id, summary);
     }
 
-    public async Task<Moderator> HireHostAsync(string brief, CancellationToken ct)
+    public Task<Moderator> HireHostAsync(string brief, CancellationToken ct)
+        => HireHostAsync(brief, SpecialistHostRole.General, ct);
+
+    public async Task<Moderator> HireHostAsync(string brief, SpecialistHostRole role, CancellationToken ct)
     {
-        Moderator moderator = await hostCreation.CreateAsync(SpecialistHostRole.General, brief, ct);
+        Moderator moderator = await hostCreation.CreateAsync(role, brief, ct);
         await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+
+        // A news/weather hire becomes the active presenter when none is set yet, so
+        // the director does not have to follow up with a separate SetPresenter call.
+        if (role is SpecialistHostRole.News or SpecialistHostRole.Weather)
+        {
+            StationSettings? settings = await db.StationSettings.FindStationSettingsAsync(ct);
+            if (settings is not null)
+            {
+                if (role == SpecialistHostRole.News && settings.NewsPresenterModeratorId is null)
+                {
+                    settings.NewsPresenterModeratorId = moderator.Id;
+                }
+                else if (role == SpecialistHostRole.Weather && settings.WeatherSpecialistModeratorId is null)
+                {
+                    settings.WeatherSpecialistModeratorId = moderator.Id;
+                }
+            }
+        }
+
         db.ProgramDirectorLogs.Add(new ProgramDirectorLog
         {
             Source = ProgramDirectorLogSource.Chat,
@@ -125,6 +147,44 @@ public sealed class DirectorPlanningService(
         await db.SaveChangesAsync(ct);
         await PublishDirectorNotificationAsync("HireHost", $"Hired {moderator.Name}; voice designed.", ct);
         return moderator;
+    }
+
+    /// <summary>Removes a single planned slot by id. Returns null when it does not exist.</summary>
+    public async Task<string?> RemoveSlotAsync(int slotId, CancellationToken ct)
+    {
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        ProgramSlot? slot = await db.ProgramSlots
+            .Include(s => s.Format)
+            .FirstOrDefaultAsync(s => s.Id == slotId, ct);
+        if (slot is null)
+        {
+            return null;
+        }
+
+        string label = $"{(DayOfWeek)slot.DayOfWeek} {Clock(slot.StartMinute)} - {slot.Format?.Name ?? "empty slot"}";
+        db.ProgramSlots.Remove(slot);
+        await db.SaveChangesAsync(ct);
+        await NotifyScheduleChangedAsync(ct);
+        await PublishDirectorNotificationAsync("RemoveShow", $"Removed slot {label}.", ct);
+        return label;
+    }
+
+    /// <summary>Disables a format and removes all its planned slots. Returns null when it does not exist.</summary>
+    public async Task<string?> DisableFormatAsync(Guid formatId, CancellationToken ct)
+    {
+        await using RadioDbContext db = await dbFactory.CreateDbContextAsync(ct);
+        Format? format = await db.Formats.FirstOrDefaultAsync(f => f.Id == formatId, ct);
+        if (format is null)
+        {
+            return null;
+        }
+
+        format.IsEnabled = false;
+        int removed = await db.ProgramSlots.Where(s => s.FormatId == formatId).ExecuteDeleteAsync(ct);
+        await db.SaveChangesAsync(ct);
+        await NotifyScheduleChangedAsync(ct);
+        await PublishDirectorNotificationAsync("RemoveShow", $"Disabled format {format.Name} and cleared {removed} slot(s).", ct);
+        return $"{format.Name} ({removed} slot(s) cleared)";
     }
 
     public async Task AssignHostAsync(Guid formatId, int moderatorId, CancellationToken ct)

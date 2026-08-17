@@ -75,12 +75,15 @@ public sealed class ImportedAudioStager(
 
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("ffmpeg failed to start for analysis staging.");
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
-        _ = process.StandardOutput.ReadToEndAsync(ct);
+        // Drain both pipes concurrently so a large stdout can never deadlock the child,
+        // and observe both reads rather than discarding the stdout drain.
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync(ct);
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
         await process.WaitForExitAsync(ct);
+        await Task.WhenAll(stderrTask, stdoutTask);
         if (process.ExitCode != 0)
         {
-            var stderr = await stderrTask;
+            string stderr = await stderrTask;
             throw new InvalidOperationException(
                 $"ffmpeg staging failed (exit {process.ExitCode}): {Tail(stderr)}");
         }

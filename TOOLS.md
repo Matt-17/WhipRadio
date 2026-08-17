@@ -15,10 +15,12 @@ moderation) parses a fixed structured-JSON schema and renders no tool list.
 
 `Reply` and `NoOp` are not tool classes: an envelope with a `reply` and an empty
 `actions` array is the reply/no-op. Shipped tool names sometimes differ from the
-canonical names in this document; the mapping is noted below. Everything marked
-**Deferred** is not yet executable — until it ships, agents `Message` the Admin
-(the Boss) to request it, and destructive/authority-sensitive actions additionally
-await the planned `RequestBossApproval` confirmation flow.
+canonical names in this document; the mapping is noted below. The
+`RequestBossApproval` confirmation flow is now built: destructive/authority-sensitive
+verbs call `GateAsync`, which creates a `PendingApproval` row instead of acting; the
+Boss approves or denies it from the chat approvals strip or the `/verbs` page, and
+approval re-runs the verb through the same executor. Only the two production-internal
+tools remain **Deferred**.
 
 | Tool (this doc) | Status | Shipped as / note |
 |---|---|---|
@@ -48,17 +50,21 @@ await the planned `RequestBossApproval` confirmation flow.
 | `SetJingleActive` | Shipped | director |
 | `SetNewsPresenter` / `SetWeatherPresenter` | Shipped | director |
 | `RetireTrack` | Shipped | director; reversible flag, no confirmation |
-| `RequestBossApproval` | Deferred | confirmation flow not built |
-| `RetireArtist`, `DeleteArtist`, `DeleteTrack`, `DeleteJingle` | Deferred | destructive |
-| `RemoveShow`, `FireHost` | Deferred | destructive |
-| `RedefineArtistProfile`, `CancelSongProduction` | Deferred | — |
-| `CreateSpecialistHost` | Deferred | `HireHost` role arg is the intended path |
-| `EmergencyAnnouncement`, `AnswerListenerMessage` | Deferred | — |
-| `ManageNewsFeed`, `SetNewsProductionSettings`, `SetWeatherSettings` | Deferred | settings/external |
-| `SetStationSettings`, `SetProductionSwitch`, `SetProviderSettings` | Deferred | settings |
-| `StudioStatus`, `ServerStatus`, `PrivacyReport` | Deferred | folded into `StatusReport` for now |
-| `MediaCleanupPreview`, `RunMediaCleanup` | Deferred | destructive filesystem |
-| `PlanGroupConversationTurns`, `RenderConversationSegment` | Deferred | production internals |
+| `RequestBossApproval` | Shipped | full approval flow (`PendingApproval` + `ApprovalService`); gated verbs create one via `GateAsync` |
+| `RetireArtist` | Shipped | director; reversible flag, no confirmation |
+| `DeleteArtist`, `DeleteTrack`, `DeleteJingle` | Shipped | director + Boss approval |
+| `RemoveShow`, `FireHost` | Shipped | director + Boss approval; `FireHost` shares `HostTermination.ApplyFireAsync` with the fire endpoint |
+| `RedefineArtistProfile` | Shipped | director; approval when the artist has released tracks; uses `ArtistCreationService.RedefineArtistAsync` |
+| `CancelSongProduction` | Shipped | artist self (free) or director (approval unless idle) |
+| `CreateSpecialistHost` | Folded in | `HireHost` gained a `role` arg (`general`/`news`/`weather`); no separate verb |
+| `EmergencyAnnouncement` | Shipped | director + on-air voices; emergency priority needs approval unless Boss-triggered; content aired via `AnnouncementFactory` (not strictly verbatim TTS) |
+| `AnswerListenerMessage` | Shipped | on-air voices + director; queue/dismiss, publishes `ListenerMessagesChanged` |
+| `ManageNewsFeed` | Shipped | director; add/update/delete need approval, toggle is direct |
+| `SetNewsProductionSettings`, `SetWeatherSettings` | Shipped | director + approval (weather location change gated) |
+| `SetStationSettings`, `SetProductionSwitch`, `SetProviderSettings` | Shipped | director; approval (playout-off / all settings); non-secret allow-list only |
+| `StudioStatus`, `ServerStatus`, `PrivacyReport` | Shipped | read-only diagnostics |
+| `MediaCleanupPreview`, `RunMediaCleanup` | Shipped | preview issues a token; run needs the token + Boss approval |
+| `PlanGroupConversationTurns`, `RenderConversationSegment` | Deferred | production internals, not chat verbs |
 
 The per-tool sections below are the design contract; where a tool is shipped under
 a different name or with flattened string parameters, the shipped catalog

@@ -51,6 +51,8 @@ public static partial class RadioApiEndpoints
         MapStats(api);
         MapConsole(api);
         MapPrivacy(api);
+        MapVerbs(api);
+        MapApprovals(api);
 
         return app;
     }

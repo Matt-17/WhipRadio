@@ -1,0 +1,306 @@
+@page "/verbs"
+@rendermode InteractiveServer
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@implements IDisposable
+@inject RadioApiClient Api
+@inject ApprovalsLiveClient Approvals
+
+<PageTitle>WhipRadio - Verbs</PageTitle>
+
+<div class="verbs-dashboard">
+    <h1 class="stage-title">Verbs</h1>
+    <div class="stage-sub">every agent tool — inspect the catalog and test-fire</div>
+
+    <div class="panel reveal">
+        <div class="panel-label">Boss approvals</div>
+        @if (Approvals.Pending.Count == 0)
+        {
+            <div class="empty-state">Nothing is waiting for approval.</div>
+        }
+        else
+        {
+            <div class="verbs-approvals">
+                @foreach (PendingApprovalDto approval in Approvals.Pending)
+                {
+                    <article class="verbs-approval-row">
+                        <span class="verbs-approval-summary">
+                            <StatusBadge Text="@approval.Risk" Tone="StatusBadgeTone.Amber" />
+                            @approval.Summary
+                        </span>
+                        <span class="verbs-approval-meta">@approval.Tool · @approval.RequesterName</span>
+                        <span class="verbs-approval-actions">
+                            <button class="btn small primary" @onclick="() => ApproveAsync(approval.Id)">Approve</button>
+                            <button class="btn small danger" @onclick="() => DenyAsync(approval.Id)">Deny</button>
+                        </span>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+
+    @if (_loading)
+    {
+        <div class="empty-state"><span class="blink">▮</span> loading the catalog...</div>
+    }
+    else
+    {
+        @foreach (IGrouping<string, VerbDefinitionDto> group in Grouped)
+        {
+            <div class="panel reveal">
+                <div class="panel-label">@group.Key</div>
+                <div class="verbs-grid">
+                    @foreach (VerbDefinitionDto verb in group)
+                    {
+                        <article class="verb-card">
+                            <header class="verb-head">
+                                <span class="verb-name">@verb.Name</span>
+                                <span class="verb-flags">
+                                    @if (verb.Destructive)
+                                    {
+                                        <StatusBadge Text="destructive" Tone="StatusBadgeTone.Red" />
+                                    }
+                                    @if (verb.ApprovalGated)
+                                    {
+                                        <StatusBadge Text="approval" Tone="StatusBadgeTone.Amber" />
+                                    }
+                                    @if (verb.Background)
+                                    {
+                                        <StatusBadge Text="background" Tone="StatusBadgeTone.Default" />
+                                    }
+                                </span>
+                            </header>
+                            <p class="verb-desc">@verb.Description</p>
+                            <div class="verb-roles">
+                                @foreach (string role in verb.AllowedRoles)
+                                {
+                                    <span class="tag">@role</span>
+                                }
+                            </div>
+
+                            <div class="form-grid verb-form">
+                                <div class="field">
+                                    <label>Run as</label>
+                                    <select @onchange="e => SetRole(verb.Name, e.Value?.ToString())">
+                                        @foreach (string role in verb.AllowedRoles)
+                                        {
+                                            <option value="@role" selected="@(SelectedRole(verb) == role)">@role</option>
+                                        }
+                                    </select>
+                                </div>
+                                @if (NeedsActor(SelectedRole(verb)))
+                                {
+                                    <div class="field">
+                                        <label>@ActorLabel(SelectedRole(verb))</label>
+                                        <select @onchange="e => SetActor(verb.Name, e.Value?.ToString())">
+                                            <option value="">— pick —</option>
+                                            @foreach (ChatParticipantOptionDto actor in ActorsFor(SelectedRole(verb)))
+                                            {
+                                                <option value="@ActorId(actor)" selected="@(SelectedActor(verb.Name) == ActorId(actor))">@actor.Name</option>
+                                            }
+                                        </select>
+                                    </div>
+                                }
+                                @foreach (VerbArgumentDto arg in verb.Arguments)
+                                {
+                                    <div class="field">
+                                        <label>@arg.Name @(arg.Required ? "*" : "")</label>
+                                        <input value="@ArgValue(verb.Name, arg.Name)"
+                                               placeholder="@arg.Description"
+                                               @onchange="e => SetArg(verb.Name, arg.Name, e.Value?.ToString())" />
+                                    </div>
+                                }
+                            </div>
+
+                            <div class="btn-row verb-actions">
+                                <button class="btn small @(verb.Destructive ? "danger" : "primary")"
+                                        disabled="@(_running == verb.Name)"
+                                        @onclick="() => TryInvokeAsync(verb)">
+                                    @(_running == verb.Name ? "Running…" : "Invoke")
+                                </button>
+                                @if (Results.TryGetValue(verb.Name, out (string State, string? Summary) result))
+                                {
+                                    <span class="verb-result">
+                                        <StatusBadge Text="@result.State" Tone="@ResultTone(result.State)" />
+                                        <span class="verb-result-text">@result.Summary</span>
+                                    </span>
+                                }
+                            </div>
+                        </article>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
+
+<ConfirmDialog Visible="_confirmVerb is not null"
+               Title="Run destructive verb?"
+               ConfirmText="Invoke"
+               Danger="true"
+               OnConfirm="ConfirmInvokeAsync"
+               OnCancel="CancelConfirm">
+    @if (_confirmVerb is not null)
+    {
+        <p>This runs <strong>@_confirmVerb.Name</strong>. Approval-gated verbs create a Boss approval instead of acting immediately.</p>
+    }
+</ConfirmDialog>
+
+@code {
+    private bool _loading = true;
+    private string? _running;
+    private VerbDefinitionDto? _confirmVerb;
+
+    private IReadOnlyList<VerbDefinitionDto> _verbs = [];
+    private List<ChatParticipantOptionDto> _participants = [];
+
+    private readonly Dictionary<string, string> _roles = new();
+    private readonly Dictionary<string, string> _actors = new();
+    private readonly Dictionary<string, Dictionary<string, string>> _args = new();
+    private Dictionary<string, (string State, string? Summary)> Results { get; } = new();
+
+    private IEnumerable<IGrouping<string, VerbDefinitionDto>> Grouped
+        => _verbs.GroupBy(v => v.Category);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Approvals.Changed += OnApprovalsChanged;
+        await Approvals.EnsureStartedAsync();
+        try
+        {
+            _verbs = await Api.GetVerbsAsync();
+            _participants = await Api.GetChatParticipantsAsync();
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OnApprovalsChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private string SelectedRole(VerbDefinitionDto verb)
+        => _roles.TryGetValue(verb.Name, out string? role) && verb.AllowedRoles.Contains(role)
+            ? role
+            : verb.AllowedRoles.FirstOrDefault() ?? "ProgramDirector";
+
+    private void SetRole(string verb, string? role)
+    {
+        if (role is not null)
+        {
+            _roles[verb] = role;
+            _actors.Remove(verb);
+        }
+    }
+
+    private string? SelectedActor(string verb) => _actors.GetValueOrDefault(verb);
+
+    private void SetActor(string verb, string? actor)
+    {
+        if (!string.IsNullOrEmpty(actor))
+        {
+            _actors[verb] = actor;
+        }
+        else
+        {
+            _actors.Remove(verb);
+        }
+    }
+
+    private string ArgValue(string verb, string arg)
+        => _args.TryGetValue(verb, out Dictionary<string, string>? map) && map.TryGetValue(arg, out string? value)
+            ? value
+            : string.Empty;
+
+    private void SetArg(string verb, string arg, string? value)
+    {
+        if (!_args.TryGetValue(verb, out Dictionary<string, string>? map))
+        {
+            map = new Dictionary<string, string>();
+            _args[verb] = map;
+        }
+
+        map[arg] = value ?? string.Empty;
+    }
+
+    private static bool NeedsActor(string role)
+        => role is "Host" or "NewsSpecialist" or "WeatherSpecialist" or "Artist";
+
+    private static string ActorLabel(string role)
+        => role == "Artist" ? "Artist member" : "Host";
+
+    private IEnumerable<ChatParticipantOptionDto> ActorsFor(string role)
+        => role == "Artist"
+            ? _participants.Where(p => p.Kind == "ArtistMember")
+            : _participants.Where(p => p.Kind == "Host");
+
+    private static string ActorId(ChatParticipantOptionDto actor)
+        => actor.Kind == "ArtistMember"
+            ? actor.EntityId?.ToString() ?? string.Empty
+            : actor.ModeratorId?.ToString() ?? string.Empty;
+
+    private async Task TryInvokeAsync(VerbDefinitionDto verb)
+    {
+        if (verb.Destructive || verb.ApprovalGated)
+        {
+            _confirmVerb = verb;
+            return;
+        }
+
+        await InvokeAsync(verb);
+    }
+
+    private async Task ConfirmInvokeAsync()
+    {
+        VerbDefinitionDto? verb = _confirmVerb;
+        _confirmVerb = null;
+        if (verb is not null)
+        {
+            await InvokeAsync(verb);
+        }
+    }
+
+    private void CancelConfirm() => _confirmVerb = null;
+
+    private async Task InvokeAsync(VerbDefinitionDto verb)
+    {
+        _running = verb.Name;
+        try
+        {
+            Dictionary<string, string> args = _args.TryGetValue(verb.Name, out Dictionary<string, string>? map)
+                ? map.Where(kv => !string.IsNullOrWhiteSpace(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value)
+                : new Dictionary<string, string>();
+            InvokeVerbRequest request = new(verb.Name, SelectedRole(verb), SelectedActor(verb.Name), args);
+            (InvokeVerbResultDto? result, string? error) = await Api.InvokeVerbAsync(request);
+            Results[verb.Name] = result is not null
+                ? (result.State, result.Summary)
+                : ("Failed", error ?? "Invocation failed.");
+        }
+        finally
+        {
+            _running = null;
+        }
+    }
+
+    private async Task ApproveAsync(Guid id)
+    {
+        await Api.ApproveApprovalAsync(id);
+        await Approvals.RefreshSnapshotAsync();
+    }
+
+    private async Task DenyAsync(Guid id)
+    {
+        await Api.DenyApprovalAsync(id, null);
+        await Approvals.RefreshSnapshotAsync();
+    }
+
+    private static StatusBadgeTone ResultTone(string state)
+        => state switch
+        {
+            "Succeeded" => StatusBadgeTone.Green,
+            "Failed" => StatusBadgeTone.Red,
+            _ => StatusBadgeTone.Amber,
+        };
+
+    public void Dispose() => Approvals.Changed -= OnApprovalsChanged;
+}

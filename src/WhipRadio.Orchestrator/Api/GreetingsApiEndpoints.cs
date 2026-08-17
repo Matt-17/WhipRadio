@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Api;
 using WhipRadio.Core.Entities;
@@ -15,7 +16,7 @@ public static class GreetingsApiEndpoints
         var api = app.MapGroup("/api/greetings");
 
         api.MapPost("/", async (SubmitGreetingDto request, HttpContext http, RadioDbContext db,
-            GreetingState state, CancellationToken ct) =>
+            GreetingState state, IHubContext<RadioHub> hub, CancellationToken ct) =>
         {
             var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
             if (!settings.GreetingsEnabled)
@@ -57,6 +58,7 @@ public static class GreetingsApiEndpoints
             // Dismissed in the background so this request returns instantly.
             db.ListenerMessages.Add(message);
             await db.SaveChangesAsync(ct);
+            await hub.Clients.All.SendAsync("ListenerMessagesChanged", ct);
             return Results.Ok(ToDto(message));
         });
 
@@ -101,7 +103,8 @@ public static class GreetingsApiEndpoints
         });
 
         // Manual override endpoints so an admin can still intervene if needed.
-        api.MapPost("/{id:guid}/queue", async (Guid id, RadioDbContext db, GreetingState state, CancellationToken ct) =>
+        api.MapPost("/{id:guid}/queue", async (Guid id, RadioDbContext db, GreetingState state,
+            IHubContext<RadioHub> hub, CancellationToken ct) =>
         {
             var message = await db.ListenerMessages.FirstOrDefaultAsync(m => m.Id == id, ct);
             if (message is null)
@@ -117,10 +120,12 @@ public static class GreetingsApiEndpoints
             }
 
             await db.SaveChangesAsync(ct);
+            await hub.Clients.All.SendAsync("ListenerMessagesChanged", ct);
             return Results.Ok(ToDto(message));
         });
 
-        api.MapPost("/{id:guid}/dismiss", async (Guid id, RadioDbContext db, CancellationToken ct) =>
+        api.MapPost("/{id:guid}/dismiss", async (Guid id, RadioDbContext db,
+            IHubContext<RadioHub> hub, CancellationToken ct) =>
         {
             var message = await db.ListenerMessages.FirstOrDefaultAsync(m => m.Id == id, ct);
             if (message is null)
@@ -131,6 +136,7 @@ public static class GreetingsApiEndpoints
             message.Status = ListenerMessageStatus.Dismissed;
             message.DismissalReason = "Dismissed by host";
             await db.SaveChangesAsync(ct);
+            await hub.Clients.All.SendAsync("ListenerMessagesChanged", ct);
             return Results.Ok(ToDto(message));
         });
 

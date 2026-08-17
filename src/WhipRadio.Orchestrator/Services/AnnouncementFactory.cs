@@ -116,7 +116,7 @@ public class AnnouncementFactory(
             FilePath = relativePath,
             DurationSeconds = tts.DurationSeconds,
             RelatedTrackId = relatedTrack?.Id,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
             WasPlayed = false,
         };
 
@@ -133,7 +133,7 @@ public class AnnouncementFactory(
                 Layer = ModeratorMemoryLayer.DayMemory,
                 Date = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime),
                 Content = script.Length > 300 ? script[..300] : script,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
             });
         }
 
@@ -264,7 +264,7 @@ public class AnnouncementFactory(
             FilePath = relativePath,
             DurationSeconds = tts.DurationSeconds,
             RelatedTrackId = draft.RelatedTrack?.Id,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
             WasPlayed = false,
         };
 
@@ -285,7 +285,7 @@ public class AnnouncementFactory(
                 Layer = ModeratorMemoryLayer.DayMemory,
                 Date = DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime),
                 Content = draft.Script.Length > 300 ? draft.Script[..300] : draft.Script,
-                CreatedAt = DateTime.UtcNow,
+                CreatedAt = timeProvider.GetUtcNow().UtcDateTime,
             });
         }
 

@@ -351,6 +351,124 @@ public class ChatToolExpansionTests
         Assert.Contains("Pacific Furnace", record.ResultSummary);
     }
 
+    [TestMethod]
+    public async Task DeleteArtist_WithoutApproval_QueuesAndDoesNotDelete()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        Seeded seeded = await SeedAsync(fixture);
+        // A fresh artist with no tracks so deletion would otherwise be allowed.
+        Guid emptyArtistId;
+        await using (RadioDbContext db = fixture.CreateDbContext())
+        {
+            Artist artist = new()
+            {
+                Id = Guid.NewGuid(),
+                Name = "Ghost Signal",
+                Slug = $"ghost-{Guid.NewGuid():N}",
+                Genre = "ambient",
+                Subgenre = "drone",
+                CreatedAt = DateTime.UtcNow,
+            };
+            db.Artists.Add(artist);
+            await db.SaveChangesAsync();
+            emptyArtistId = artist.Id;
+        }
+
+        Harness h = CreateHarness(fixture);
+        ChatActionContext context = await DirectorContextAsync(fixture, seeded.StationChannelId);
+
+        ChatActionRecord record = await h.Executor.ExecuteAsync(
+            new CharacterToolCall("DeleteArtist", new Dictionary<string, string>
+            {
+                ["artist"] = "Ghost Signal",
+                ["reason"] = "created by mistake",
+            }),
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(ChatActionState.Succeeded, record.State);
+        Assert.Contains("approval", record.ResultSummary!, StringComparison.OrdinalIgnoreCase);
+
+        await using RadioDbContext verify = fixture.CreateDbContext();
+        Assert.True(await verify.Artists.AnyAsync(a => a.Id == emptyArtistId), "artist must survive until approved");
+        PendingApproval approval = await verify.PendingApprovals.SingleAsync();
+        Assert.Equal("DeleteArtist", approval.Tool);
+        Assert.Equal(ApprovalStatus.Pending, approval.Status);
+    }
+
+    [TestMethod]
+    public async Task RetireArtist_DirectorRetiresWithoutApproval()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        Seeded seeded = await SeedAsync(fixture);
+        Harness h = CreateHarness(fixture);
+        ChatActionContext context = await DirectorContextAsync(fixture, seeded.StationChannelId);
+
+        ChatActionRecord record = await h.Executor.ExecuteAsync(
+            new CharacterToolCall("RetireArtist", new Dictionary<string, string>
+            {
+                ["artist"] = "Pacific Furnace",
+                ["reason"] = "off brand",
+            }),
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(ChatActionState.Succeeded, record.State);
+        await using RadioDbContext verify = fixture.CreateDbContext();
+        Assert.True(await verify.Artists.Where(a => a.Id == seeded.ArtistId).Select(a => a.IsRetired).SingleAsync());
+    }
+
+    [TestMethod]
+    public async Task SetProductionSwitch_NewsOff_UpdatesSettings()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        Seeded seeded = await SeedAsync(fixture);
+        Harness h = CreateHarness(fixture);
+        ChatActionContext context = await DirectorContextAsync(fixture, seeded.StationChannelId);
+
+        ChatActionRecord record = await h.Executor.ExecuteAsync(
+            new CharacterToolCall("SetProductionSwitch", new Dictionary<string, string>
+            {
+                ["switch"] = "news",
+                ["enabled"] = "false",
+                ["reason"] = "debugging",
+            }),
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(ChatActionState.Succeeded, record.State);
+        await using RadioDbContext verify = fixture.CreateDbContext();
+        Assert.False(await verify.StationSettings.Select(s => s.NewsEnabled).FirstAsync());
+    }
+
+    [TestMethod]
+    public async Task NewVerb_RejectedForWrongRole()
+    {
+        await using DbFixture fixture = await DbFixture.CreateAsync();
+        Seeded seeded = await SeedAsync(fixture);
+        Harness h = CreateHarness(fixture);
+        // A host cannot fire people.
+        ChatActionContext context = await HostContextAsync(fixture, seeded.HostId, seeded.StationChannelId);
+
+        ChatActionRecord record = await h.Executor.ExecuteAsync(
+            new CharacterToolCall("FireHost", new Dictionary<string, string>
+            {
+                ["host"] = "Nova Quinn",
+                ["reason"] = "nope",
+            }),
+            context,
+            CancellationToken.None);
+
+        Assert.Equal(ChatActionState.Failed, record.State);
+        Assert.Equal(0, await CountApprovalsAsync(fixture));
+    }
+
+    private static async Task<int> CountApprovalsAsync(DbFixture fixture)
+    {
+        await using RadioDbContext db = fixture.CreateDbContext();
+        return await db.PendingApprovals.CountAsync();
+    }
+
     private sealed record Harness(
         ChatActionExecutor Executor,
         TestPlayoutQueue Queue,

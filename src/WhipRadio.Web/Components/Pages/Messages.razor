@@ -4,6 +4,7 @@
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioApiClient Api
+@inject MessagesLiveClient Live
 
 <PageTitle>WhipRadio — Messages</PageTitle>
 
@@ -131,7 +132,6 @@
     private int _pageNumber = 1;
     private string? _kindFilter;
     private ListenerMessageDto? _dismissTarget;
-    private Timer? _timer;
     private int _refreshing;
 
     private int TotalPages => _page is null ? 1 : Math.Max(1, (int)Math.Ceiling(_page.TotalCount / (double)PageSize));
@@ -139,12 +139,15 @@
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
-        _timer = new Timer(_ => RefreshTickAsync().Forget(), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        Live.Changed += OnLiveChanged;
+        await Live.EnsureStartedAsync();
     }
 
-    // Timer callbacks are void: run the refresh on the renderer's dispatcher, skip
-    // overlapping ticks, and never let a failed fetch surface as an unobserved
-    // exception — the next tick simply retries.
+    // Live push replaces polling: reload the current page whenever a listener
+    // message is submitted, queued, or dismissed. Skip overlapping reloads and
+    // never let a failed fetch surface as an unobserved exception.
+    private void OnLiveChanged() => _ = RefreshTickAsync();
+
     private async Task RefreshTickAsync()
     {
         if (Interlocked.Exchange(ref _refreshing, 1) == 1)
@@ -162,7 +165,7 @@
         }
         catch
         {
-            // backend unreachable — retry on the next tick
+            // backend unreachable — the next push simply retries
         }
         finally
         {
@@ -210,5 +213,5 @@
         await LoadAsync();
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose() => Live.Changed -= OnLiveChanged;
 }

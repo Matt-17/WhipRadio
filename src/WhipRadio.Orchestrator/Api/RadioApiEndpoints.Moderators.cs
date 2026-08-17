@@ -193,52 +193,8 @@ public static partial class RadioApiEndpoints
 
             var usage = await BuildModeratorUsageAsync(db, id, ct);
             var now = DateTime.UtcNow;
-            moderator.IsActive = false;
 
-            var settings = await db.StationSettings.FindStationSettingsAsync(ct);
-            if (settings is not null)
-            {
-                if (settings.NewsPresenterModeratorId == id)
-                {
-                    settings.NewsPresenterModeratorId = null;
-                }
-
-                if (settings.WeatherSpecialistModeratorId == id)
-                {
-                    settings.WeatherSpecialistModeratorId = null;
-                }
-            }
-
-            await db.Formats
-                .Where(format => format.ModeratorId == id)
-                .ExecuteUpdateAsync(update => update.SetProperty(format => format.ModeratorId, (int?)null), ct);
-
-            await db.ListenerMessages
-                .Where(message => message.ModeratorId == id
-                    && (message.Status == ListenerMessageStatus.Pending || message.Status == ListenerMessageStatus.Queued))
-                .ExecuteUpdateAsync(update => update.SetProperty(message => message.ModeratorId, (int?)null), ct);
-
-            await db.TalkBits
-                .Where(bit => bit.ModeratorId == id && bit.Status == TalkBitStatus.Active)
-                .ExecuteUpdateAsync(update => update
-                    .SetProperty(bit => bit.Status, TalkBitStatus.Retired)
-                    .SetProperty(bit => bit.RetiredAtUtc, now)
-                    .SetProperty(bit => bit.RetirementReason, "Host fired"), ct);
-
-            await db.TalkParts
-                .Where(part => db.TalkBreaks.Any(talkBreak => talkBreak.Id == part.TalkBreakId
-                    && talkBreak.ModeratorId == id
-                    && (talkBreak.Status == TalkBreakStatus.Pending || talkBreak.Status == TalkBreakStatus.Rendered)))
-                .ExecuteUpdateAsync(update => update
-                    .SetProperty(part => part.Status, TalkPartStatus.Expired)
-                    .SetProperty(part => part.ExpiresAtUtc, now), ct);
-
-            await db.TalkBreaks
-                .Where(talkBreak => talkBreak.ModeratorId == id
-                    && (talkBreak.Status == TalkBreakStatus.Pending || talkBreak.Status == TalkBreakStatus.Rendered))
-                .ExecuteUpdateAsync(update => update
-                    .SetProperty(talkBreak => talkBreak.Status, TalkBreakStatus.Expired)
-                    .SetProperty(talkBreak => talkBreak.ExpiresAtUtc, now), ct);
+            await HostTermination.ApplyFireAsync(db, moderator, replacementHostId: null, now, ct);
 
             await db.SaveChangesAsync(ct);
             await productionUpdates.PublishNewsChangedAsync(ct);

@@ -957,6 +957,63 @@ public class RadioApiClient(HttpClient http, IHttpClientFactory httpClientFactor
         }
     }
 
+    public async Task<List<VerbDefinitionDto>> GetVerbsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<VerbDefinitionDto>>("/api/verbs", ct) ?? [];
+
+    public async Task<(InvokeVerbResultDto? Result, string? Error)> InvokeVerbAsync(
+        InvokeVerbRequest request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            using HttpResponseMessage response = await http.PostAsJsonAsync("/api/verbs/invoke", request, ct);
+            return response.IsSuccessStatusCode
+                ? (await response.Content.ReadFromJsonAsync<InvokeVerbResultDto>(ct), null)
+                : (null, SingleLine(await response.Content.ReadAsStringAsync(ct)));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogDebug(ex, "Invoke verb {Verb} failed", request.Name);
+            return (null, "Orchestrator not reachable.");
+        }
+    }
+
+    public async Task<List<PendingApprovalDto>> GetApprovalsAsync(CancellationToken ct = default)
+        => await SafeGetAsync<List<PendingApprovalDto>>("/api/approvals", ct) ?? [];
+
+    public async Task<(bool Ok, string? Error)> ApproveApprovalAsync(Guid id, CancellationToken ct = default)
+    {
+        try
+        {
+            using HttpResponseMessage response = await http.PostAsync($"/api/approvals/{id}/approve", null, ct);
+            return response.IsSuccessStatusCode
+                ? (true, null)
+                : (false, SingleLine(await response.Content.ReadAsStringAsync(ct)));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogDebug(ex, "Approve {Id} failed", id);
+            return (false, "Orchestrator not reachable.");
+        }
+    }
+
+    public async Task<(bool Ok, string? Error)> DenyApprovalAsync(Guid id, string? reason, CancellationToken ct = default)
+    {
+        try
+        {
+            using HttpResponseMessage response = await http.PostAsJsonAsync(
+                $"/api/approvals/{id}/deny", new DenyApprovalRequest(reason), ct);
+            return response.IsSuccessStatusCode
+                ? (true, null)
+                : (false, SingleLine(await response.Content.ReadAsStringAsync(ct)));
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogDebug(ex, "Deny {Id} failed", id);
+            return (false, "Orchestrator not reachable.");
+        }
+    }
+
     private async Task<T?> SafeGetAsync<T>(string url, CancellationToken ct) where T : class
     {
         try

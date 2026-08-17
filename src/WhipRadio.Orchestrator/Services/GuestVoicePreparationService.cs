@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
@@ -32,14 +33,14 @@ public sealed class GuestVoicePreparationService(
         {
             if (queue.TryDequeue() is not { } guestId)
             {
-                await Task.Delay(IdleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(IdleDelay);
                 continue;
             }
 
             var processed = await ProcessGuestAsync(guestId, stoppingToken);
             if (!processed && !stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(ErrorDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(ErrorDelay);
             }
         }
     }

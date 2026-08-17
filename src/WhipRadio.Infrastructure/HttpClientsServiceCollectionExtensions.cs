@@ -177,6 +177,28 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<ICharacterTool, RetireTrackTool>();
         services.AddSingleton<ICharacterTool, PostArtistFeedTool>();
         services.AddSingleton<ICharacterTool, RequestSongFromArtistTool>();
+        services.AddSingleton<ICharacterTool, RequestBossApprovalTool>();
+        services.AddSingleton<ICharacterTool, RetireArtistTool>();
+        services.AddSingleton<ICharacterTool, DeleteArtistTool>();
+        services.AddSingleton<ICharacterTool, DeleteTrackTool>();
+        services.AddSingleton<ICharacterTool, DeleteJingleTool>();
+        services.AddSingleton<ICharacterTool, RedefineArtistProfileTool>();
+        services.AddSingleton<ICharacterTool, CancelSongProductionTool>();
+        services.AddSingleton<ICharacterTool, RemoveShowTool>();
+        services.AddSingleton<ICharacterTool, FireHostTool>();
+        services.AddSingleton<ICharacterTool, EmergencyAnnouncementTool>();
+        services.AddSingleton<ICharacterTool, AnswerListenerMessageTool>();
+        services.AddSingleton<ICharacterTool, ManageNewsFeedTool>();
+        services.AddSingleton<ICharacterTool, SetNewsProductionSettingsTool>();
+        services.AddSingleton<ICharacterTool, SetWeatherSettingsTool>();
+        services.AddSingleton<ICharacterTool, SetStationSettingsTool>();
+        services.AddSingleton<ICharacterTool, SetProductionSwitchTool>();
+        services.AddSingleton<ICharacterTool, SetProviderSettingsTool>();
+        services.AddSingleton<ICharacterTool, StudioStatusTool>();
+        services.AddSingleton<ICharacterTool, ServerStatusTool>();
+        services.AddSingleton<ICharacterTool, PrivacyReportTool>();
+        services.AddSingleton<ICharacterTool, MediaCleanupPreviewTool>();
+        services.AddSingleton<ICharacterTool, RunMediaCleanupTool>();
 
         return services;
     }

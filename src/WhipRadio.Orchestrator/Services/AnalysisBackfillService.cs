@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Analysis;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -57,7 +58,7 @@ public class AnalysisBackfillService(
                 logger.LogWarning(ex, "Analysis backfill cycle failed ({Reason})", ex.GetBaseException().Message);
             }
 
-            await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(CycleDelay);
         }
     }
 

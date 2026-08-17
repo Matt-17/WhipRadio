@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using WhipRadio.Core.Helpers;
 using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
@@ -29,14 +30,14 @@ public sealed class ArtistMemberVoicePreparationService(
         {
             if (queue.TryDequeue() is not { } memberId)
             {
-                await Task.Delay(IdleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(IdleDelay);
                 continue;
             }
 
             var processed = await ProcessMemberAsync(memberId, stoppingToken);
             if (!processed && !stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(ErrorDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(ErrorDelay);
             }
         }
     }

@@ -22,7 +22,7 @@ public class MixerUpdatePublisher(
     private int _pending;
 
     public void Publish()
-        => PublishAsync(CancellationToken.None).Forget();
+        => PublishAsync(CancellationToken.None).Forget(logger);
 
     // Coalesces concurrent publishes without dropping the newest state: a Publish that
     // lands while a push is in flight bumps _pending, and the in-flight publisher

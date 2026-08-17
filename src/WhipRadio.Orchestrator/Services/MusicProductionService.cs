@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Music;
 using WhipRadio.Infrastructure.Persistence;
@@ -116,7 +117,7 @@ public class MusicProductionService(
                 await PublishFailureAsync(kind, ex, stoppingToken);
             }
 
-            await Task.Delay(backoff, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(backoff);
         }
     }
 

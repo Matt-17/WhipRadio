@@ -1,7 +1,10 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Llm;
 using WhipRadio.Infrastructure.Persistence;
+using WhipRadio.Orchestrator.Api;
 
 namespace WhipRadio.Orchestrator.Services;
 
@@ -16,6 +19,7 @@ public class MessageModerationService(
     IDbContextFactory<RadioDbContext> dbFactory,
     ScheduleService schedule,
     GreetingState greetingState,
+    IHubContext<RadioHub> hub,
     ILogger<MessageModerationService> logger) : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
@@ -37,7 +41,7 @@ public class MessageModerationService(
                 logger.LogError(ex, "Message moderation cycle failed ({Reason})", ex.GetBaseException().Message);
             }
 
-            await Task.Delay(PollInterval, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(PollInterval);
         }
     }
 
@@ -92,5 +96,8 @@ public class MessageModerationService(
 
             await db.SaveChangesAsync(ct);
         }
+
+        // One push after the batch so the Messages page reloads its current view.
+        await hub.Clients.All.SendAsync("ListenerMessagesChanged", ct);
     }
 }

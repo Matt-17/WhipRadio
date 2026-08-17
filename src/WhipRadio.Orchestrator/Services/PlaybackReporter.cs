@@ -49,7 +49,7 @@ public class PlaybackReporter(
     {
         var delay = TimeSpan.FromSeconds(Math.Max(0, streamOptions.Value.DisplayLatencySeconds));
         var epoch = Volatile.Read(ref _epoch);
-        DelayedReportAsync(item, delay, epoch, ct).Forget();
+        DelayedReportAsync(item, delay, epoch, ct).Forget(logger);
         return Task.CompletedTask;
     }
 
@@ -222,7 +222,7 @@ public class PlaybackReporter(
     {
         Interlocked.Increment(ref _epoch); // cancel pending delayed flips
         nowPlaying.SetCurrent(null);
-        hub.Clients.All.SendAsync("NowPlayingChanged", (NowPlayingDto?)null).Forget();
+        hub.Clients.All.SendAsync("NowPlayingChanged", (NowPlayingDto?)null).Forget(logger);
     }
 
     private async Task PublishAsync(NowPlayingDto dto, CancellationToken ct)

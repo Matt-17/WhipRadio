@@ -60,7 +60,7 @@ public sealed class StationStatusReporter(
     public void Set(StationStatus status, string? reason = null, DateTime? nextAttemptUtc = null)
     {
         Volatile.Write(ref _current, Current with { Status = status, Reason = reason, NextAttemptUtc = nextAttemptUtc });
-        PublishAsync().Forget();
+        PublishAsync().Forget(logger);
     }
 
     public void SetPlayoutEnabled(bool enabled)
@@ -72,7 +72,7 @@ public sealed class StationStatusReporter(
         }
 
         Volatile.Write(ref _current, prev with { PlayoutEnabled = enabled });
-        PublishAsync().Forget();
+        PublishAsync().Forget(logger);
     }
 
     // Coalesces concurrent publishes without dropping the newest state: a Set that

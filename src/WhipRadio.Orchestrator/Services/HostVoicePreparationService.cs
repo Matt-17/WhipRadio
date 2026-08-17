@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Infrastructure.Tts;
 
@@ -30,14 +31,14 @@ public sealed class HostVoicePreparationService(
         {
             if (queue.TryDequeue() is not { } moderatorId)
             {
-                await Task.Delay(IdleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(IdleDelay);
                 continue;
             }
 
             var processed = await ProcessHostAsync(moderatorId, stoppingToken);
             if (!processed && !stoppingToken.IsCancellationRequested)
             {
-                await Task.Delay(ErrorDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+                await stoppingToken.DelayNoThrow(ErrorDelay);
             }
         }
     }

@@ -45,7 +45,7 @@ public sealed class IcecastHealthCheck(IHttpClientFactory httpClientFactory, IOp
     }
 }
 
-public sealed class FfmpegHealthCheck(IOptions<StreamOptions> streamOptions) : IHealthCheck
+public sealed class FfmpegHealthCheck(IOptions<StreamOptions> streamOptions, ILogger<FfmpegHealthCheck> logger) : IHealthCheck
 {
     private readonly Lock _lock = new();
     private bool _cached;
@@ -83,7 +83,8 @@ public sealed class FfmpegHealthCheck(IOptions<StreamOptions> streamOptions) : I
             var exited = probe.WaitForExit(milliseconds: 3000);
             if (!exited)
             {
-                try { probe.Kill(entireProcessTree: true); } catch { }
+                try { probe.Kill(entireProcessTree: true); }
+                catch (Exception ex) { logger.LogDebug(ex, "Failed to kill timed-out ffmpeg probe '{Path}'", path); }
                 result = HealthCheckResult.Degraded($"ffmpeg '{path}' probe timed out");
             }
             else if (probe.ExitCode == 0)
@@ -101,7 +102,8 @@ public sealed class FfmpegHealthCheck(IOptions<StreamOptions> streamOptions) : I
         }
         finally
         {
-            try { probe.Dispose(); } catch { }
+            try { probe.Dispose(); }
+            catch (Exception ex) { logger.LogDebug(ex, "Failed to dispose ffmpeg probe '{Path}'", path); }
         }
 
         lock (_lock)

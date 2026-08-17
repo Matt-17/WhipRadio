@@ -30,7 +30,7 @@ public static partial class RadioApiEndpoints
     private static void MapStats(RouteGroupBuilder api)
     {
         api.MapGet("/stats", async (RadioDbContext db, IHttpClientFactory httpFactory,
-            IOptions<IcecastOptions> icecast, CancellationToken ct) =>
+            IOptions<IcecastOptions> icecast, TimeProvider time, CancellationToken ct) =>
         {
             var listeners = 0;
             var peak = 0;
@@ -47,7 +47,7 @@ public static partial class RadioApiEndpoints
                 // station stats still useful without icecast
             }
 
-            var hourAgo = DateTime.UtcNow.AddHours(-1);
+            var hourAgo = time.GetUtcNow().UtcDateTime.AddHours(-1);
             var topArtistsRaw = await db.Tracks.AsNoTracking()
                 .Where(t => t.Artist != null)
                 .GroupBy(t => t.Artist!.Name)

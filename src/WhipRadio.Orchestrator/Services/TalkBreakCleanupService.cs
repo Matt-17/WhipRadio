@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Entities;
 using WhipRadio.Infrastructure.Persistence;
 using WhipRadio.Orchestrator.Configuration;
@@ -17,7 +18,7 @@ public sealed class TalkBreakCleanupService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Task.Delay(TimeSpan.FromMinutes(3), stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+        await stoppingToken.DelayNoThrow(TimeSpan.FromMinutes(3));
 
         while (!stoppingToken.IsCancellationRequested)
         {

@@ -17,6 +17,9 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
 
+    <!-- Logging abstractions (Core fire-and-forget / helper logging) -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
+
     <!-- HTTP / resilience / SignalR -->
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.9" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.9" />

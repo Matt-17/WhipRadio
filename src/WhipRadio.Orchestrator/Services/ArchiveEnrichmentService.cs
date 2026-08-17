@@ -35,7 +35,7 @@ public sealed class ArchiveEnrichmentService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Task.Delay(TimeSpan.FromSeconds(45), stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+        await stoppingToken.DelayNoThrow(TimeSpan.FromSeconds(45));
         while (!stoppingToken.IsCancellationRequested)
         {
             try
@@ -55,7 +55,7 @@ public sealed class ArchiveEnrichmentService(
                 logger.LogWarning(ex, "Enrichment cycle failed ({Reason})", ex.GetBaseException().Message);
             }
 
-            await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(CycleDelay);
         }
     }
 

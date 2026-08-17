@@ -851,6 +851,41 @@ public sealed record ServerStatsDto(
     double DiskFreeGb,
     IReadOnlyList<StorageAreaDto> StorageAreas);
 
+public sealed record PendingApprovalDto(
+    Guid Id,
+    string Tool,
+    string Summary,
+    string Risk,
+    string Status,
+    string RequesterName,
+    DateTime CreatedUtc,
+    DateTime ExpiresAtUtc,
+    DateTime? ResolvedUtc,
+    string? ResultSummary);
+
+/// <summary>A chat verb definition surfaced to the Verb Test page.</summary>
+public sealed record VerbArgumentDto(string Name, string Description, bool Required);
+
+public sealed record VerbDefinitionDto(
+    string Name,
+    string Description,
+    string Category,
+    IReadOnlyList<VerbArgumentDto> Arguments,
+    IReadOnlyList<string> AllowedRoles,
+    bool Destructive,
+    bool ApprovalGated,
+    bool Background);
+
+public sealed record InvokeVerbRequest(
+    string Name,
+    string Role,
+    string? ActorId,
+    IReadOnlyDictionary<string, string> Arguments);
+
+public sealed record InvokeVerbResultDto(string State, string? Summary);
+
+public sealed record DenyApprovalRequest(string? Reason);
+
 public sealed record MediaCleanupResultDto(
     int AnnouncementFilesDeleted,
     int TrackFilesDeleted,

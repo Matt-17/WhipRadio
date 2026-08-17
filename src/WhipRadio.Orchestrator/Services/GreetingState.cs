@@ -10,7 +10,7 @@ public sealed record RequestHint(Guid MessageId, string Genre);
 /// (10 per hour) and the queue of music-request hints that production
 /// consumes one per generation cycle.
 /// </summary>
-public class GreetingState
+public class GreetingState(TimeProvider timeProvider)
 {
     private const int MaxSubmissionsPerHour = 10;
 
@@ -19,7 +19,7 @@ public class GreetingState
 
     public bool TryRegisterSubmission(string clientHint)
     {
-        var now = DateTime.UtcNow;
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         var history = _submissions.GetOrAdd(clientHint, _ => []);
         lock (history)
         {

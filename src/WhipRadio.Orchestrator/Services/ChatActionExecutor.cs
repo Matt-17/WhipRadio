@@ -24,6 +24,13 @@ public sealed record ChatActionContext(
 
     /// <summary>Set only when the sender is a host; artists/guests/director have none.</summary>
     public Moderator? SenderModerator => Sender.Moderator;
+
+    /// <summary>
+    /// True when this execution replays a Boss-approved <see cref="PendingApproval"/>.
+    /// Approval-gated verbs check this to run the real side effect instead of queuing
+    /// another approval. Never set from model text — only <c>ApprovalService</c> sets it.
+    /// </summary>
+    public bool ApprovalGranted { get; init; }
 }
 
 public sealed partial class ChatActionExecutor(
@@ -90,6 +97,28 @@ public sealed partial class ChatActionExecutor(
                 "RetireTrack" => await ExecuteRetireTrackAsync(call, ct),
                 "PostArtistFeed" => await ExecutePostArtistFeedAsync(call, context, ct),
                 "RequestSongFromArtist" => await ExecuteRequestSongFromArtistAsync(call, context, ct),
+                "RequestBossApproval" => await ExecuteRequestBossApprovalAsync(call, context, ct),
+                "RetireArtist" => await ExecuteRetireArtistAsync(call, ct),
+                "DeleteArtist" => await ExecuteDeleteArtistAsync(call, context, ct),
+                "DeleteTrack" => await ExecuteDeleteTrackAsync(call, context, ct),
+                "DeleteJingle" => await ExecuteDeleteJingleAsync(call, context, ct),
+                "RemoveShow" => await ExecuteRemoveShowAsync(call, context, ct),
+                "FireHost" => await ExecuteFireHostAsync(call, context, ct),
+                "RedefineArtistProfile" => await ExecuteRedefineArtistProfileAsync(call, context, ct),
+                "CancelSongProduction" => await ExecuteCancelSongProductionAsync(call, context, ct),
+                "EmergencyAnnouncement" => await ExecuteEmergencyAnnouncementAsync(call, context, ct),
+                "AnswerListenerMessage" => await ExecuteAnswerListenerMessageAsync(call, context, ct),
+                "ManageNewsFeed" => await ExecuteManageNewsFeedAsync(call, context, ct),
+                "SetNewsProductionSettings" => await ExecuteSetNewsProductionSettingsAsync(call, context, ct),
+                "SetWeatherSettings" => await ExecuteSetWeatherSettingsAsync(call, context, ct),
+                "SetStationSettings" => await ExecuteSetStationSettingsAsync(call, context, ct),
+                "SetProductionSwitch" => await ExecuteSetProductionSwitchAsync(call, context, ct),
+                "SetProviderSettings" => await ExecuteSetProviderSettingsAsync(call, context, ct),
+                "StudioStatus" => await ExecuteStudioStatusAsync(call, ct),
+                "ServerStatus" => await ExecuteServerStatusAsync(call, ct),
+                "PrivacyReport" => await ExecutePrivacyReportAsync(call, ct),
+                "MediaCleanupPreview" => await ExecuteMediaCleanupPreviewAsync(call, ct),
+                "RunMediaCleanup" => await ExecuteRunMediaCleanupAsync(call, context, ct),
                 _ => Failed(call, $"Tool '{call.Name}' has no chat executor."),
             };
             logger.LogInformation(
@@ -385,8 +414,15 @@ public sealed partial class ChatActionExecutor(
 
     private async Task<ChatActionRecord> ExecuteHireHostAsync(CharacterToolCall call, CancellationToken ct)
     {
-        Moderator moderator = await director.HireHostAsync(Require(call, "brief"), ct);
-        return Succeeded(call, $"Hired {moderator.Name}; voice is ready.");
+        SpecialistHostRole role = ParseHostRole(Optional(call, "role"));
+        Moderator moderator = await director.HireHostAsync(Require(call, "brief"), role, ct);
+        string roleLabel = role switch
+        {
+            SpecialistHostRole.News => "news specialist",
+            SpecialistHostRole.Weather => "weather specialist",
+            _ => "host",
+        };
+        return Succeeded(call, $"Hired {moderator.Name} as {roleLabel}; voice is ready.");
     }
 
     private async Task<ChatActionRecord> ExecuteAssignHostAsync(CharacterToolCall call, CancellationToken ct)

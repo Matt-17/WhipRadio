@@ -38,10 +38,37 @@ public sealed class MediaCleanupService(
         }
     }
 
+    private string? _previewToken;
+    private DateTime _previewTokenExpiresUtc;
+
     public async Task<MediaCleanupPlanDto> PlanOrphanLibraryFilesAsync(CancellationToken ct)
     {
         CleanupCandidateSet candidates = await LoadCandidatesAsync(ct);
         return ToPlan(candidates);
+    }
+
+    /// <summary>Issues a short-lived token that <see cref="ValidatePreviewToken"/> accepts, so a
+    /// chat-verb run must follow a fresh preview (defence in depth beyond Boss approval).</summary>
+    public string IssuePreviewToken()
+    {
+        string token = Guid.NewGuid().ToString("N");
+        lock (_sync)
+        {
+            _previewToken = token;
+            _previewTokenExpiresUtc = DateTime.UtcNow.AddMinutes(15);
+        }
+
+        return token;
+    }
+
+    public bool ValidatePreviewToken(string? token)
+    {
+        lock (_sync)
+        {
+            return _previewToken is not null
+                && string.Equals(_previewToken, token, StringComparison.Ordinal)
+                && DateTime.UtcNow <= _previewTokenExpiresUtc;
+        }
     }
 
     public async Task<MediaCleanupStatusDto> StartDeleteOrphanLibraryFilesAsync(CancellationToken ct)

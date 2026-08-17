@@ -1,0 +1,123 @@
+.verbs-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-bottom: 2rem;
+}
+
+.verbs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 0.85rem;
+}
+
+.verb-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border, #2a2a2a);
+    border-radius: 8px;
+    background: var(--bg-2, #171717);
+}
+
+.verb-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.verb-name {
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.verb-flags {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.verb-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted, #9a9a9a);
+    line-height: 1.35;
+}
+
+.verb-roles {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.verb-form {
+    gap: 0.5rem;
+}
+
+.verb-form .field label {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    font-size: 0.62rem;
+    letter-spacing: 0.04em;
+}
+
+.verb-form input,
+.verb-form select {
+    width: 100%;
+}
+
+.verb-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-top: auto;
+}
+
+.verb-result {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.verb-result-text {
+    font-size: 0.78rem;
+    color: var(--text-muted, #9a9a9a);
+}
+
+.verbs-approvals {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.verbs-approval-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border, #2a2a2a);
+    border-radius: 6px;
+}
+
+.verbs-approval-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.verbs-approval-meta {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--text-muted, #9a9a9a);
+}
+
+.verbs-approval-actions {
+    display: inline-flex;
+    gap: 0.4rem;
+}

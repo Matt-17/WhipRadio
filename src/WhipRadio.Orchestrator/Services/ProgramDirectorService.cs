@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using WhipRadio.Core.Helpers;
 using System.Globalization;
 using System.Text.Json.Serialization;
 using WhipRadio.Core.Abstractions;
@@ -36,7 +37,7 @@ public partial class ProgramDirectorService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Give the rest of the system a head start (LLM may still be loading).
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+        await stoppingToken.DelayNoThrow(TimeSpan.FromSeconds(30));
 
         while (!stoppingToken.IsCancellationRequested)
         {

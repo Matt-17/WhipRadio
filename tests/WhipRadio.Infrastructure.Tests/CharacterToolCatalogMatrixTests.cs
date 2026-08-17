@@ -133,6 +133,65 @@ public class CharacterToolCatalogMatrixTests
     }
 
     [TestMethod]
+    public void Chat_DirectorGetsDestructiveAndDiagnosticTools()
+    {
+        var tools = ChatTools(CharacterRole.ProgramDirector);
+        Assert.Contains("RequestBossApproval", tools);
+        Assert.Contains("RetireArtist", tools);
+        Assert.Contains("DeleteArtist", tools);
+        Assert.Contains("DeleteTrack", tools);
+        Assert.Contains("DeleteJingle", tools);
+        Assert.Contains("RemoveShow", tools);
+        Assert.Contains("FireHost", tools);
+        Assert.Contains("RedefineArtistProfile", tools);
+        Assert.Contains("CancelSongProduction", tools);
+        Assert.Contains("EmergencyAnnouncement", tools);
+        Assert.Contains("AnswerListenerMessage", tools);
+        Assert.Contains("ManageNewsFeed", tools);
+        Assert.Contains("SetNewsProductionSettings", tools);
+        Assert.Contains("SetWeatherSettings", tools);
+        Assert.Contains("SetStationSettings", tools);
+        Assert.Contains("SetProductionSwitch", tools);
+        Assert.Contains("SetProviderSettings", tools);
+        Assert.Contains("StudioStatus", tools);
+        Assert.Contains("ServerStatus", tools);
+        Assert.Contains("PrivacyReport", tools);
+        Assert.Contains("MediaCleanupPreview", tools);
+        Assert.Contains("RunMediaCleanup", tools);
+    }
+
+    [TestMethod]
+    public void Chat_HostDoesNotGetDirectorOnlyDestructiveTools()
+    {
+        var tools = ChatTools(CharacterRole.Host);
+        // On-air voices can request approval, air emergencies, handle listeners, read studio status.
+        Assert.Contains("RequestBossApproval", tools);
+        Assert.Contains("EmergencyAnnouncement", tools);
+        Assert.Contains("AnswerListenerMessage", tools);
+        Assert.Contains("StudioStatus", tools);
+        // But personnel/library/settings/server tools stay with the director.
+        Assert.DoesNotContain("DeleteTrack", tools);
+        Assert.DoesNotContain("DeleteArtist", tools);
+        Assert.DoesNotContain("FireHost", tools);
+        Assert.DoesNotContain("RemoveShow", tools);
+        Assert.DoesNotContain("SetStationSettings", tools);
+        Assert.DoesNotContain("RunMediaCleanup", tools);
+        Assert.DoesNotContain("ServerStatus", tools);
+        Assert.DoesNotContain("PrivacyReport", tools);
+    }
+
+    [TestMethod]
+    public void Chat_ArtistCanCancelOwnProductionButNothingDestructiveElsewhere()
+    {
+        var tools = ChatTools(CharacterRole.Artist);
+        Assert.Contains("CancelSongProduction", tools);
+        Assert.DoesNotContain("DeleteTrack", tools);
+        Assert.DoesNotContain("FireHost", tools);
+        Assert.DoesNotContain("RequestBossApproval", tools);
+        Assert.DoesNotContain("EmergencyAnnouncement", tools);
+    }
+
+    [TestMethod]
     public void NonChatScopes_OfferNoToolsForAnyRole()
     {
         foreach (PromptScope scope in Enum.GetValues<PromptScope>())

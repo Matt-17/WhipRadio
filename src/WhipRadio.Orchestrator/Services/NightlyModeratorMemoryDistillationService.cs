@@ -1,3 +1,5 @@
+using WhipRadio.Core.Helpers;
+
 namespace WhipRadio.Orchestrator.Services;
 
 public sealed class NightlyModeratorMemoryDistillationService(
@@ -11,7 +13,7 @@ public sealed class NightlyModeratorMemoryDistillationService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+        await stoppingToken.DelayNoThrow(TimeSpan.FromMinutes(5));
 
         while (!stoppingToken.IsCancellationRequested)
         {

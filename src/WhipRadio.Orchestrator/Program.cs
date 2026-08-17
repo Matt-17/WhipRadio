@@ -57,6 +57,7 @@ builder.Services.AddScoped<ChatResponderResolver>();
 builder.Services.AddScoped<ChatParticipantResolver>();
 builder.Services.AddScoped<ChatAgentTurnService>();
 builder.Services.AddScoped<ChatActionExecutor>();
+builder.Services.AddScoped<ApprovalService>();
 builder.Services.AddScoped<AgentActionLogService>();
 builder.Services.AddScoped<TrackQueryService>();
 builder.Services.AddScoped<DirectorPlanningService>();

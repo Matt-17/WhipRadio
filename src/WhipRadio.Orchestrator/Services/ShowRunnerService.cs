@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Core.Selection;
 using WhipRadio.Infrastructure.Persistence;
@@ -62,7 +63,7 @@ public class ShowRunnerService(
                 delay = IdleDelay;
             }
 
-            await Task.Delay(delay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(delay);
         }
     }
 

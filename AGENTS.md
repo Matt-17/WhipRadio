@@ -71,3 +71,35 @@ Maintain `docs/licenses/` whenever adding, removing, or upgrading third-party de
 ## Architecture Decision Notes
 
 When changing model defaults, studio ownership, images, voices, or audio behavior, update `docs/plans/Phase-0-Tech-Decisions.md` and, if work remains, `docs/plans/Phase-0-Deferred.md`.
+
+## Chat Agent Verbs (Tools)
+
+Chat is the **only** prompt scope that executes tools. Every other scope (announcement writer, program-director day planner, message moderation) parses a fixed structured-JSON schema and renders no tool list. `CharacterToolBase.IsAvailable` defaults to `false`; each tool opts in with `scope is PromptScope.Chat && <roles>`. `TOOLS.md` is the canonical design contract; the shipped catalog and executor are the source of truth when names diverge (shipped verbs use flattened string params — `track`, `artist`, `host`, `jingle` — not the doc's `trackId`/`artistId`).
+
+**Adding a verb = four touchpoints:**
+1. A `CharacterToolBase` subclass in `src/WhipRadio.Infrastructure/Prompting/CharacterToolCatalog.cs` (gate roles with `IsOnAirVoice()` / `IsOnAirVoiceOrDirector()`).
+2. One `services.AddSingleton<ICharacterTool, XxxTool>()` line in `src/WhipRadio.Infrastructure/HttpClientsServiceCollectionExtensions.cs`.
+3. A `case "Xxx" => await ExecuteXxxAsync(...)` in the `ChatActionExecutor.ExecuteAsync` switch (`src/WhipRadio.Orchestrator/Services/ChatActionExecutor.cs`) plus the method in a partial (`.Library`, `.Talk`, `.Production`, `.Artist`, `.Destructive`, `.Director`, `.Operations`, `.Settings`, `.Approvals`).
+4. A category entry in `RadioApiEndpoints.Verbs.cs` (`VerbCategories`, plus the `DestructiveVerbs` / `ApprovalGatedVerbs` / `BackgroundVerbs` sets), a matrix assertion in `CharacterToolCatalogMatrixTests.cs`, and an executor test in `ChatToolExpansionTests.cs`.
+
+**Executor conventions.** Validate args with `Require`/`Optional`; return `Succeeded`/`Failed` records. Resolve backing services the executor does not hold via `scopeFactory.CreateScope()` (keeps the constructor and the test harness stable — the harness passes `null!` for several deps). Long-running work runs detached: `scopeFactory.CreateScope()` + `.Forget(logger)`, with failures published to `INotificationBus` (`StationNotification("Failure", "chat:<Verb>", …)`) — **never** into the chat stream. Every side effect must run through the same Orchestrator service the UI uses (e.g. `HostTermination.ApplyFireAsync` is shared by the fire endpoint and the `FireHost` verb).
+
+**Boss approval flow.** Destructive/authority-sensitive verbs call `GateAsync(call, context, risk, summary, ct)` before their side effect. When `context.ApprovalGranted` is false it writes a `PendingApproval` row and returns a "queued for approval" record; the executor must early-return it. The Boss approves/denies from the chat approvals strip or the Verbs page (`/api/approvals`); `ApprovalService.ApproveAsync` rebuilds the `ChatActionContext`, re-resolves the sender (fail-closed if fired/deleted), and re-runs the verb with `ApprovalGranted = true`. Never set `ApprovalGranted` from model text.
+
+**Verb Test page.** `/verbs` (`Verbs.razor`) lists every Chat-scope verb grouped by category with role/flag badges, arg inputs, a role+actor picker, and an Invoke button (ConfirmDialog for destructive/approval-gated verbs); it also shows the live pending-approval queue. Backed by `GET /api/verbs` and `POST /api/verbs/invoke` (synthesises a `ChatActionContext` from the chosen role/actor and calls the executor directly).
+
+## API & Web Patterns
+
+API is minimal-API partials: `RadioApiEndpoints.*.cs`, each a `MapXxx(RouteGroupBuilder)` wired in `MapRadioApi`. Handlers take route/body params + DI services + `CancellationToken` and return `Results.Ok/BadRequest/NotFound`. The Web console calls the orchestrator only through the typed `RadioApiClient` (`(Dto?, string?)` tuple convention; `SafeGetAsync<T>` for GETs). Real-time updates flow through the single `RadioHub` at `/hubs/radio`: raise a named event on the server, consume it in a per-feature `*LiveClient` (extend `LiveClientBase`, override `RegisterHandlers`/`RefreshCoreAsync`, fire a `Changed` event; a signal-only client can no-op the snapshot). Do not add new hubs or ad-hoc polling. New DTOs shared by Web and Orchestrator live in `src/WhipRadio.Core/Api/RadioApiDtos.cs`.
+
+## Time & Background Tasks
+
+Read time through the injected `TimeProvider` (`timeProvider.GetUtcNow().UtcDateTime` / `GetLocalNow()`) in any class that already injects it or contains time-window/scheduling logic — do **not** reach for `DateTime.UtcNow` there. Entity-default initializers (`= DateTime.UtcNow` on a property) and static helpers that cannot see the injected provider are the accepted exceptions. Background-service loops delay with `await stoppingToken.DelayNoThrow(interval)` (in `Core/Helpers/TaskExtensions.cs`), not the old `Task.Delay(...).ContinueWith(_ => { }, …)` idiom. Fire-and-forget with `.Forget(logger)` so faults are logged at Debug rather than swallowed silently.
+
+## Known Debt & Non-Findings
+
+- `PromptScope.CharacterDecision` is unused but intentionally kept for enum stability — leave it.
+- `Stats.razor` polling every 10s is deliberate (periodic resource sampling has no meaningful push signal); the Messages page uses the `ListenerMessagesChanged` push instead.
+- God-class decomposition candidates (large, untested): `AudioMixerEngine`, `RadioApiClient`, `StudioCoordinator`. `ChatActionExecutor` is split across partials.
+- The Web layer is under-tested relative to Core/Infra/Orchestrator; prefer adding `RadioApiClient` and page smoke tests when you touch it.
+- DB-backed tests use Testcontainers.PostgreSql and require Docker; the catalog matrix tests do not.

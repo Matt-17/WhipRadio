@@ -140,6 +140,7 @@ public static partial class RadioApiEndpoints
             Guid id,
             RadioDbContext db,
             IProductionUpdatePublisher productionUpdates,
+            TimeProvider time,
             CancellationToken ct) =>
         {
             var segment = await db.ConversationSegments.FirstOrDefaultAsync(candidate => candidate.Id == id, ct);
@@ -154,7 +155,7 @@ public static partial class RadioApiEndpoints
             }
 
             // A scheduled episode whose slot already passed can never air again.
-            if (segment.TargetUtc is { } target && target < DateTime.UtcNow)
+            if (segment.TargetUtc is { } target && target < time.GetUtcNow().UtcDateTime)
             {
                 return Results.BadRequest("The episode's slot has already passed.");
             }

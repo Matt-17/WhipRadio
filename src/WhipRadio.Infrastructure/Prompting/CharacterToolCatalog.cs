@@ -117,9 +117,10 @@ public sealed class PlanFormatTool() : CharacterToolBase(
 
 public sealed class HireHostTool() : CharacterToolBase(
     "HireHost",
-    "Create a new general radio host from a short brief.",
+    "Create a new radio host from a short brief. Set role to news or weather to create a specialist presenter.",
     [
         new("brief", "Short host brief."),
+        new("role", "general (default), news, or weather.", IsRequired: false),
     ])
 {
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
@@ -384,5 +385,292 @@ public sealed class RequestSongFromArtistTool() : CharacterToolBase(
 {
     public override bool IsAvailable(PromptScope scope, CharacterRole role)
         => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+// ── Approval flow ────────────────────────────────────────────────────────────
+
+public sealed class RequestBossApprovalTool() : CharacterToolBase(
+    "RequestBossApproval",
+    "Ask the Boss to confirm a pending destructive or authority-sensitive action before it runs.",
+    [
+        new("actionTool", "The tool name that needs approval."),
+        new("summary", "Human-readable summary of what will happen.", IsRequired: false),
+        new("argumentsJson", "JSON object of the pending action's arguments.", IsRequired: false),
+        new("risk", "schedule, personnel, library, external, settings, or cost.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+// ── Library (destructive) ────────────────────────────────────────────────────
+
+public sealed class RetireArtistTool() : CharacterToolBase(
+    "RetireArtist",
+    "Stop an artist from getting new material, without deleting their songs or history.",
+    [
+        new("artist", "Artist name or id."),
+        new("reason", "Why the artist is retired."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class DeleteArtistTool() : CharacterToolBase(
+    "DeleteArtist",
+    "Delete an artist that has no songs (needs Boss approval). Retire artists that have released tracks instead.",
+    [
+        new("artist", "Exact artist name or id."),
+        new("reason", "Why the artist is deleted."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class DeleteTrackTool() : CharacterToolBase(
+    "DeleteTrack",
+    "Delete a track's row and audio file (needs Boss approval). Use RetireTrack to just stop rotation.",
+    [
+        new("track", "Exact track title or id."),
+        new("reason", "Why the track is deleted."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class DeleteJingleTool() : CharacterToolBase(
+    "DeleteJingle",
+    "Delete a jingle and its audio file (needs Boss approval).",
+    [
+        new("jingle", "Exact jingle label or id."),
+        new("reason", "Why the jingle is deleted."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class RedefineArtistProfileTool() : CharacterToolBase(
+    "RedefineArtistProfile",
+    "Rewrite an artist's persona/biography while keeping their name and songs. Needs Boss approval when they have released tracks.",
+    [
+        new("artist", "Artist name or id."),
+        new("hint", "What to repair or emphasise.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class CancelSongProductionTool() : CharacterToolBase(
+    "CancelSongProduction",
+    "Cancel the song currently being produced. Artists cancel their own; the director cancels any (needs Boss approval).",
+    [
+        new("reason", "Why production is cancelled."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && (role is CharacterRole.Artist or CharacterRole.ProgramDirector);
+}
+
+// ── Schedule / personnel (destructive) ───────────────────────────────────────
+
+public sealed class RemoveShowTool() : CharacterToolBase(
+    "RemoveShow",
+    "Remove a scheduled slot or disable a whole format (needs Boss approval).",
+    [
+        new("scope", "slot_only (default) or disable_format.", IsRequired: false),
+        new("slot", "Slot id (for slot_only).", IsRequired: false),
+        new("format", "Format name or id (for disable_format).", IsRequired: false),
+        new("reason", "Why the show is removed."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class FireHostTool() : CharacterToolBase(
+    "FireHost",
+    "Deactivate a host and clean up their assignments (needs Boss approval).",
+    [
+        new("host", "Host name or id."),
+        new("reason", "Why the host is fired."),
+        new("replacement", "Optional active host to take over their formats.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+// ── Production ────────────────────────────────────────────────────────────────
+
+public sealed class EmergencyAnnouncementTool() : CharacterToolBase(
+    "EmergencyAnnouncement",
+    "Air an urgent station message at the front of playout. Emergency priority needs Boss approval unless the Boss triggers it.",
+    [
+        new("text", "Exact emergency message content."),
+        new("priority", "high (default) or emergency.", IsRequired: false),
+        new("moderator", "Host voice to use (defaults to the current host).", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class AnswerListenerMessageTool() : CharacterToolBase(
+    "AnswerListenerMessage",
+    "Handle a listener greeting or request: queue it on air, or dismiss it.",
+    [
+        new("messageId", "Listener message id."),
+        new("action", "queue_greeting, queue_dedication, dismiss, or reply_in_chat."),
+        new("reason", "Dismissal or routing reason.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+// ── News / weather / settings (director) ─────────────────────────────────────
+
+public sealed class ManageNewsFeedTool() : CharacterToolBase(
+    "ManageNewsFeed",
+    "Add, update, toggle, or delete a station news feed. Add/update/delete need Boss approval.",
+    [
+        new("operation", "add, update, toggle, or delete."),
+        new("feedId", "Feed id (for update/toggle/delete).", IsRequired: false),
+        new("label", "Feed label.", IsRequired: false),
+        new("url", "RSS/feed URL (for add/update).", IsRequired: false),
+        new("language", "Feed language.", IsRequired: false),
+        new("region", "Region key.", IsRequired: false),
+        new("category", "Category key.", IsRequired: false),
+        new("reason", "Why the feed changes."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetNewsProductionSettingsTool() : CharacterToolBase(
+    "SetNewsProductionSettings",
+    "Change news production settings (needs Boss approval). settingsJson keys: newsEnabled, newsLongFormatEnabled, cadenceMinutes, maxDurationSeconds.",
+    [
+        new("settingsJson", "JSON object of allowed news settings."),
+        new("reason", "Why settings change."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetWeatherSettingsTool() : CharacterToolBase(
+    "SetWeatherSettings",
+    "Change weather settings (location changes need Boss approval). settingsJson keys: weatherEnabled, cadenceMinutes, weatherFullHandoverEnabled, weatherLocationName, weatherLatitude, weatherLongitude.",
+    [
+        new("settingsJson", "JSON object of allowed weather settings."),
+        new("reason", "Why settings change."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetStationSettingsTool() : CharacterToolBase(
+    "SetStationSettings",
+    "Change non-secret station settings (needs Boss approval). settingsJson keys: stationName, stationSlogan, stationVision, stationMission, defaultLanguage, targetQueueLength.",
+    [
+        new("settingsJson", "JSON object of allowed station settings."),
+        new("reason", "Why settings change."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetProductionSwitchTool() : CharacterToolBase(
+    "SetProductionSwitch",
+    "Enable or disable a station production switch. Turning playout off needs Boss approval.",
+    [
+        new("switch", "musicProduction, playout, news, weather, or greetings."),
+        new("enabled", "true to enable, false to disable."),
+        new("reason", "Why the switch changes."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class SetProviderSettingsTool() : CharacterToolBase(
+    "SetProviderSettings",
+    "Change non-secret model/provider defaults (needs Boss approval). Never sets API keys. Areas: text (textProvider, openAiModel), music (defaultMusicProvider).",
+    [
+        new("providerArea", "text or music."),
+        new("settingsJson", "JSON object of allowed non-secret provider settings."),
+        new("reason", "Why settings change."),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+// ── Operations / diagnostics (read-only) ─────────────────────────────────────
+
+public sealed class StudioStatusTool() : CharacterToolBase(
+    "StudioStatus",
+    "Read studio runtime status to explain why generation or announcements are slow.",
+    [
+        new("kind", "writer, recording, voice, analysis, or all.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role.IsOnAirVoiceOrDirector();
+}
+
+public sealed class ServerStatusTool() : CharacterToolBase(
+    "ServerStatus",
+    "Read host CPU, memory, disk, and GPU diagnostics.",
+    [
+        new("detail", "brief or full.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class PrivacyReportTool() : CharacterToolBase(
+    "PrivacyReport",
+    "Read which external services the station recently contacted (no secrets).",
+    [
+        new("classification", "all, local, external, or cloud.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class MediaCleanupPreviewTool() : CharacterToolBase(
+    "MediaCleanupPreview",
+    "Preview how many unreferenced media files could be cleaned up. Read-only; returns a token for RunMediaCleanup.",
+    [
+        new("area", "tracks, announcements, or all.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
+}
+
+public sealed class RunMediaCleanupTool() : CharacterToolBase(
+    "RunMediaCleanup",
+    "Delete unreferenced media files after a preview (needs a fresh preview token and Boss approval).",
+    [
+        new("previewToken", "Token from a recent MediaCleanupPreview."),
+        new("reason", "Cleanup reason."),
+        new("area", "tracks, announcements, or all.", IsRequired: false),
+    ])
+{
+    public override bool IsAvailable(PromptScope scope, CharacterRole role)
+        => scope is PromptScope.Chat && role is CharacterRole.ProgramDirector;
 }
 

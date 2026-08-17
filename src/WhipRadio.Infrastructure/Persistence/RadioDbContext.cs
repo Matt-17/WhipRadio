@@ -74,6 +74,8 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
 
     public DbSet<AgentActionLog> AgentActionLogs => Set<AgentActionLog>();
 
+    public DbSet<PendingApproval> PendingApprovals => Set<PendingApproval>();
+
     public DbSet<Core.Entities.Metadata.MetadataClaim> MetadataClaims => Set<Core.Entities.Metadata.MetadataClaim>();
 
     public DbSet<Core.Entities.Metadata.MetadataCandidate> MetadataCandidates => Set<Core.Entities.Metadata.MetadataCandidate>();
@@ -439,6 +441,15 @@ public class RadioDbContext(DbContextOptions<RadioDbContext> options) : DbContex
             log.HasIndex(l => l.CreatedAtUtc);
             log.HasIndex(l => new { l.AgentName, l.CreatedAtUtc });
             log.HasIndex(l => l.CorrelationId);
+        });
+
+        modelBuilder.Entity<PendingApproval>(approval =>
+        {
+            approval.Property(a => a.Risk).HasConversion<string>();
+            approval.Property(a => a.Status).HasConversion<string>();
+            approval.Property(a => a.RequesterKind).HasConversion<string>();
+            approval.HasIndex(a => new { a.Status, a.ExpiresAtUtc });
+            approval.HasIndex(a => a.CreatedUtc);
         });
     }
 }

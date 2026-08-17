@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Entities;
+using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
 using WhipRadio.Infrastructure.Persistence;
 
@@ -51,7 +52,7 @@ public class AnnouncementProductionService(
                 await PublishFailureAsync(kind, ex, stoppingToken);
             }
 
-            await Task.Delay(CycleDelay, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
+            await stoppingToken.DelayNoThrow(CycleDelay);
         }
     }
 
