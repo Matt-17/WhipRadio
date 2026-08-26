@@ -1,6 +1,6 @@
 using System.Net;
 
-namespace WhipRadio.Infrastructure.Tests;
+namespace WhipRadio.TestSupport;
 
 /// <summary>Captures the outgoing request and returns a canned response.</summary>
 public sealed class FakeHttpMessageHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler

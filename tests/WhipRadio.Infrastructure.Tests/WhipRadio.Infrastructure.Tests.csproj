@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Compile Include="..\TestSupport\TestAssert.cs" Link="TestSupport\TestAssert.cs" />
+    <Compile Include="..\TestSupport\FakeHttpMessageHandler.cs" Link="TestSupport\FakeHttpMessageHandler.cs" />
     <Compile Include="..\TestSupport\PostgresTestDatabase.cs" Link="TestSupport\PostgresTestDatabase.cs" />
     <Compile Include="..\TestSupport\DbFixture.cs" Link="TestSupport\DbFixture.cs" />
   </ItemGroup>

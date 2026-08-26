@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <Compile Include="..\TestSupport\TestAssert.cs" Link="TestSupport\TestAssert.cs" />
+    <Compile Include="..\TestSupport\FakeHttpMessageHandler.cs" Link="TestSupport\FakeHttpMessageHandler.cs" />
   </ItemGroup>
 
   <ItemGroup>
