@@ -64,9 +64,11 @@ public class AudioMixerEngineTests
                 new QueueStateTracker(),
                 radioOptions,
                 NullLogger<EmergencyFallbackTrackService>.Instance);
+            var store = new MixerSessionStore(
+                dbFactory, mixerUpdates, NullStationMetrics.Instance, NullLogger<MixerSessionStore>.Instance);
             var mixer = new AudioMixerEngine(
                 queue, reporter, stateStore, trackDeletions, fallback, planner, diagnostics, mixerUpdates,
-                timedInterrupts, readers, NullStationMetrics.Instance, dbFactory,
+                timedInterrupts, readers, store,
                 collectLogs ? logger : NullLogger<AudioMixerEngine>.Instance);
             return new Fixture(mixer, queue, reporter, trackDeletions, readers, timedInterrupts, logger);
         }

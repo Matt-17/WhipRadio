@@ -118,6 +118,7 @@ builder.Services.AddSingleton<IStationStatusReporter, StationStatusReporter>();
 builder.Services.AddSingleton<IcecastListenerProbe>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<IcecastListenerProbe>());
 builder.Services.AddSingleton<IStationMetrics, StationMetrics>();
+builder.Services.AddSingleton<MixerSessionStore>();
 builder.Services.AddSingleton<AudioMixerEngine>();
 builder.Services.AddSingleton<PriorityTalkBreakDispatcher>();
 builder.Services.AddSingleton<EmergencyFallbackTrackService>();

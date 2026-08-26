@@ -167,6 +167,11 @@ provider IDs; `ace-step` is only an accepted alias that normalizes to
 3. `PlayoutService` decodes each item to raw PCM through short-lived ffmpeg
    readers.
 4. `AudioMixerEngine` and the long-lived ffmpeg encoder write MP3 to Icecast.
+   The engine owns only the master clock loop and encoder feed: the pure math
+   lives in Core (`MixerCore` DSP, `MixPlanner` strategy, `SourceScheduler`
+   item scheduling, `TransitionRealizer` plan→envelope realization,
+   `FadeRealizer` fade-to-silence edits), and its DB surface (item analysis,
+   settings, top-of-hour guard, transition log) is `MixerSessionStore`.
 5. `PlaybackReporter` updates now-playing state, play logs, web clients, and
    Icecast metadata with listener-facing latency compensation.
 

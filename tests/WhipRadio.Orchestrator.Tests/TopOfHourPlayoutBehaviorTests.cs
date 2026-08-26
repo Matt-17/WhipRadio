@@ -32,7 +32,7 @@ public class TopOfHourPlayoutBehaviorTests
         // A buggy speech analysis reporting only 1 second.
         await SeedMediaAnalysisAsync(db, announcementId, durationSeconds: 1.0, analyzerVersion: 1);
 
-        var mixer = CreateMixerEngine(db);
+        var store = CreateSessionStore(db);
         var item = new PlayoutItem(
             PlayoutItemType.Announcement,
             announcementId,
@@ -42,7 +42,7 @@ public class TopOfHourPlayoutBehaviorTests
             1);
 
         // Use reflection to call the private method — it's the unit under test.
-        var info = await InvokeBuildItemInfoAsync(mixer, item);
+        var info = await InvokeBuildItemInfoAsync(store, item);
 
         // The mixer must use the item's 60s duration, NOT the analysis's 1s.
         Assert.Equal(60.0, info.DurationSeconds);
@@ -58,7 +58,7 @@ public class TopOfHourPlayoutBehaviorTests
         await SeedMediaAnalysisAsync(db, trackId, durationSeconds: 175.0, analyzerVersion: 1,
             itemType: PlayoutItemType.Track);
 
-        var mixer = CreateMixerEngine(db);
+        var store = CreateSessionStore(db);
         var item = new PlayoutItem(
             PlayoutItemType.Track,
             trackId,
@@ -66,7 +66,7 @@ public class TopOfHourPlayoutBehaviorTests
             "Test Track",
             180.0);
 
-        var info = await InvokeBuildItemInfoAsync(mixer, item);
+        var info = await InvokeBuildItemInfoAsync(store, item);
 
         // For tracks, the analysis duration (real audio length) should win.
         Assert.Equal(175.0, info.DurationSeconds);
@@ -79,7 +79,7 @@ public class TopOfHourPlayoutBehaviorTests
         var announcementId = Guid.NewGuid();
         await SeedAnnouncementAsync(db, announcementId, DurationSeconds: 45.0);
 
-        var mixer = CreateMixerEngine(db);
+        var store = CreateSessionStore(db);
         var item = new PlayoutItem(
             PlayoutItemType.Announcement,
             announcementId,
@@ -88,7 +88,7 @@ public class TopOfHourPlayoutBehaviorTests
             45.0,
             1);
 
-        var info = await InvokeBuildItemInfoAsync(mixer, item);
+        var info = await InvokeBuildItemInfoAsync(store, item);
 
         Assert.Equal(45.0, info.DurationSeconds);
     }
@@ -298,40 +298,12 @@ public class TopOfHourPlayoutBehaviorTests
 
     private static Task<DbFixture> CreateDbAsync() => DbFixture.CreateAsync();
 
-    private static AudioMixerEngine CreateMixerEngine(DbFixture db)
-    {
-        var root = Path.Combine(Path.GetTempPath(), "whipradio-playout-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(root);
-        var radioOptions = Microsoft.Extensions.Options.Options.Create(
-            new WhipRadio.Orchestrator.Configuration.RadioOptions { DataRoot = root });
-        var queue = new FakeQueue();
-        var reporter = new FakeReporter();
-        var stateStore = new PlayoutStateStore(radioOptions, TimeProvider.System,
-            NullLogger<PlayoutStateStore>.Instance);
-        var trackDeletions = new TrackDeletionService(db, radioOptions,
-            NullLogger<TrackDeletionService>.Instance);
-        var planner = new MixPlanner(new SystemRandomSource(seed: 42));
-        var diagnostics = new MixerDiagnostics();
-        var mixerUpdates = new NoOpMixerUpdatePublisher();
-        var timedInterrupts = new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance);
-        var readers = new FakeReaderFactory(null);
-        var fallback = new EmergencyFallbackTrackService(
-            db,
-            new QueueStateTracker(),
-            radioOptions,
-            NullLogger<EmergencyFallbackTrackService>.Instance);
-        return new AudioMixerEngine(
-            queue, reporter, stateStore, trackDeletions, fallback, planner, diagnostics, mixerUpdates,
-            timedInterrupts, readers, NullStationMetrics.Instance, db,
-            NullLogger<AudioMixerEngine>.Instance);
-    }
+    private static MixerSessionStore CreateSessionStore(DbFixture db)
+        => new(db, new NoOpMixerUpdatePublisher(), NullStationMetrics.Instance,
+            NullLogger<MixerSessionStore>.Instance);
 
-    private static async Task<ItemInfo> InvokeBuildItemInfoAsync(AudioMixerEngine mixer, PlayoutItem item)
-    {
-        var method = typeof(AudioMixerEngine).GetMethod("BuildItemInfoAsync",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        return await (Task<ItemInfo>)method!.Invoke(mixer, [item, CancellationToken.None])!;
-    }
+    private static Task<ItemInfo> InvokeBuildItemInfoAsync(MixerSessionStore store, PlayoutItem item)
+        => store.BuildItemInfoAsync(item, CancellationToken.None);
 
     private static async Task SeedStationSettingsAsync(DbFixture db)
     {

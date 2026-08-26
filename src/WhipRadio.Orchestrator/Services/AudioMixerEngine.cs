@@ -1,14 +1,8 @@
-using System.Diagnostics;
-using System.Text.Json;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using WhipRadio.Core.Abstractions;
 using WhipRadio.Core.Audio;
 using WhipRadio.Core.Entities;
 using WhipRadio.Core.Helpers;
 using WhipRadio.Core.Playout;
-using WhipRadio.Infrastructure.Persistence;
-using WhipRadio.Orchestrator.Configuration;
 
 namespace WhipRadio.Orchestrator.Services;
 
@@ -17,6 +11,9 @@ namespace WhipRadio.Orchestrator.Services;
 /// summed PCM into the existing encoder pipe, and realises TransitionPlans as
 /// overlapping SourceSlots. Runs INSTEAD of the legacy per-item copy loop while
 /// MixerEnabled=true; returns at an item boundary when the flag flips off.
+/// The pure math lives in Core (<see cref="SourceScheduler"/>,
+/// <see cref="TransitionRealizer"/>, <see cref="FadeRealizer"/>, <see cref="MixerCore"/>);
+/// the database surface lives in <see cref="MixerSessionStore"/>.
 /// </summary>
 public sealed class AudioMixerEngine(
     IPlayoutQueue queue,
@@ -29,8 +26,7 @@ public sealed class AudioMixerEngine(
     IMixerUpdatePublisher mixerUpdates,
     TimedPlayoutInterruptService timedInterrupts,
     IPcmSampleReaderFactory readerFactory,
-    IStationMetrics metrics,
-    IDbContextFactory<RadioDbContext> dbFactory,
+    MixerSessionStore store,
     ILogger<AudioMixerEngine> logger)
 {
     private static readonly PcmFormat Format = new();
@@ -53,13 +49,6 @@ public sealed class AudioMixerEngine(
     private sealed record PendingLog(
         PlayoutItem Outgoing, PlayoutItem Incoming, TransitionPlan Plan, int ClipBaseline, long CompleteAtMaster);
 
-    private sealed record TopOfHourGuard(
-        DateTime TargetUtc,
-        int IntroGraceSeconds,
-        int LateWindowSeconds,
-        double FadeOutSeconds,
-        NewsPackageStatus Status);
-
     /// <summary>Runs until cancelled, the encoder dies, or the mixer/playout flag
     /// turns the session off (returns at an item boundary).</summary>
     public async Task RunSessionAsync(
@@ -79,8 +68,8 @@ public sealed class AudioMixerEngine(
         var stopScheduling = false;
         var transitionPlanned = false;
         var pendingLogs = new List<PendingLog>();
-        MixerSettings settings = await LoadSettingsAsync(ct);
-        TopOfHourGuard? topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
+        MixerSettings settings = await store.LoadSettingsAsync(ct);
+        TopOfHourGuard? topOfHourGuard = await store.GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
         PlayoutItem? lastCompletedItem = null;
 
         diagnostics.SessionStarted();
@@ -117,7 +106,7 @@ public sealed class AudioMixerEngine(
                         }
                     }
 
-                    topOfHourGuard = await GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
+                    topOfHourGuard = await store.GetTopOfHourGuardAsync(DateTime.UtcNow, TimeSpan.Zero, ct);
                     PublishLive(masterPos, actives);
                 }
 
@@ -132,7 +121,7 @@ public sealed class AudioMixerEngine(
                 // next track" into the consume decision; deemed too rare to be worth it.
                 if (!stopScheduling && timedInterrupts.TryConsume(DateTime.UtcNow) is { } interrupt)
                 {
-                    settings = await LoadSettingsAsync(ct);
+                    settings = await store.LoadSettingsAsync(ct);
                     await ApplyTimedInterruptAsync(interrupt, masterPos, actives, settings, ct);
                     PublishLive(masterPos, actives);
                     transitionPlanned = true;
@@ -182,7 +171,7 @@ public sealed class AudioMixerEngine(
                         continue;
                     }
 
-                    settings = await LoadSettingsAsync(ct);
+                    settings = await store.LoadSettingsAsync(ct);
                     await StartItemChainAsync(item, masterPos, actives, settings, ct);
                     PublishLive(masterPos, actives);
                     transitionPlanned = false;
@@ -198,7 +187,7 @@ public sealed class AudioMixerEngine(
                     if (remaining <= window && queue.PeekNext() is not null)
                     {
                         if (queue.PeekNext() is { ItemType: PlayoutItemType.Track }
-                            && await GetTopOfHourGuardAsync(
+                            && await store.GetTopOfHourGuardAsync(
                                 DateTime.UtcNow,
                                 TimeSpan.FromSeconds(Math.Max(remaining, 0) + window),
                                 ct) is { } guard)
@@ -213,7 +202,7 @@ public sealed class AudioMixerEngine(
                             var incoming = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
                             if (incoming is not null)
                             {
-                                settings = await LoadSettingsAsync(ct);
+                                settings = await store.LoadSettingsAsync(ct);
                                 await ApplyTransitionAsync(current, incoming, actives, settings, core, pendingLogs, ct);
                                 PublishLive(masterPos, actives);
                                 transitionPlanned = true;
@@ -333,9 +322,9 @@ public sealed class AudioMixerEngine(
     {
         if (item.ItemType == PlayoutItemType.Announcement && queue.PeekNext() is { ItemType: PlayoutItemType.Track })
         {
-            var talkInfo = await BuildItemInfoAsync(item, ct);
+            var talkInfo = await store.BuildItemInfoAsync(item, ct);
             var peeked = queue.PeekNext()!;
-            var songInfo = await BuildItemInfoAsync(peeked, ct);
+            var songInfo = await store.BuildItemInfoAsync(peeked, ct);
             var plan = planner.Plan(talkInfo, songInfo, settings);
 
             logger.LogInformation(
@@ -351,7 +340,13 @@ public sealed class AudioMixerEngine(
                     var song = await TryDequeueAsync(TimeSpan.FromMilliseconds(50), ct);
                     if (song is not null)
                     {
-                        ScheduleIntroTalkOver(item, talkInfo, song, songInfo, introEnd, plan, masterPos, actives, settings);
+                        var (scheduledSong, scheduledTalk) = SourceScheduler.PlanIntroTalkOver(
+                            item, talkInfo, song, songInfo, introEnd, plan, masterPos, settings, Format);
+                        AddActiveSource(actives, CreateActiveSource(song, scheduledSong));
+                        AddActiveSource(actives, CreateActiveSource(item, scheduledTalk));
+                        logger.LogInformation(
+                            "Mixer: IntroTalkOver — \"{Talk}\" over the intro of \"{Song}\" (post at {Intro:F1}s). {Trace}",
+                            item.Title, song.Title, introEnd, plan.ReasonTrace);
                         return;
                     }
                 }
@@ -364,69 +359,13 @@ public sealed class AudioMixerEngine(
             }
         }
 
-        var info = await BuildItemInfoAsync(item, ct);
-        AddActiveSource(actives, CreateSource(item, info, masterPos, settings, EnvelopeKind.Full, reportAt: masterPos));
+        var info = await store.BuildItemInfoAsync(item, ct);
+        AddActiveSource(actives, CreateActiveSource(
+            item, SourceScheduler.PlanFullLevel(item, info, settings, Format, masterPos, reportAt: masterPos)));
         logger.LogInformation(
             "Mixer: \"{Title}\" starts ({Duration:F0}s, {Analysis}, makeup {Makeup:F1} dB)",
             item.Title, info.DurationSeconds, DescribeAnalysis(info),
-            20 * Math.Log10(Makeup(info, settings)));
-    }
-
-    private void ScheduleIntroTalkOver(
-        PlayoutItem talk, ItemInfo talkInfo, PlayoutItem song, ItemInfo songInfo, double introEnd,
-        TransitionPlan plan, long masterPos, List<ActiveSource> actives, MixerSettings settings)
-    {
-        var talkStartOffset = plan.IncomingStartOffsetSeconds ?? 0;
-        var songStartOffsetSeconds = PlaybackStartSeconds(song, songInfo);
-        var talkPlaybackStartSeconds = PlaybackStartSeconds(talk, talkInfo);
-        var songStart = masterPos;
-        var talkStart = songStart + Format.SecondsToSamples(talkStartOffset);
-        var talkEnd = talkStart + Format.SecondsToSamples(RemainingSeconds(talkInfo, talkPlaybackStartSeconds));
-        var songEnd = songStart + Format.SecondsToSamples(RemainingSeconds(songInfo, songStartOffsetSeconds));
-        var duckReleaseEnd = songStart + Format.SecondsToSamples(introEnd);
-
-        // Song bed: ducked under the talk; release ramp ENDS exactly at IntroEnd.
-        var songEnvelope = EnvelopeFactory.DuckedBed(
-            Format, songStart, songEnd,
-            duckStartSample: songStart,
-            duckEndSample: Math.Max(talkEnd, duckReleaseEnd),
-            settings.DuckLevelDb, settings.DuckRampMs);
-        var songReader = CreateReader(song, songInfo, startAtSeconds: songStartOffsetSeconds);
-        AddActiveSource(actives, new ActiveSource
-        {
-            Slot = new SourceSlot
-            {
-                Reader = songReader,
-                Envelope = songEnvelope,
-                StartAtMasterSample = songStart,
-                MakeupGainLinear = Makeup(songInfo, settings),
-            },
-            Item = song,
-            Reader = songReader,
-            EndAtMaster = songEnd,
-            ReportAtMaster = Math.Max(talkEnd, duckReleaseEnd), // song "audible" once the talk clears
-        });
-
-        var talkEnvelope = EnvelopeFactory.FullLevel(Format, talkStart, talkEnd);
-        var talkReader = CreateReader(talk, talkInfo, startAtSeconds: talkPlaybackStartSeconds);
-        AddActiveSource(actives, new ActiveSource
-        {
-            Slot = new SourceSlot
-            {
-                Reader = talkReader,
-                Envelope = talkEnvelope,
-                StartAtMasterSample = talkStart,
-                MakeupGainLinear = Makeup(talkInfo, settings),
-            },
-            Item = talk,
-            Reader = talkReader,
-            EndAtMaster = talkEnd,
-            ReportAtMaster = talkStart,
-        });
-
-        logger.LogInformation(
-            "Mixer: IntroTalkOver — \"{Talk}\" over the intro of \"{Song}\" (post at {Intro:F1}s). {Trace}",
-            talk.Title, song.Title, introEnd, plan.ReasonTrace);
+            20 * Math.Log10(SourceScheduler.Makeup(info, settings)));
     }
 
     // --- transitions ---------------------------------------------------------------
@@ -435,8 +374,8 @@ public sealed class AudioMixerEngine(
         ActiveSource outgoing, PlayoutItem incoming, List<ActiveSource> actives,
         MixerSettings settings, MixerCore core, List<PendingLog> pendingLogs, CancellationToken ct)
     {
-        var outgoingInfo = await BuildItemInfoAsync(outgoing.Item, ct);
-        var incomingInfo = await BuildItemInfoAsync(incoming, ct);
+        var outgoingInfo = await store.BuildItemInfoAsync(outgoing.Item, ct);
+        var incomingInfo = await store.BuildItemInfoAsync(incoming, ct);
         var plan = planner.Plan(outgoingInfo, incomingInfo, settings);
 
         logger.LogInformation(
@@ -445,128 +384,33 @@ public sealed class AudioMixerEngine(
             DescribeAnalysis(outgoingInfo), DescribeAnalysis(incomingInfo), plan.ReasonTrace);
         diagnostics.DecisionMade($"{outgoing.Item.Title} → {incoming.Title}: {plan.ReasonTrace}");
         mixerUpdates.Publish();
-        var rate = Format.SampleRate;
-        var outgoingEnd = outgoing.EndAtMaster;
-        var leadIn = PlaybackStartSeconds(incoming, incomingInfo);
 
-        long incomingStart;
-        long reportAt;
-        GainEnvelope incomingEnvelope;
-        long incomingEnd;
+        var realization = TransitionRealizer.Realize(
+            plan, outgoingInfo, outgoing.Slot.Envelope, outgoing.EndAtMaster,
+            incoming, incomingInfo, settings, Format);
 
-        switch (plan.Strategy)
+        switch (realization.Fallback)
         {
-            case MixStrategy.EnergyFade:
-            case MixStrategy.OutroBridgeIn:
-            case MixStrategy.BeatAlignedFade:
-            {
-                var overlapSamples = Format.SecondsToSamples(plan.OverlapSeconds);
-                var fadeStart = outgoingEnd - overlapSamples;
-                var fadeEnd = outgoingEnd;
-
-                if (plan.Strategy == MixStrategy.BeatAlignedFade
-                    && outgoingInfo.Analysis is { Bpm: { } bpmOut, BeatGridJson: { } beatGridOutJson }
-                    && incomingInfo.Analysis is { BeatGridJson: { } beatGridInJson }
-                    && TryParseBeatGrid(beatGridOutJson, out var beatsOut)
-                    && TryParseBeatGrid(beatGridInJson, out var beatsIn))
-                {
-                    var anchorSeconds = outgoingInfo.Analysis.OutroConfidence >= 0.5
-                            && outgoingInfo.Analysis.OutroStartSeconds is { } outro
-                        ? outro
-                        : outgoingInfo.DurationSeconds - settings.DefaultCrossfadeSeconds;
-                    var beatOut = TransitionMath.NearestBeat(beatsOut, anchorSeconds);
-                    var beats = TransitionMath.CrossfadeBeats(settings.DefaultCrossfadeSeconds, bpmOut);
-                    var overlapSeconds = beats * 60.0 / bpmOut;
-
-                    var outgoingItemStart = outgoing.EndAtMaster - Format.SecondsToSamples(outgoingInfo.DurationSeconds);
-                    fadeStart = outgoingItemStart + Format.SecondsToSamples(beatOut);
-                    fadeEnd = fadeStart + Format.SecondsToSamples(overlapSeconds);
-
-                    var firstAudibleBeat = beatsIn.Length > 0 ? Math.Max(0, beatsIn[0] - leadIn) : 0;
-                    incomingStart = TransitionMath.IncomingStartMasterSample(fadeStart, firstAudibleBeat, rate);
-                }
-                else
-                {
-                    if (plan.Strategy == MixStrategy.BeatAlignedFade)
-                    {
-                        logger.LogWarning(
-                            "BeatAlignedFade planned for \"{Out}\" → \"{In}\" but beat data is missing or invalid; using a plain crossfade",
-                            outgoing.Item.Title, incoming.Title);
-                    }
-
-                    incomingStart = fadeStart;
-                }
-
-                // Replace the outgoing item's planned ending with the fade.
-                outgoing.Slot.Envelope.RemoveBreakpointsFrom(fadeStart);
-                outgoing.Slot.Envelope.AddBreakpoint(fadeStart, 1f, RampShape.EqualPowerOut);
-                outgoing.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
-                outgoing.EndAtMaster = fadeEnd;
-
-                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
-                incomingEnvelope = EnvelopeFactory.FadeIn(Format, Math.Max(incomingStart, fadeStart), fadeEnd, incomingEnd);
-                reportAt = (fadeStart + fadeEnd) / 2; // crossfade midpoint
-                pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, fadeEnd));
+            case TransitionFallback.BeatDataMissing:
+                logger.LogWarning(
+                    "BeatAlignedFade planned for \"{Out}\" → \"{In}\" but beat data is missing or invalid; using a plain crossfade",
+                    outgoing.Item.Title, incoming.Title);
                 break;
-            }
-
-            case MixStrategy.OutroTalkOver:
-            {
-                if (outgoingInfo.Analysis?.OutroStartSeconds is not { } outroStartSeconds)
-                {
-                    logger.LogWarning(
-                        "OutroTalkOver planned for \"{Out}\" → \"{In}\" but OutroStart is missing; using a hard cut",
-                        outgoing.Item.Title, incoming.Title);
-                    goto default;
-                }
-
-                var outgoingItemStart = outgoing.EndAtMaster - Format.SecondsToSamples(outgoingInfo.DurationSeconds);
-                var talkStart = outgoingItemStart + Format.SecondsToSamples(outroStartSeconds);
-                var duckRamp = Format.SecondsToSamples(settings.DuckRampMs / 1000.0);
-                var duckGain = TransitionMath.DbToLinear(settings.DuckLevelDb);
-
-                // Duck the song under the talk; it ends (under talk) as planned.
-                outgoing.Slot.Envelope.RemoveBreakpointsFrom(talkStart - duckRamp);
-                outgoing.Slot.Envelope.AddBreakpoint(talkStart - duckRamp, 1f, RampShape.Linear);
-                outgoing.Slot.Envelope.AddBreakpoint(talkStart, duckGain, RampShape.Hold);
-                outgoing.Slot.Envelope.AddBreakpoint(
-                    Math.Max(talkStart, outgoingEnd - EnvelopeFactory.RampSamples(Format)), duckGain, RampShape.Linear);
-                outgoing.Slot.Envelope.AddBreakpoint(outgoingEnd, 0f, RampShape.Hold);
-
-                incomingStart = talkStart;
-                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
-                incomingEnvelope = EnvelopeFactory.FullLevel(Format, incomingStart, incomingEnd);
-                reportAt = incomingStart;
-                pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, outgoingEnd));
+            case TransitionFallback.OutroDataMissing:
+                logger.LogWarning(
+                    "OutroTalkOver planned for \"{Out}\" → \"{In}\" but OutroStart is missing; using a hard cut",
+                    outgoing.Item.Title, incoming.Title);
                 break;
-            }
-
-            default: // HardCut (and IntroTalkOver never reaches here: planned at item start)
-            {
-                incomingStart = outgoingEnd + Format.SecondsToSamples(plan.GapMs / 1000.0);
-                incomingEnd = incomingStart + Format.SecondsToSamples(RemainingSeconds(incomingInfo, leadIn));
-                incomingEnvelope = EnvelopeFactory.FullLevel(Format, incomingStart, incomingEnd);
-                reportAt = incomingStart;
-                pendingLogs.Add(new PendingLog(outgoing.Item, incoming, plan, core.ClipCount, incomingStart));
-                break;
-            }
         }
 
-        var reader = CreateReader(incoming, incomingInfo, startAtSeconds: leadIn);
-        AddActiveSource(actives, new ActiveSource
+        if (realization.OutgoingEndAtMaster is { } newOutgoingEnd)
         {
-            Slot = new SourceSlot
-            {
-                Reader = reader,
-                Envelope = incomingEnvelope,
-                StartAtMasterSample = incomingStart,
-                MakeupGainLinear = Makeup(incomingInfo, settings),
-            },
-            Item = incoming,
-            Reader = reader,
-            EndAtMaster = incomingEnd,
-            ReportAtMaster = reportAt,
-        });
+            outgoing.EndAtMaster = newOutgoingEnd;
+        }
+
+        pendingLogs.Add(new PendingLog(
+            outgoing.Item, incoming, plan, core.ClipCount, realization.LogCompleteAtMaster));
+        AddActiveSource(actives, CreateActiveSource(incoming, realization.Incoming));
 
         logger.LogInformation("Mixer transition: {Trace}", plan.ReasonTrace);
     }
@@ -604,25 +448,18 @@ public sealed class AudioMixerEngine(
                 var fadeEnd = fadeStart + Math.Max(1, fadeSamples);
                 foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
                 {
-                    var currentGain = active.Slot.Envelope.GainAt(fadeStart);
-                    active.Slot.Envelope.RemoveBreakpointsFrom(fadeStart);
-                    active.Slot.Envelope.AddBreakpoint(fadeStart, currentGain, RampShape.Linear);
-                    active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
-                    active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+                    active.EndAtMaster = FadeRealizer.FadeToSilence(
+                        active.Slot.Envelope, active.EndAtMaster, fadeStart, fadeEnd);
                 }
 
                 startAt = fadeEnd;
             }
         }
 
-        var info = await BuildItemInfoAsync(interrupt.Item, ct);
-        AddActiveSource(actives, CreateSource(
+        var info = await store.BuildItemInfoAsync(interrupt.Item, ct);
+        AddActiveSource(actives, CreateActiveSource(
             interrupt.Item,
-            info,
-            startAt,
-            settings,
-            EnvelopeKind.Full,
-            reportAt: startAt));
+            SourceScheduler.PlanFullLevel(interrupt.Item, info, settings, Format, startAt, reportAt: startAt)));
         logger.LogInformation(
             "Mixer timed package: starting {Title} at {Delay:F1}s after decision",
             interrupt.Item.Title,
@@ -644,11 +481,8 @@ public sealed class AudioMixerEngine(
         var fadeEnd = masterPos + Math.Max(1, Format.SecondsToSamples(OffAirFadeSeconds));
         foreach (var active in actives.Where(source => source.EndAtMaster > masterPos))
         {
-            var currentGain = active.Slot.Envelope.GainAt(masterPos);
-            active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
-            active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
-            active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
-            active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+            active.EndAtMaster = FadeRealizer.FadeToSilence(
+                active.Slot.Envelope, active.EndAtMaster, masterPos, fadeEnd);
         }
 
         logger.LogInformation("Mixer off air — fading {Count} active source(s) to silence over {Fade:F1}s", actives.Count, OffAirFadeSeconds);
@@ -694,11 +528,8 @@ public sealed class AudioMixerEngine(
         var fadeEnd = masterPos + Math.Max(1, fadeSamples);
         foreach (var active in tracks)
         {
-            var currentGain = active.Slot.Envelope.GainAt(masterPos);
-            active.Slot.Envelope.RemoveBreakpointsFrom(masterPos);
-            active.Slot.Envelope.AddBreakpoint(masterPos, currentGain, RampShape.Linear);
-            active.Slot.Envelope.AddBreakpoint(fadeEnd, 0f, RampShape.Hold);
-            active.EndAtMaster = Math.Min(active.EndAtMaster, fadeEnd);
+            active.EndAtMaster = FadeRealizer.FadeToSilence(
+                active.Slot.Envelope, active.EndAtMaster, masterPos, fadeEnd);
         }
 
         logger.LogInformation(
@@ -710,197 +541,30 @@ public sealed class AudioMixerEngine(
 
     // --- helpers --------------------------------------------------------------------
 
-    private enum EnvelopeKind
-    {
-        Full,
-    }
-
     private void AddActiveSource(List<ActiveSource> actives, ActiveSource source)
     {
         actives.Add(source);
         trackDeletions.MarkPlaybackStarted(source.Item);
     }
 
-    private ActiveSource CreateSource(
-        PlayoutItem item, ItemInfo info, long startAt, MixerSettings settings, EnvelopeKind _, long reportAt)
+    /// <summary>Attaches the PCM reader to a scheduled source and wraps both for the mix loop.</summary>
+    private ActiveSource CreateActiveSource(PlayoutItem item, ScheduledSource scheduled)
     {
-        var startOffset = PlaybackStartSeconds(item, info);
-        var end = startAt + Format.SecondsToSamples(RemainingSeconds(info, startOffset));
-        var reader = CreateReader(item, info, startAtSeconds: startOffset);
+        var reader = readerFactory.Create(item, Format, scheduled.SourceStartSeconds);
         return new ActiveSource
         {
             Slot = new SourceSlot
             {
                 Reader = reader,
-                Envelope = EnvelopeFactory.FullLevel(Format, startAt, end),
-                StartAtMasterSample = startAt,
-                MakeupGainLinear = Makeup(info, settings),
+                Envelope = scheduled.Envelope,
+                StartAtMasterSample = scheduled.StartAtMaster,
+                MakeupGainLinear = scheduled.MakeupGainLinear,
             },
             Item = item,
             Reader = reader,
-            EndAtMaster = end,
-            ReportAtMaster = reportAt,
+            EndAtMaster = scheduled.EndAtMaster,
+            ReportAtMaster = scheduled.ReportAtMaster,
         };
-    }
-
-    private IPcmSampleReader CreateReader(PlayoutItem item, ItemInfo info, double startAtSeconds)
-        => readerFactory.Create(item, Format, startAtSeconds);
-
-    private static double PlaybackStartSeconds(PlayoutItem item, ItemInfo info)
-    {
-        var duration = Math.Max(0, info.DurationSeconds);
-        var resumeOffset = Math.Clamp(double.IsFinite(item.StartOffsetSeconds) ? item.StartOffsetSeconds : 0, 0, duration);
-        // LeadingSilenceSeconds is meaningful for tracks (skip silent intros) but NOT for
-        // announcements — a speech analysis over-reporting silence would seek near EOF and
-        // leave almost nothing to play.
-        var leadIn = item.ItemType == PlayoutItemType.Announcement
-            ? 0
-            : Math.Clamp(info.Analysis?.LeadingSilenceSeconds ?? 0, 0, duration);
-        return Math.Max(resumeOffset, leadIn);
-    }
-
-    private static double RemainingSeconds(ItemInfo info, double startOffsetSeconds)
-        => Math.Max(0, info.DurationSeconds - startOffsetSeconds);
-
-    private static float Makeup(ItemInfo info, MixerSettings settings)
-        => TransitionMath.MakeupGainLinear(
-            info.Analysis is { AnalyzerVersion: > 0 } a ? a.IntegratedLufs : null,
-            settings.TargetLufs, settings.MaxMakeupGainDb);
-
-    private async Task<ItemInfo> BuildItemInfoAsync(PlayoutItem item, CancellationToken ct)
-    {
-        MediaAnalysis? analysis = null;
-        double? talkativeness = null;
-        try
-        {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            analysis = await db.MediaAnalyses.AsNoTracking()
-                .FirstOrDefaultAsync(a => a.ItemType == item.ItemType && a.ItemId == item.ItemId, ct);
-            if (analysis is { AnalyzerVersion: 0 })
-            {
-                analysis = null; // stub row from a failed analysis — planner degrades
-            }
-
-            // The host has a vote on talk-over transitions.
-            if (item.ItemType == PlayoutItemType.Announcement && item.ModeratorId is { } moderatorId)
-            {
-                talkativeness = await db.Moderators.AsNoTracking()
-                    .Where(m => m.Id == moderatorId)
-                    .Select(m => (double?)m.Talkativeness)
-                    .FirstOrDefaultAsync(ct);
-            }
-        }
-        catch
-        {
-            // analysis/host context is optional by design
-        }
-
-        // Announcements have a reliable duration from TTS/rendering (item.DurationSeconds).
-        // The analysis sidecar can report wrong durations for speech files (e.g. stopping
-        // at the first silence gap), which causes the mixer to cut the announcement short.
-        // Only use the analysis duration for tracks, where it measures the real audio.
-        var duration = item.ItemType == PlayoutItemType.Announcement
-            ? item.DurationSeconds
-            : analysis is { DurationSeconds: > 0 } ? analysis.DurationSeconds : item.DurationSeconds;
-
-        if (duration <= 0)
-        {
-            logger.LogWarning(
-                "Mixer: \"{Title}\" ({ItemType} {ItemId}) has DurationSeconds={Duration:F3} — "
-                + "zero-length source will be skipped. File path: \"{FilePath}\"",
-                item.Title, item.ItemType, item.ItemId, duration, item.FilePath);
-        }
-
-        return new ItemInfo(item.ItemType, analysis, duration, talkativeness);
-    }
-
-    private async Task<MixerSettings> LoadSettingsAsync(CancellationToken ct)
-    {
-        try
-        {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var s = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-            return new MixerSettings(
-                s.TargetLufs, s.MaxMakeupGainDb, s.DuckLevelDb, s.DuckRampMs,
-                s.DefaultCrossfadeSeconds, s.BeatAlignBpmTolerancePct,
-                s.HardCutGapAfterTalkMsMin, s.HardCutGapAfterTalkMsMax,
-                s.HardCutGapSongMsMin, s.HardCutGapSongMsMax,
-                s.PostHitSafetyMs, s.StrategyWeightsJson);
-        }
-        catch
-        {
-            return new MixerSettings();
-        }
-    }
-
-    private async Task<TopOfHourGuard?> GetTopOfHourGuardAsync(DateTime utcNow, TimeSpan horizon, CancellationToken ct)
-    {
-        try
-        {
-            await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var settings = await db.StationSettings.AsNoTracking().GetStationSettingsOrDefaultAsync(ct);
-
-            var introGrace = TopOfHourScheduler.NormalizeIntroGraceSeconds(settings.TopOfHourIntroGraceSeconds);
-            var lateWindow = TopOfHourScheduler.NormalizeLateWindowSeconds(TopOfHourScheduler.DefaultLateWindowSeconds);
-            var fadeOut = TopOfHourScheduler.NormalizeFadeOutSeconds(settings.TopOfHourFadeOutSeconds);
-            var minTarget = utcNow.AddSeconds(-lateWindow);
-            var maxTarget = utcNow
-                .Add(horizon < TimeSpan.Zero ? TimeSpan.Zero : horizon)
-                .AddSeconds(introGrace);
-            // The hold ONLY engages for a package that is actually ready to air
-            // (Ready/Queued). A Pending/Retrying package is still being produced and
-            // has no audio yet — holding for it would stop the song and stream silence
-            // until production finishes. The rule is: keep playing music while the news
-            // is pending; the dispatcher + timed interrupt cut it in the instant it
-            // becomes Ready (immediately, even past the top of the hour).
-            NewsPackage? package = null;
-            if (settings.NewsEnabled || settings.WeatherEnabled)
-            {
-                package = await db.NewsPackages.AsNoTracking()
-                    .Where(package => package.TargetUtc >= minTarget
-                        && package.TargetUtc <= maxTarget
-                        && (package.Status == NewsPackageStatus.Ready
-                            || package.Status == NewsPackageStatus.Queued))
-                    .OrderBy(package => package.TargetUtc)
-                    .FirstOrDefaultAsync(ct);
-            }
-
-            // Scheduled podcast episodes land through the same timed interrupt and
-            // need the same hold. Produced ≈ Ready, Queued ≈ Queued.
-            var episode = await db.ConversationSegments.AsNoTracking()
-                .Where(segment => segment.TargetUtc != null
-                    && segment.TargetUtc >= minTarget
-                    && segment.TargetUtc <= maxTarget
-                    && (segment.Status == ConversationStatus.Produced
-                        || segment.Status == ConversationStatus.Queued))
-                .OrderBy(segment => segment.TargetUtc)
-                .Select(segment => new { TargetUtc = segment.TargetUtc!.Value, segment.Status })
-                .FirstOrDefaultAsync(ct);
-
-            if (package is null && episode is null)
-            {
-                return null;
-            }
-
-            if (episode is not null && (package is null || episode.TargetUtc < package.TargetUtc))
-            {
-                var episodeStatus = episode.Status == ConversationStatus.Queued
-                    ? NewsPackageStatus.Queued
-                    : NewsPackageStatus.Ready;
-                return new TopOfHourGuard(episode.TargetUtc, introGrace, lateWindow, fadeOut, episodeStatus);
-            }
-
-            return new TopOfHourGuard(package!.TargetUtc, introGrace, lateWindow, fadeOut, package.Status);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogDebug(ex, "Could not evaluate top-of-hour playout guard");
-            return null;
-        }
     }
 
     private void MixAndEmit(
@@ -951,57 +615,9 @@ public sealed class AudioMixerEngine(
             }
 
             logs.RemoveAt(i);
-            WriteTransitionLogAsync(entry, core.ClipCount - entry.ClipBaseline, core.UnderrunCount).Forget();
-        }
-    }
-
-    private async Task WriteTransitionLogAsync(PendingLog entry, int clipCount, int underruns)
-    {
-        try
-        {
-            // Deliberately not tied to the session token: a transition that already
-            // aired should still be recorded even while the session is tearing down.
-            await using var db = await dbFactory.CreateDbContextAsync(CancellationToken.None);
-            db.TransitionLog.Add(new TransitionLogEntry
-            {
-                OccurredAt = DateTime.UtcNow,
-                OutgoingType = entry.Outgoing.ItemType,
-                OutgoingId = entry.Outgoing.ItemId,
-                IncomingType = entry.Incoming.ItemType,
-                IncomingId = entry.Incoming.ItemId,
-                Strategy = entry.Plan.Strategy.ToString(),
-                OverlapSeconds = entry.Plan.OverlapSeconds,
-                GapMs = entry.Plan.GapMs,
-                ParametersJson = JsonSerializer.Serialize(new
-                {
-                    reasonTrace = entry.Plan.ReasonTrace,
-                    duckLevelDb = entry.Plan.DuckLevelDb,
-                    incomingStartOffsetSeconds = entry.Plan.IncomingStartOffsetSeconds,
-                    underruns,
-                }),
-                ClipCount = clipCount,
-            });
-            await db.SaveChangesAsync(CancellationToken.None);
-            mixerUpdates.Publish();
-            metrics.MixerTransition(entry.Plan.Strategy.ToString(), clipCount);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to write transition log entry");
-        }
-    }
-
-    private static bool TryParseBeatGrid(string json, out double[] beats)
-    {
-        try
-        {
-            beats = JsonSerializer.Deserialize<double[]>(json) ?? [];
-            return true;
-        }
-        catch (JsonException)
-        {
-            beats = [];
-            return false;
+            store.WriteTransitionLogAsync(
+                entry.Outgoing, entry.Incoming, entry.Plan, core.ClipCount - entry.ClipBaseline, core.UnderrunCount)
+                .Forget();
         }
     }
 

@@ -119,12 +119,15 @@ public class PlayoutServiceTests
                 NullLogger<TrackDeletionService>.Instance);
             var fallback = new EmergencyFallbackTrackService(dbFactory, new QueueStateTracker(),
                 radioOptions, NullLogger<EmergencyFallbackTrackService>.Instance);
+            var mixerUpdates = new NoOpMixerUpdatePublisher();
             var mixer = new AudioMixerEngine(
                 queue, reporter, stateStore, trackDeletions, fallback,
                 new MixPlanner(new SystemRandomSource(seed: 1)), new MixerDiagnostics(),
-                new NoOpMixerUpdatePublisher(),
+                mixerUpdates,
                 new TimedPlayoutInterruptService(NullLogger<TimedPlayoutInterruptService>.Instance),
-                new ThrowingReaderFactory(), NullStationMetrics.Instance, dbFactory,
+                new ThrowingReaderFactory(),
+                new MixerSessionStore(dbFactory, mixerUpdates, NullStationMetrics.Instance,
+                    NullLogger<MixerSessionStore>.Instance),
                 NullLogger<AudioMixerEngine>.Instance);
 
             var service = new PlayoutService(
