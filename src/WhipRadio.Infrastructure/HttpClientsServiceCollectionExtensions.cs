@@ -73,7 +73,7 @@ public static class HttpClientsServiceCollectionExtensions
             .RemoveAllResilienceHandlers()
             .HardenForLongRunningCalls();
 
-        services.AddHttpClient(StudioCoordinator.ProbeClientName, client =>
+        services.AddHttpClient(StudioEndpointProber.ProbeClientName, client =>
                 client.Timeout = TimeSpan.FromSeconds(10))
             .RemoveAllResilienceHandlers();
 
@@ -81,6 +81,9 @@ public static class HttpClientsServiceCollectionExtensions
         services.AddSingleton<OllamaModelMemoryManager>();
         services.AddSingleton<LocalGpuScheduler>();
         services.AddSingleton<IStudioUpdatePublisher, NoOpStudioUpdatePublisher>();
+        services.AddSingleton<StudioBookingRegistry>();
+        services.AddSingleton<StudioEndpointProber>();
+        services.AddSingleton<StudioPendingOperationsTracker>();
         services.AddSingleton<StudioCoordinator>();
         services.AddSingleton<StudioHistoryRecorder>();
         services.AddSingleton<StudioProviderFactory>();

@@ -379,10 +379,13 @@ public class StudioConnectionTestTests
     private static StudioCoordinator CreateCoordinator(FakeHttpMessageHandler handler)
     {
         var clientFactory = new SingleClientFactory(() => handler.CreateClient());
+        var publisher = new NoOpStudioUpdatePublisher();
         return new StudioCoordinator(
             new ThrowingDbContextFactory(),
-            clientFactory,
-            new NoOpStudioUpdatePublisher(),
+            new StudioBookingRegistry(),
+            new StudioEndpointProber(clientFactory),
+            new StudioPendingOperationsTracker(publisher),
+            publisher,
             new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
             new OllamaModelMemoryManager(
                 clientFactory,

@@ -300,7 +300,11 @@ output.
 
 Studio usage goes through `StudioCoordinator` and related routers. The goal is
 that expensive GPU work is serialized within the same GPU group, especially
-music generation, TTS, and local LLM work.
+music generation, TTS, and local LLM work. The coordinator is a façade over
+three parts: `StudioBookingRegistry` owns the in-memory bookings and GPU leases
+under a single gate, `StudioEndpointProber` runs the HTTP connection test and
+runtime probes, and `StudioPendingOperationsTracker` tracks the studios-page
+pending operations; `LocalGpuScheduler` remains the per-group admission gate.
 
 Manual user requests may bypass normal production pacing, but they should still
 respect studio availability, queueing, and GPU ownership.

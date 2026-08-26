@@ -21,13 +21,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
             JsonContent.Create(new { models = new[] { new { name = "gemma4:e4b" } } }));
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(handler.CreateClient()));
 
         var result = await coordinator.TestAsync(
             StudioKind.WriterRoom, "local", "http://localhost:11434", null, null, CancellationToken.None);
@@ -44,13 +38,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
             JsonContent.Create(new { data = Array.Empty<object>() }));
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(handler.CreateClient()));
 
         var result = await coordinator.TestAsync(
             StudioKind.WriterRoom, "api", null, StudioProviders.OpenAi, "sk-test", CancellationToken.None);
@@ -68,13 +56,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
             JsonContent.Create(new { status = "ok", engine = "qwen", label = Label }));
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(handler.CreateClient()));
 
         var result = await coordinator.TestAsync(
             StudioKind.VoiceBooth, "local", "http://localhost:8201", null, null, CancellationToken.None);
@@ -98,13 +80,7 @@ public class WriterRoomStudioTests
                 label = Label,
                 backends = new Dictionary<string, bool> { [MusicBackends.MusicGen] = true },
             }));
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(handler.CreateClient()));
 
         var result = await coordinator.TestAsync(
             StudioKind.Recording, "local", "http://localhost:8002", null, null, CancellationToken.None);
@@ -122,13 +98,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.OK,
             JsonContent.Create(new { data = new { status = "ok", version = "1.5", label = Label }, code = 200 }));
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(handler.CreateClient()));
 
         var result = await coordinator.TestAsync(
             StudioKind.Recording, "local", "http://localhost:8101", null, null, CancellationToken.None);
@@ -162,13 +132,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.ServiceUnavailable,
             new StringContent("starting"));
-        var coordinator = new StudioCoordinator(
-            fixture,
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, new SingleClientFactory(handler.CreateClient()));
 
         await using var verify = fixture.CreateDbContext();
         var studio = await verify.Studios.SingleAsync();
@@ -201,13 +165,7 @@ public class WriterRoomStudioTests
         var handler = FakeHttpMessageHandler.RespondingWith(
             HttpStatusCode.ServiceUnavailable,
             new StringContent("starting"));
-        var coordinator = new StudioCoordinator(
-            fixture,
-            new SingleClientFactory(handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, new SingleClientFactory(handler.CreateClient()));
 
         var studio = await coordinator.TryAcquireAsync(
             StudioKind.Recording, MusicBackends.AceStep, "Recording for test artist", CancellationToken.None);
@@ -249,13 +207,7 @@ public class WriterRoomStudioTests
             await db.SaveChangesAsync();
         }
 
-        var coordinator = new StudioCoordinator(
-            fixture,
-            ReadyLocalStudiosClientFactory(),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, ReadyLocalStudiosClientFactory());
 
         var first = await coordinator.TryAcquireAsync(
             StudioKind.Recording, MusicBackends.AceStep, "Recording first", CancellationToken.None);
@@ -308,13 +260,7 @@ public class WriterRoomStudioTests
             await db.SaveChangesAsync();
         }
 
-        var coordinator = new StudioCoordinator(
-            fixture,
-            ReadyLocalStudiosClientFactory(),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, ReadyLocalStudiosClientFactory());
 
         var studio = await coordinator.TryAcquireAsync(
             StudioKind.Recording, MusicBackends.AceStep, "Recording music", CancellationToken.None);
@@ -363,13 +309,7 @@ public class WriterRoomStudioTests
             await db.SaveChangesAsync();
         }
 
-        var coordinator = new StudioCoordinator(
-            fixture,
-            ReadyLocalStudiosClientFactory(),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, ReadyLocalStudiosClientFactory());
 
         var first = await coordinator.TryAcquireAsync(
             StudioKind.Recording, MusicBackends.AceStep, "Recording first", CancellationToken.None);
@@ -411,13 +351,7 @@ public class WriterRoomStudioTests
             await db.SaveChangesAsync();
         }
 
-        var coordinator = new StudioCoordinator(
-            fixture,
-            ReadyLocalStudiosClientFactory(),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, ReadyLocalStudiosClientFactory());
 
         var activeLease = await coordinator.AcquireForGpuJobAsync(
             StudioKind.Recording, MusicBackends.AceStep, "Recording music", CancellationToken.None);
@@ -497,10 +431,13 @@ public class WriterRoomStudioTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
         });
         var clientFactory = new SingleClientFactory(() => handler.CreateClient("http://localhost:11434"));
+        var publisher = new NoOpStudioUpdatePublisher();
         var coordinator = new StudioCoordinator(
             fixture,
-            clientFactory,
-            new NoOpStudioUpdatePublisher(),
+            new StudioBookingRegistry(),
+            new StudioEndpointProber(clientFactory),
+            new StudioPendingOperationsTracker(publisher),
+            publisher,
             new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
             ModelMemory(clientFactory, fixture, "gemma4:e4b"),
             NullLogger<StudioCoordinator>.Instance);
@@ -530,13 +467,7 @@ public class WriterRoomStudioTests
     [TestMethod]
     public async Task StudioCoordinator_AcquireGpuTurnAsync_ShowsDefaultOllamaPendingOperation()
     {
-        var coordinator = new StudioCoordinator(
-            new ThrowingDbFactory(),
-            new SingleClientFactory(new HttpClient()),
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(new ThrowingDbFactory(), new SingleClientFactory(new HttpClient()));
 
         var turn = await coordinator.AcquireGpuTurnAsync(
             StudioKind.WriterRoom,
@@ -590,13 +521,7 @@ public class WriterRoomStudioTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
         });
         var clientFactory = new SingleClientFactory(() => handler.CreateClient("http://fallback.local"));
-        var coordinator = new StudioCoordinator(
-            fixture,
-            clientFactory,
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, clientFactory);
         var llmOptions = Options.Create(new LlmOptions { Model = "test-model" });
         var router = new TextGenerationRouter(
             clientFactory,
@@ -660,13 +585,7 @@ public class WriterRoomStudioTests
                 choices = new[] { new { message = new { role = "assistant", content = "Cloud copy." } } },
             }));
         var clientFactory = new SingleClientFactory(handler.CreateClient("https://api.openai.test"));
-        var coordinator = new StudioCoordinator(
-            fixture,
-            clientFactory,
-            new NoOpStudioUpdatePublisher(),
-            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
-            StubModelMemory(),
-            NullLogger<StudioCoordinator>.Instance);
+        var coordinator = CreateCoordinator(fixture, clientFactory);
         var llmOptions = Options.Create(new LlmOptions { Model = "test-model" });
         var router = new TextGenerationRouter(
             clientFactory,
@@ -703,6 +622,21 @@ public class WriterRoomStudioTests
 
     // These tests drive TryAcquireAsync/runtime probing directly, so the model-memory
     // manager is never actually invoked — a stub with no-op deps is enough.
+    private static StudioCoordinator CreateCoordinator(
+        IDbContextFactory<RadioDbContext> dbFactory, IHttpClientFactory clientFactory)
+    {
+        var publisher = new NoOpStudioUpdatePublisher();
+        return new StudioCoordinator(
+            dbFactory,
+            new StudioBookingRegistry(),
+            new StudioEndpointProber(clientFactory),
+            new StudioPendingOperationsTracker(publisher),
+            publisher,
+            new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
+            StubModelMemory(),
+            NullLogger<StudioCoordinator>.Instance);
+    }
+
     private static OllamaModelMemoryManager StubModelMemory()
         => ModelMemory(new SingleClientFactory(new HttpClient()), new ThrowingDbFactory(), model: "");
 

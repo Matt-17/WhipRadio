@@ -378,13 +378,17 @@ public class StudioCoordinatorBookingTests
             return new HttpResponseMessage(HttpStatusCode.OK) { Content = content };
         });
 
+        var clientFactory = new SingleClientFactory(() => handler.CreateClient());
+        var publisher = new NoOpStudioUpdatePublisher();
         return new StudioCoordinator(
             fixture,
-            new SingleClientFactory(() => handler.CreateClient()),
-            new NoOpStudioUpdatePublisher(),
+            new StudioBookingRegistry(),
+            new StudioEndpointProber(clientFactory),
+            new StudioPendingOperationsTracker(publisher),
+            publisher,
             new LocalGpuScheduler(NullLogger<LocalGpuScheduler>.Instance),
             new OllamaModelMemoryManager(
-                new SingleClientFactory(() => handler.CreateClient()),
+                clientFactory,
                 Options.Create(new LlmOptions { Model = "" }),
                 fixture,
                 NullLogger<OllamaModelMemoryManager>.Instance),

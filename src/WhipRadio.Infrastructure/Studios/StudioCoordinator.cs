@@ -1,6 +1,3 @@
-using System.Collections.Concurrent;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using WhipRadio.Core.Abstractions;
@@ -35,35 +32,27 @@ public static class StudioProviders
 }
 
 /// <summary>
-/// The studio booking desk: knows which studios/booths exist (DB), which are
-/// busy right now (in-memory), hands the next free one to whoever asks, and
-/// keeps usage statistics. Also runs the connection test for the studios page.
+/// The studio booking desk: knows which studios/booths exist (DB), hands the next
+/// free one to whoever asks, and keeps usage statistics. Composes the in-memory
+/// <see cref="StudioBookingRegistry"/>, the HTTP <see cref="StudioEndpointProber"/>,
+/// and the UI-facing <see cref="StudioPendingOperationsTracker"/>.
 /// </summary>
 public class StudioCoordinator(
     IDbContextFactory<RadioDbContext> dbFactory,
-    IHttpClientFactory httpClientFactory,
+    StudioBookingRegistry bookings,
+    StudioEndpointProber prober,
+    StudioPendingOperationsTracker pendingOperations,
     IStudioUpdatePublisher updatePublisher,
     LocalGpuScheduler gpuScheduler,
     OllamaModelMemoryManager modelMemory,
     ILogger<StudioCoordinator> logger)
 {
-    public const string ProbeClientName = "studio-probe";
-
     private static readonly TimeSpan BookUnderTurnTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan BookRetryDelay = TimeSpan.FromMilliseconds(250);
 
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan RuntimeProbeTimeout = TimeSpan.FromSeconds(2);
+    public IReadOnlyDictionary<Guid, StudioJob> ActiveJobs => bookings.ActiveJobs;
 
-    private readonly object _bookingGate = new();
-    private readonly ConcurrentDictionary<Guid, StudioJob> _jobs = new();
-    private readonly ConcurrentDictionary<Guid, StudioPendingOperation> _pendingOperations = new();
-    private readonly Dictionary<string, Guid> _gpuLeases = new(StringComparer.OrdinalIgnoreCase);
-
-    public IReadOnlyDictionary<Guid, StudioJob> ActiveJobs => _jobs;
-
-    public IReadOnlyList<StudioPendingOperation> PendingOperations =>
-        _pendingOperations.Values.OrderBy(operation => operation.StartedAtUtc).ToList();
+    public IReadOnlyList<StudioPendingOperation> PendingOperations => pendingOperations.PendingOperations;
 
     /// <summary>First free active studio of the kind (optionally provider-filtered), marked busy.</summary>
     public async Task<Studio?> TryAcquireAsync(
@@ -73,7 +62,7 @@ public class StudioCoordinator(
         foreach (var studio in candidates)
         {
             var gpuResourceGroup = GetGpuResourceGroup(studio);
-            if (IsBookedOrGpuBlocked(studio))
+            if (bookings.IsBookedOrGpuBlocked(studio.Id, gpuResourceGroup))
             {
                 continue;
             }
@@ -84,7 +73,7 @@ public class StudioCoordinator(
             }
 
             var job = new StudioJob(jobLabel, DateTime.UtcNow, GpuResourceGroup: gpuResourceGroup);
-            if (TryBook(studio.Id, gpuResourceGroup, job))
+            if (bookings.TryBook(studio.Id, gpuResourceGroup, job))
             {
                 logger.LogInformation(
                     "{Studio} booked: {Job}{GpuLease}",
@@ -101,7 +90,7 @@ public class StudioCoordinator(
 
     public async Task ReleaseAsync(Guid studioId, bool success, CancellationToken ct)
     {
-        ReleaseBooking(studioId);
+        bookings.Release(studioId);
         try
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
@@ -145,7 +134,7 @@ public class StudioCoordinator(
             return apiStudio is null ? null : new GpuStudioLease(this, apiStudio, gpuLease: null);
         }
 
-        var pendingId = await AddPendingOperationAsync(
+        var pendingId = await pendingOperations.AddAsync(
             kind,
             jobLabel,
             StudioPendingOperationStatus.Waiting,
@@ -157,10 +146,10 @@ public class StudioCoordinator(
         {
             lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
             await ApplySwitchUnloadAsync(kind, lease, pendingId, ct);
-            await UpdatePendingOperationAsync(
+            await pendingOperations.UpdateAsync(
                 pendingId,
                 StudioPendingOperationStatus.Preparing,
-                PreparingDetail(kind),
+                StudioPendingOperationsTracker.PreparingDetail(kind),
                 progress: null,
                 ct);
 
@@ -168,11 +157,11 @@ public class StudioCoordinator(
             if (studio is null)
             {
                 await lease.DisposeAsync();
-                await RemovePendingOperationAsync(pendingId, ct);
+                await pendingOperations.RemoveAsync(pendingId, ct);
                 return null;
             }
 
-            await RemovePendingOperationAsync(pendingId, ct);
+            await pendingOperations.RemoveAsync(pendingId, ct);
             return new GpuStudioLease(this, studio, lease);
         }
         catch
@@ -182,7 +171,7 @@ public class StudioCoordinator(
                 await lease.DisposeAsync();
             }
 
-            await RemovePendingOperationAsync(pendingId, CancellationToken.None);
+            await pendingOperations.RemoveAsync(pendingId, CancellationToken.None);
             throw;
         }
     }
@@ -195,7 +184,7 @@ public class StudioCoordinator(
     /// </summary>
     public async Task<IAsyncDisposable> AcquireGpuTurnAsync(
         StudioKind kind, string? endpointUrl, CancellationToken ct)
-        => await AcquireGpuTurnAsync(kind, endpointUrl, DefaultPendingLabel(kind), ct);
+        => await AcquireGpuTurnAsync(kind, endpointUrl, StudioPendingOperationsTracker.DefaultLabel(kind), ct);
 
     public async Task<IAsyncDisposable> AcquireGpuTurnAsync(
         StudioKind kind, string? endpointUrl, string? jobLabel, CancellationToken ct)
@@ -206,8 +195,10 @@ public class StudioCoordinator(
             return NoopAsyncDisposable.Instance;
         }
 
-        var label = string.IsNullOrWhiteSpace(jobLabel) ? DefaultPendingLabel(kind) : jobLabel.Trim();
-        var pendingId = await AddPendingOperationAsync(
+        var label = string.IsNullOrWhiteSpace(jobLabel)
+            ? StudioPendingOperationsTracker.DefaultLabel(kind)
+            : jobLabel.Trim();
+        var pendingId = await pendingOperations.AddAsync(
             kind,
             label,
             StudioPendingOperationStatus.Waiting,
@@ -219,13 +210,13 @@ public class StudioCoordinator(
         {
             lease = await gpuScheduler.AcquireAsync(group, kind.ToString(), GpuPriorityContext.CurrentFunc, ct);
             await ApplySwitchUnloadAsync(kind, lease, pendingId, ct);
-            await UpdatePendingOperationAsync(
+            await pendingOperations.UpdateAsync(
                 pendingId,
-                ActivePendingStatus(kind),
+                StudioPendingOperationsTracker.ActiveStatus(kind),
                 "Running on default endpoint",
                 progress: null,
                 ct);
-            return new PendingGpuTurnLease(lease, this, pendingId);
+            return new PendingGpuTurnLease(lease, pendingOperations, pendingId);
         }
         catch
         {
@@ -234,7 +225,7 @@ public class StudioCoordinator(
                 await lease.DisposeAsync();
             }
 
-            await RemovePendingOperationAsync(pendingId, CancellationToken.None);
+            await pendingOperations.RemoveAsync(pendingId, CancellationToken.None);
             throw;
         }
     }
@@ -251,10 +242,10 @@ public class StudioCoordinator(
 
         if (pendingOperationId is { } id)
         {
-            await UpdatePendingOperationAsync(
+            await pendingOperations.UpdateAsync(
                 id,
                 StudioPendingOperationStatus.Loading,
-                ModelSwitchDetail(kind, lease),
+                StudioPendingOperationsTracker.ModelSwitchDetail(kind, lease),
                 progress: null,
                 ct);
         }
@@ -273,94 +264,6 @@ public class StudioCoordinator(
                 break;
         }
     }
-
-    private async Task<Guid> AddPendingOperationAsync(
-        StudioKind kind,
-        string label,
-        string status,
-        string? detail,
-        string? resourceGroup,
-        CancellationToken ct)
-    {
-        var id = Guid.NewGuid();
-        _pendingOperations[id] = new StudioPendingOperation(
-            id,
-            kind,
-            label.Trim(),
-            DateTime.UtcNow,
-            status,
-            detail,
-            Progress: null,
-            resourceGroup);
-        await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
-        return id;
-    }
-
-    private async Task UpdatePendingOperationAsync(
-        Guid id,
-        string status,
-        string? detail,
-        string? progress,
-        CancellationToken ct)
-    {
-        if (!_pendingOperations.TryGetValue(id, out var operation))
-        {
-            return;
-        }
-
-        _pendingOperations[id] = operation with
-        {
-            Status = status,
-            Detail = detail,
-            Progress = progress,
-        };
-        await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
-    }
-
-    private async Task RemovePendingOperationAsync(Guid id, CancellationToken ct)
-    {
-        if (_pendingOperations.TryRemove(id, out _))
-        {
-            await updatePublisher.PublishStudiosChangedAsync(CancellationToken.None);
-        }
-    }
-
-    private static string DefaultPendingLabel(StudioKind kind)
-        => kind switch
-        {
-            StudioKind.WriterRoom => "Writing text",
-            StudioKind.VoiceBooth => "Voicing audio",
-            _ => "Recording music",
-        };
-
-    private static string ActivePendingStatus(StudioKind kind)
-        => kind == StudioKind.WriterRoom
-            ? StudioPendingOperationStatus.Work
-            : StudioPendingOperationStatus.Recording;
-
-    private static string PreparingDetail(StudioKind kind)
-        => $"Preparing {KindDisplayName(kind)} endpoint";
-
-    private static string ModelSwitchDetail(StudioKind kind, LocalGpuScheduler.GpuLease lease)
-    {
-        var target = KindDisplayName(kind);
-        return string.IsNullOrWhiteSpace(lease.PreviousAffinity)
-            ? $"Loading {target} model"
-            : $"Switching from {AffinityDisplayName(lease.PreviousAffinity)} to {target}";
-    }
-
-    private static string AffinityDisplayName(string affinity)
-        => Enum.TryParse<StudioKind>(affinity, ignoreCase: true, out var kind)
-            ? KindDisplayName(kind)
-            : affinity;
-
-    private static string KindDisplayName(StudioKind kind)
-        => kind switch
-        {
-            StudioKind.WriterRoom => "Writer Room",
-            StudioKind.VoiceBooth => "Voice Booth",
-            _ => "Recording",
-        };
 
     /// <summary>Book a concrete ready studio once a GPU turn is held; the turn guarantees the
     /// GPU is free, so this only absorbs a transient runtime-probe miss.</summary>
@@ -387,24 +290,10 @@ public class StudioCoordinator(
 
     public async Task UpdateJobProgressAsync(Guid studioId, string? progress, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(progress))
+        if (bookings.TryUpdateProgress(studioId, progress))
         {
-            return;
+            await updatePublisher.PublishStudiosChangedAsync(ct);
         }
-
-        var trimmed = progress.Trim();
-        lock (_bookingGate)
-        {
-            if (!_jobs.TryGetValue(studioId, out var job)
-                || string.Equals(job.Progress, trimmed, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            _jobs[studioId] = job with { Progress = trimmed };
-        }
-
-        await updatePublisher.PublishStudiosChangedAsync(ct);
     }
 
     public async Task<bool> AnyActiveAsync(StudioKind kind, string? requiredProvider, CancellationToken ct)
@@ -427,7 +316,7 @@ public class StudioCoordinator(
     public async Task<bool> AnyBusyAsync(StudioKind kind, string? requiredProvider, CancellationToken ct)
     {
         var candidates = await GetActiveAsync(kind, requiredProvider, ct);
-        return candidates.Any(IsBookedOrGpuBlocked);
+        return candidates.Any(studio => bookings.IsBookedOrGpuBlocked(studio.Id, GetGpuResourceGroup(studio)));
     }
 
     /// <summary>Provider of the first active recording studio — drives vocals/prompt decisions.</summary>
@@ -449,13 +338,18 @@ public class StudioCoordinator(
             return new StudioRuntimeState(StudioRuntimeState.Busy, job.Label);
         }
 
-        if (TryGetGpuBlocker(studio, out var blocker))
+        if (bookings.TryGetGpuBlocker(GetGpuResourceGroup(studio), out var blocker))
         {
             return new StudioRuntimeState(StudioRuntimeState.Busy, $"GPU reserved by {blocker.Label}");
         }
 
-        return await ProbeRuntimeAsync(studio, ct);
+        return await prober.ProbeRuntimeAsync(studio, ct);
     }
+
+    /// <summary>Probes a studio endpoint and identifies the protocol it speaks.</summary>
+    public Task<(bool Ok, string? Provider, string? Detail)> TestAsync(
+        StudioKind kind, string source, string? url, string? provider, string? apiKey, CancellationToken ct)
+        => prober.TestAsync(kind, source, url, provider, apiKey, ct);
 
     private async Task<List<Studio>> GetActiveAsync(StudioKind kind, string? requiredProvider, CancellationToken ct)
     {
@@ -471,102 +365,13 @@ public class StudioCoordinator(
 
     private async Task<bool> IsRuntimeReadyAsync(Studio studio, CancellationToken ct)
     {
-        if (IsBookedOrGpuBlocked(studio))
+        if (bookings.IsBookedOrGpuBlocked(studio.Id, GetGpuResourceGroup(studio)))
         {
             return false;
         }
 
-        var state = await ProbeRuntimeAsync(studio, ct);
+        var state = await prober.ProbeRuntimeAsync(studio, ct);
         return state.Status == StudioRuntimeState.Ready;
-    }
-
-    private bool TryBook(Guid studioId, string? gpuResourceGroup, StudioJob job)
-    {
-        lock (_bookingGate)
-        {
-            if (_jobs.ContainsKey(studioId))
-            {
-                return false;
-            }
-
-            if (gpuResourceGroup is not null && TryGetLiveGpuLease(gpuResourceGroup, out _, out _))
-            {
-                return false;
-            }
-
-            _jobs[studioId] = job;
-            if (gpuResourceGroup is not null)
-            {
-                _gpuLeases[gpuResourceGroup] = studioId;
-            }
-
-            return true;
-        }
-    }
-
-    private void ReleaseBooking(Guid studioId)
-    {
-        lock (_bookingGate)
-        {
-            if (!_jobs.TryRemove(studioId, out var job))
-            {
-                return;
-            }
-
-            if (job.GpuResourceGroup is not null
-                && _gpuLeases.TryGetValue(job.GpuResourceGroup, out var leasedStudioId)
-                && leasedStudioId == studioId)
-            {
-                _gpuLeases.Remove(job.GpuResourceGroup);
-            }
-        }
-    }
-
-    private bool IsBookedOrGpuBlocked(Studio studio)
-    {
-        lock (_bookingGate)
-        {
-            if (_jobs.ContainsKey(studio.Id))
-            {
-                return true;
-            }
-
-            var group = GetGpuResourceGroup(studio);
-            return group is not null && TryGetLiveGpuLease(group, out _, out _);
-        }
-    }
-
-    private bool TryGetGpuBlocker(Studio studio, out StudioJob blocker)
-    {
-        blocker = default!;
-        var group = GetGpuResourceGroup(studio);
-        if (group is null)
-        {
-            return false;
-        }
-
-        lock (_bookingGate)
-        {
-            return TryGetLiveGpuLease(group, out _, out blocker);
-        }
-    }
-
-    private bool TryGetLiveGpuLease(string group, out Guid studioId, out StudioJob job)
-    {
-        if (!_gpuLeases.TryGetValue(group, out studioId))
-        {
-            job = default!;
-            return false;
-        }
-
-        if (_jobs.TryGetValue(studioId, out job!))
-        {
-            return true;
-        }
-
-        _gpuLeases.Remove(group);
-        job = default!;
-        return false;
     }
 
     private static string? GetGpuResourceGroup(Studio studio)
@@ -594,248 +399,6 @@ public class StudioCoordinator(
             || string.Equals(provider, StudioProviders.Ollama, StringComparison.OrdinalIgnoreCase)
             || string.Equals(provider, StudioProviders.LocalTts, StringComparison.OrdinalIgnoreCase);
     }
-
-    private async Task<StudioRuntimeState> ProbeRuntimeAsync(Studio studio, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(studio.Url))
-        {
-            return new StudioRuntimeState(StudioRuntimeState.Ready, "API provider configured");
-        }
-
-        try
-        {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(RuntimeProbeTimeout);
-
-            var (ok, _, detail) = await TestAsync(
-                studio.Kind,
-                "local",
-                studio.Url,
-                provider: null,
-                apiKey: null,
-                timeout.Token);
-
-            return ok
-                ? new StudioRuntimeState(StudioRuntimeState.Ready, detail)
-                : new StudioRuntimeState(StudioRuntimeState.Offline, detail ?? "Endpoint probe failed.");
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            return new StudioRuntimeState(StudioRuntimeState.Offline, "Probe timed out.");
-        }
-        catch (Exception ex)
-        {
-            return new StudioRuntimeState(StudioRuntimeState.Offline, ex.GetBaseException().Message);
-        }
-    }
-
-    // ---- connection test ------------------------------------------------------
-
-    /// <summary>Probes a studio endpoint and identifies the protocol it speaks.</summary>
-    public async Task<(bool Ok, string? Provider, string? Detail)> TestAsync(
-        StudioKind kind, string source, string? url, string? provider, string? apiKey, CancellationToken ct)
-    {
-        try
-        {
-            if (string.Equals(source, "api", StringComparison.OrdinalIgnoreCase))
-            {
-                return await TestApiProviderAsync(kind, provider, apiKey, ct);
-            }
-
-            if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
-            {
-                return (false, null, "A valid URL is required.");
-            }
-
-            return kind switch
-            {
-                StudioKind.WriterRoom => await TestLocalWriterRoomAsync(url, ct),
-                StudioKind.VoiceBooth => await TestLocalBoothAsync(url, ct),
-                _ => await TestLocalRecordingAsync(url, ct),
-            };
-        }
-        catch (Exception ex)
-        {
-            return (false, null, ex.GetBaseException().Message);
-        }
-    }
-
-    private async Task<(bool, string?, string?)> TestApiProviderAsync(
-        StudioKind kind, string? provider, string? apiKey, CancellationToken ct)
-    {
-        if (string.Equals(provider, StudioProviders.OpenAi, StringComparison.OrdinalIgnoreCase))
-        {
-            if (kind != StudioKind.WriterRoom)
-            {
-                return (false, null, "OpenAI is only available for writer rooms.");
-            }
-
-            if (string.IsNullOrWhiteSpace(apiKey))
-            {
-                return (false, null, "An API key is required.");
-            }
-
-            var openAiClient = httpClientFactory.CreateClient(ProbeClientName);
-            using var openAiRequest = new HttpRequestMessage(HttpMethod.Get, "https://api.openai.com/v1/models");
-            openAiRequest.Headers.Add("Authorization", $"Bearer {apiKey}");
-            using var openAiResponse = await openAiClient.SendAsync(openAiRequest, ct);
-
-            return openAiResponse.IsSuccessStatusCode
-                ? (true, StudioProviders.OpenAi, "OpenAI - key accepted")
-                : (false, null, $"OpenAI rejected the key ({(int)openAiResponse.StatusCode}).");
-        }
-
-        if (!string.Equals(provider, StudioProviders.ElevenLabs, StringComparison.OrdinalIgnoreCase))
-        {
-            return (false, null, $"Unknown API provider '{provider}'.");
-        }
-
-        if (kind == StudioKind.WriterRoom)
-        {
-            return (false, null, "Writer room API endpoints use OpenAI.");
-        }
-
-        if (string.IsNullOrWhiteSpace(apiKey))
-        {
-            return (false, null, "An API key is required.");
-        }
-
-        var client = httpClientFactory.CreateClient(ProbeClientName);
-        using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.elevenlabs.io/v1/user");
-        request.Headers.Add("xi-api-key", apiKey);
-        using var response = await client.SendAsync(request, ct);
-
-        return response.IsSuccessStatusCode
-            ? (true, StudioProviders.ElevenLabs, "ElevenLabs — key accepted")
-            : (false, null, $"ElevenLabs rejected the key ({(int)response.StatusCode}).");
-    }
-
-    private async Task<(bool, string?, string?)> TestLocalWriterRoomAsync(string url, CancellationToken ct)
-    {
-        var client = httpClientFactory.CreateClient(ProbeClientName);
-        using var response = await client.GetAsync($"{url.TrimEnd('/')}/api/tags", ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            return (false, null, $"GET /api/tags returned {(int)response.StatusCode}.");
-        }
-
-        var tags = await response.Content.ReadFromJsonAsync<OllamaTagsResponse>(JsonOpts, ct);
-        return (true, StudioProviders.Ollama, $"Ollama - {tags?.Models.Count ?? 0} models");
-    }
-
-    private async Task<(bool, string?, string?)> TestLocalBoothAsync(string url, CancellationToken ct)
-    {
-        var client = httpClientFactory.CreateClient(ProbeClientName);
-        using var response = await client.GetAsync($"{url.TrimEnd('/')}/health", ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            return (false, null, $"GET /health returned {(int)response.StatusCode}.");
-        }
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-        var status = root.TryGetProperty("status", out var s) ? s.GetString() : null;
-        return string.Equals(status, "ok", StringComparison.OrdinalIgnoreCase)
-            ? (true, StudioProviders.LocalTts, ExtractHealthDetail(root, "TTS sidecar"))
-            : (false, null, $"TTS sidecar reports status '{status ?? "unknown"}'.");
-    }
-
-    private async Task<(bool, string?, string?)> TestLocalRecordingAsync(string url, CancellationToken ct)
-    {
-        var client = httpClientFactory.CreateClient(ProbeClientName);
-        using var response = await client.GetAsync($"{url.TrimEnd('/')}/health", ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            return (false, null, $"GET /health returned {(int)response.StatusCode}.");
-        }
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        using var doc = JsonDocument.Parse(json);
-        var root = doc.RootElement;
-
-        // ACE-Step wraps everything in { data: {...}, code, error }.
-        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
-        {
-            var status = data.TryGetProperty("status", out var s) ? s.GetString() : null;
-            var version = data.TryGetProperty("version", out var v) ? v.GetString() : null;
-            var fallback = $"ACE-Step{(version is null ? "" : $" {version}")}";
-            return string.Equals(status, "ok", StringComparison.OrdinalIgnoreCase)
-                ? (true, MusicBackends.AceStep, ExtractHealthDetail(root, fallback))
-                : (false, null, $"ACE-Step reports status '{status}'.");
-        }
-
-        // MusicGen sidecar: flat { status, backends: { musicgen: true } }.
-        if (root.TryGetProperty("backends", out var backends)
-            && backends.TryGetProperty(MusicBackends.MusicGen, out var mg) && mg.GetBoolean())
-        {
-            return (true, MusicBackends.MusicGen, ExtractHealthDetail(root, "MusicGen sidecar"));
-        }
-
-        return (false, null, "Endpoint answered but speaks no known studio protocol.");
-    }
-
-    private static string ExtractHealthDetail(JsonElement root, string fallback)
-    {
-        foreach (var element in EnumerateHealthObjects(root))
-        {
-            foreach (var propertyName in new[] { "label", "detail", "description" })
-            {
-                var value = GetStringProperty(element, propertyName);
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
-            }
-        }
-
-        foreach (var element in EnumerateHealthObjects(root))
-        {
-            foreach (var propertyName in new[] { "service", "provider", "engine", "backend", "model" })
-            {
-                var value = GetStringProperty(element, propertyName);
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    return value.Trim();
-                }
-            }
-        }
-
-        return fallback;
-    }
-
-    private static IEnumerable<JsonElement> EnumerateHealthObjects(JsonElement root)
-    {
-        if (root.ValueKind == JsonValueKind.Object)
-        {
-            yield return root;
-            if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
-            {
-                yield return data;
-            }
-        }
-    }
-
-    private static string? GetStringProperty(JsonElement element, string propertyName)
-    {
-        if (!element.TryGetProperty(propertyName, out var value))
-        {
-            return null;
-        }
-
-        return value.ValueKind switch
-        {
-            JsonValueKind.String => value.GetString(),
-            JsonValueKind.Number => value.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => null,
-        };
-    }
-
-    private sealed record OllamaTagsResponse(IReadOnlyList<OllamaModelTag> Models);
-
-    private sealed record OllamaModelTag(string Name);
 
     /// <summary>
     /// A booked studio plus its (optional) GPU turn. Call <see cref="CompleteAsync"/> exactly
@@ -881,7 +444,7 @@ public class StudioCoordinator(
 
     private sealed class PendingGpuTurnLease(
         LocalGpuScheduler.GpuLease gpuLease,
-        StudioCoordinator coordinator,
+        StudioPendingOperationsTracker pendingOperations,
         Guid pendingOperationId)
         : IAsyncDisposable
     {
@@ -896,7 +459,7 @@ public class StudioCoordinator(
 
             try
             {
-                await coordinator.RemovePendingOperationAsync(pendingOperationId, CancellationToken.None);
+                await pendingOperations.RemoveAsync(pendingOperationId, CancellationToken.None);
             }
             finally
             {

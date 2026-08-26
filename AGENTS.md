@@ -100,6 +100,6 @@ Read time through the injected `TimeProvider` (`timeProvider.GetUtcNow().UtcDate
 
 - `PromptScope.CharacterDecision` is unused but intentionally kept for enum stability — leave it.
 - `Stats.razor` polling every 10s is deliberate (periodic resource sampling has no meaningful push signal); the Messages page uses the `ListenerMessagesChanged` push instead.
-- God-class decomposition candidates (large, untested): `AudioMixerEngine`, `RadioApiClient`, `StudioCoordinator`. `ChatActionExecutor` is split across partials.
+- God-class decomposition candidates (large, untested): `AudioMixerEngine`, `RadioApiClient`. `ChatActionExecutor` is split across partials. `StudioCoordinator` is decomposed: it composes `StudioBookingRegistry` (in-memory bookings + GPU leases under one gate), `StudioEndpointProber` (connection test / runtime probes), and `StudioPendingOperationsTracker` (studios-page pending ops); callers keep using the coordinator façade.
 - The Web layer is under-tested relative to Core/Infra/Orchestrator; prefer adding `RadioApiClient` and page smoke tests when you touch it.
 - DB-backed tests use Testcontainers.PostgreSql and require Docker; the catalog matrix tests do not.
