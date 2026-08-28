@@ -34,6 +34,7 @@ NuGet reports `NU1903` for `SQLitePCLRaw.lib.e_sqlite3` 2.1.11: GHSA-2m69-gcr7-j
 | Infrastructure | `z440.atl.core` (ATL) | 7.15.3 | MIT |
 | Orchestrator | `Microsoft.EntityFrameworkCore.Design` | 10.0.9 | MIT |
 | Web | `Microsoft.AspNetCore.SignalR.Client` | 10.0.9 | MIT |
+| Tests | `bunit` | 2.7.2 | MIT |
 | Tests | `coverlet.collector` | 6.0.4 | MIT |
 | Tests | `Microsoft.NET.Test.Sdk` | 17.14.1 | MIT |
 | Tests | `MSTest.TestAdapter` | 4.2.3 | MIT |

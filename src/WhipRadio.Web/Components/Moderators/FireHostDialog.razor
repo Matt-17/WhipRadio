@@ -1,0 +1,59 @@
+@using WhipRadio.Core.Api
+
+<ConfirmDialog Visible="@(Target is not null)"
+               Title="Fire host"
+               ConfirmText="Fire"
+               CancelText="Keep"
+               Danger="true"
+               OnConfirm="OnConfirm"
+               OnCancel="OnCancel"
+               Working="Working">
+    @if (Target is { } hostToFire)
+    {
+        <p>Fire <strong>@hostToFire.Name</strong>?</p>
+        <p class="dim">This turns the host off and removes future assignments. Existing aired audio and logs stay in history.</p>
+        @if (Usage is null)
+        {
+            <div class="empty-state">checking usage...</div>
+        }
+        else
+        {
+            var clearedItems = HostFormat.FireClearedItems(Usage);
+            <div class="host-fire-impact">
+                <div class="host-fire-impact-title">Firing this host will clear:</div>
+                @if (clearedItems.Count == 0)
+                {
+                    <div class="host-fire-empty">No active assignments.</div>
+                }
+                else
+                {
+                    <ul class="host-fire-list">
+                        @foreach (var item in clearedItems)
+                        {
+                            <li>@item</li>
+                        }
+                    </ul>
+                }
+                <div class="host-fire-history">@HostFormat.FireHistoryText(Usage)</div>
+            </div>
+        }
+        @if (Error is not null)
+        {
+            <div class="text-danger">@Error</div>
+        }
+    }
+</ConfirmDialog>
+
+@code {
+    [Parameter] public ModeratorDto? Target { get; set; }
+
+    [Parameter] public ModeratorUsageDto? Usage { get; set; }
+
+    [Parameter] public string? Error { get; set; }
+
+    [Parameter] public bool Working { get; set; }
+
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    [Parameter] public EventCallback OnCancel { get; set; }
+}

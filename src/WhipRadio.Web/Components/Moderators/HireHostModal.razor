@@ -1,0 +1,224 @@
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services.Api
+@inject ModeratorsApiClient Api
+
+<Modal Visible="@Visible" Title="Hire a Host" Class="modal-wide" OnClose="CloseAsync">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field"><label>Name</label><input @bind="_newName" placeholder="e.g. Mia Morningwave" /></div>
+            <div class="field">
+                <label>Gender</label>
+                <select @bind="_newGender"><option value="f">female</option><option value="m">male</option></select>
+            </div>
+            <div class="field">
+                <label>Language</label>
+                <div class="field-flag">
+                    <Flag Code="@StationLanguage" />
+                    <input value="@StationLanguage (station language)" disabled />
+                </div>
+            </div>
+            <div class="field"><label>Style</label><input @bind="_newStyle" placeholder="fast-energetic / slow-thoughtful / ..." /></div>
+            <div class="field">
+                <label>Weather specialist</label>
+                <UiSwitch Value="@_newWeatherSpecialist"
+                          ValueChanged="@((bool value) => _newWeatherSpecialist = value)"
+                          Title="@(_newWeatherSpecialist ? "Weather specialist enabled" : "Weather specialist disabled")" />
+            </div>
+            <div class="field">
+                <label>Talkativeness</label>
+                <select @bind="_newTalkativeness">
+                    <option value="0.2">quiet — mostly music</option>
+                    <option value="0.5">balanced</option>
+                    <option value="0.8">talky — loves the mic</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Energy</label>
+                <select @bind="_newEnergy">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@HostFormat.TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Formality</label>
+                <select @bind="_newFormality">
+                    <option value="VeryCasual">very casual</option>
+                    <option value="Casual">casual</option>
+                    <option value="Balanced">balanced</option>
+                    <option value="Formal">formal</option>
+                    <option value="VeryFormal">very formal</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Humor</label>
+                <select @bind="_newHumorLevel">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@HostFormat.TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Warmth</label>
+                <select @bind="_newWarmth">
+                    @foreach (var level in TraitLevels)
+                    {
+                        <option value="@level">@HostFormat.TraitLabel(level)</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Break Frequency</label>
+                <select @bind="_newBreakFrequency">
+                    <option value="0">music only</option>
+                    <option value="1">every track</option>
+                    <option value="2">every second track</option>
+                    <option value="3">every third track</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Parts Per Break</label>
+                <select @bind="_newMaxPartsPerBreak">
+                    <option value="1">one part</option>
+                    <option value="2">up to two parts</option>
+                    <option value="3">up to three parts</option>
+                </select>
+            </div>
+            <div class="field"><label>Preferred Genres (csv)</label><input @bind="_newGenres" placeholder="electronic,lofi" /></div>
+            <div class="field"><label>Photo URL (optional)</label><input @bind="_newPhotoUrl" placeholder="https://... or /images/host.jpg" /></div>
+        </div>
+        <div class="field" style="margin-bottom:16px">
+            <label>Persona (how they talk, what they love)</label>
+            <input @bind="_newPersona" placeholder="You are a warm late-night host who loves vinyl stories ..." />
+        </div>
+        @if (_designError is not null)
+        {
+            <div class="text-danger">@_designError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="CloseAsync">Cancel</button>
+        <button class="btn primary @(_creatingHost ? "working-button" : null)" disabled="@_creatingHost" @onclick="CreateAsync">@(_creatingHost ? "hiring..." : "Hire Host")</button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public string StationLanguage { get; set; } = "en";
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    [Parameter] public EventCallback<ModeratorDto> OnHired { get; set; }
+
+    private static readonly string[] TraitLevels = ["VeryLow", "Low", "Medium", "High", "VeryHigh"];
+
+    private string _newName = "";
+    private string _newGender = "f";
+    private string _newStyle = "";
+    private string _newGenres = "";
+    private string _newTalkativeness = "0.5";
+    private bool _newWeatherSpecialist;
+    private string _newEnergy = "Medium";
+    private string _newFormality = "Balanced";
+    private string _newHumorLevel = "Medium";
+    private string _newWarmth = "Medium";
+    private string _newBreakFrequency = "1";
+    private string _newMaxPartsPerBreak = "3";
+    private string _newPersona = "";
+    private string _newPhotoUrl = "";
+    private string? _designError;
+    private bool _creatingHost;
+
+    private async Task CloseAsync()
+    {
+        _designError = null;
+        _creatingHost = false;
+        await OnClose.InvokeAsync();
+    }
+
+    private async Task CreateAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newName))
+        {
+            _designError = "Name is required";
+            return;
+        }
+
+        _creatingHost = true;
+        _designError = null;
+        try
+        {
+            var (created, error) = await Api.CreateModeratorAsync(new CreateModeratorDto(
+                Name: _newName,
+                Language: StationLanguage,
+                Gender: _newGender,
+                TtsEngine: "qwen",
+                Style: _newStyle,
+                PersonaPrompt: _newPersona,
+                PrefersVocals: null,
+                PreferredGenres: _newGenres,
+                Talkativeness: double.TryParse(_newTalkativeness, System.Globalization.CultureInfo.InvariantCulture, out var talk) ? talk : 0.5,
+                IsWeatherSpecialist: _newWeatherSpecialist,
+                PhotoUrl: string.IsNullOrWhiteSpace(_newPhotoUrl) ? null : _newPhotoUrl,
+                BaselineTraits: NewBaselineTraits(),
+                TalkProfile: NewTalkProfile(),
+                IsNewsSpecialist: false,
+                VoiceDescription: BuildNewVoiceDescription()));
+
+            if (created is null)
+            {
+                _designError = string.IsNullOrWhiteSpace(error) ? "host creation failed" : error;
+                return;
+            }
+
+            _newName = "";
+            _newPersona = "";
+            _newPhotoUrl = "";
+            _newWeatherSpecialist = false;
+            await OnHired.InvokeAsync(created);
+        }
+        catch (Exception ex)
+        {
+            _designError = $"Host creation failed: {ex.Message}";
+        }
+        finally
+        {
+            _creatingHost = false;
+        }
+    }
+
+    private ModeratorTraitsDto NewBaselineTraits()
+        => new(_newEnergy, _newFormality, _newHumorLevel, TalkTraitFromScore(_newTalkativeness), _newWarmth);
+
+    private HostTalkProfileDto NewTalkProfile()
+        => new(
+            BreakFrequencyTracks: int.TryParse(_newBreakFrequency, out var frequency) ? frequency : 1,
+            MinPartsPerBreak: 1,
+            MaxPartsPerBreak: int.TryParse(_newMaxPartsPerBreak, out var maxParts) ? maxParts : 3);
+
+    private string BuildNewVoiceDescription()
+    {
+        var gender = _newGender == "m" ? "male" : "female";
+        var style = string.IsNullOrWhiteSpace(_newStyle) ? "balanced radio host" : _newStyle.Trim();
+        var persona = string.IsNullOrWhiteSpace(_newPersona) ? "warm WhipRadio host" : _newPersona.Trim();
+        return $"A {gender} radio host voice with {style} delivery. {persona}";
+    }
+
+    private static string TalkTraitFromScore(string score)
+    {
+        var talkativeness = double.TryParse(score, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
+            ? Math.Clamp(parsed, 0, 1)
+            : 0.5;
+        return talkativeness switch
+        {
+            < 0.2 => "VeryLow",
+            < 0.4 => "Low",
+            > 0.8 => "VeryHigh",
+            > 0.6 => "High",
+            _ => "Medium",
+        };
+    }
+}
