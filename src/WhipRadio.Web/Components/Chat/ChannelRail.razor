@@ -1,0 +1,161 @@
+@using System.Globalization
+@using WhipRadio.Core.Api
+
+<aside class="panel chat-rail">
+    <div class="chat-rail-head">
+        <div class="panel-label">Channels</div>
+        @if (Loading)
+        {
+            <StatusBadge Text="checking" />
+        }
+        <button class="btn small" title="start a group channel" @onclick="OnCreateGroup">+ Group</button>
+    </div>
+
+    <input class="chat-search"
+           type="search"
+           placeholder="Search"
+           @bind="_channelFilter"
+           @bind:event="oninput" />
+
+    @if (!string.IsNullOrWhiteSpace(LoadError))
+    {
+        <div class="chat-warning">@LoadError</div>
+    }
+
+    @if (Channels.Count == 0 && Loading)
+    {
+        <div class="empty-state compact"><span class="blink">▮</span> opening lines...</div>
+    }
+    else if (Channels.Count == 0)
+    {
+        <div class="empty-state compact">No chat channels yet.</div>
+    }
+    else
+    {
+        <div class="chat-channel-list">
+            @foreach (ChatChannelDto channel in FilteredChannels)
+            {
+                <button class="@ChannelClass(channel)" @onclick="() => OnSelect.InvokeAsync(channel)" title="@channel.Name">
+                    @if (channel.Kind == "HostDm")
+                    {
+                        <PersonAvatar Name="@channel.Name" PhotoUrl="@channel.PhotoUrl" Size="thumb" />
+                    }
+                    else
+                    {
+                        <span class="@ChannelIconClass(channel)">
+                            <Icon Name="@ChannelIcon(channel)" />
+                        </span>
+                    }
+                    <span class="chat-channel-copy">
+                        <span class="chat-channel-top">
+                            <span class="chat-channel-name">@channel.Name</span>
+                            @if (!string.IsNullOrWhiteSpace(channel.LastMessagePreview))
+                            {
+                                <span class="chat-channel-time">@RailTimeLabel(channel.LastMessageAtUtc)</span>
+                            }
+                        </span>
+                        <span class="chat-channel-preview">
+                            @if (ThinkingChannels.Contains(channel.Id))
+                            {
+                                <span class="chat-preview-typing"><i></i><i></i><i></i></span>
+                            }
+                            else
+                            {
+                                @(channel.LastMessagePreview ?? string.Empty)
+                            }
+                        </span>
+                    </span>
+                    @if (channel.UnreadCount > 0)
+                    {
+                        <span class="chat-unread">@UnreadLabel(channel.UnreadCount)</span>
+                    }
+                </button>
+            }
+        </div>
+    }
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public required IReadOnlyList<ChatChannelDto> Channels { get; set; }
+
+    [Parameter] public Guid? ActiveChannelId { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public string? LoadError { get; set; }
+
+    /// <summary>Channels whose agent is composing right now (typing indicator).</summary>
+    [Parameter] public IReadOnlyCollection<Guid> ThinkingChannels { get; set; } = [];
+
+    [Parameter] public EventCallback<ChatChannelDto> OnSelect { get; set; }
+
+    [Parameter] public EventCallback OnCreateGroup { get; set; }
+
+    private string _channelFilter = string.Empty;
+
+    private IEnumerable<ChatChannelDto> FilteredChannels
+        => string.IsNullOrWhiteSpace(_channelFilter)
+            ? Channels
+            : Channels.Where(channel =>
+                channel.Name.Contains(_channelFilter, StringComparison.OrdinalIgnoreCase)
+                || (channel.LastMessagePreview?.Contains(_channelFilter, StringComparison.OrdinalIgnoreCase) ?? false));
+
+    private string ChannelClass(ChatChannelDto channel)
+    {
+        List<string> parts = ["chat-channel"];
+        if (ActiveChannelId == channel.Id)
+        {
+            parts.Add("active");
+        }
+
+        if (channel.IsArchived)
+        {
+            parts.Add("archived");
+        }
+
+        return string.Join(" ", parts);
+    }
+
+    private static string ChannelIcon(ChatChannelDto channel)
+        => channel.Kind switch
+        {
+            "DirectorDm" => "director",
+            "HostToHost" => "exchange",
+            "Group" => "chat",
+            _ => "antenna",
+        };
+
+    private static string ChannelIconClass(ChatChannelDto channel)
+        => channel.Kind switch
+        {
+            "DirectorDm" => "chat-avatar-icon director",
+            "HostToHost" => "chat-avatar-icon exchange",
+            "Group" => "chat-avatar-icon group",
+            _ => "chat-avatar-icon station",
+        };
+
+    private static string UnreadLabel(int count)
+        => count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
+
+    private static string RailTimeLabel(DateTime value)
+    {
+        DateTime local = ChatFormat.AsUtc(value).ToLocalTime();
+        DateTime today = DateTime.Now.Date;
+        if (local.Date == today)
+        {
+            return local.ToString("HH:mm", CultureInfo.InvariantCulture);
+        }
+
+        if (local.Date == today.AddDays(-1))
+        {
+            return "yesterday";
+        }
+
+        if (local.Date > today.AddDays(-7))
+        {
+            return local.ToString("ddd", CultureInfo.InvariantCulture);
+        }
+
+        return local.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
+    }
+}

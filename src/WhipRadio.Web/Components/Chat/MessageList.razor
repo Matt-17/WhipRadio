@@ -1,0 +1,210 @@
+@using System.Globalization
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services.Api
+@inject ChatApiClient Api
+@inject IJSRuntime JS
+
+<div class="chat-messages" @ref="_messagePane">
+    @if (Loading)
+    {
+        <div class="empty-state"><span class="blink">▮</span> loading history...</div>
+    }
+    else
+    {
+        @if (HasMore && Messages.Count > 0)
+        {
+            <div class="chat-load-older">
+                <button class="btn small" disabled="@LoadingOlder" @onclick="OnLoadOlder">
+                    @(LoadingOlder ? "loading..." : "load older")
+                </button>
+            </div>
+        }
+
+        ChatMessageDto? previous = null;
+        @foreach (ChatMessageDto message in Messages)
+        {
+            bool groupStart = IsGroupStart(message, previous);
+            IReadOnlyList<ChatActionDto> actions = VisibleActions(message);
+
+            @if (StartsNewDay(message, previous))
+            {
+                <div class="chat-day">@DayLabel(message.CreatedAtUtc)</div>
+            }
+
+            <article class="@MessageClass(message, groupStart)">
+                @if (message.SenderKind != "Admin" && message.SenderKind != "System")
+                {
+                    @if (groupStart)
+                    {
+                        <PersonAvatar Name="@message.SenderName" PhotoUrl="@message.SenderPhotoUrl" Size="thumb" />
+                    }
+                    else
+                    {
+                        <span class="chat-avatar-spacer"></span>
+                    }
+                }
+                else if (message.SenderKind == "System")
+                {
+                    <span class="chat-system-icon"><Icon Name="bell" /></span>
+                }
+                <div class="chat-bubble" title="@TimeLabel(message.CreatedAtUtc)">
+                    @if (groupStart && message.SenderKind != "Admin" && message.SenderKind != "System")
+                    {
+                        <div class="chat-msg-meta">
+                            <span>@message.SenderName</span>
+                            @if (message.HopCount > 0 && ChannelKind != "HostToHost")
+                            {
+                                <span class="chat-relay">relayed</span>
+                            }
+                            <span class="chat-msg-time">@TimeLabel(message.CreatedAtUtc)</span>
+                        </div>
+                    }
+                    <div class="chat-msg-body">@message.Text</div>
+                    @if (actions.Count > 0)
+                    {
+                        <div class="chat-actions">
+                            @for (int i = 0; i < message.Actions.Count; i++)
+                            {
+                                ChatActionDto action = message.Actions[i];
+                                if (!IsVisibleAction(action))
+                                {
+                                    continue;
+                                }
+
+                                <div class="chat-action-chip">
+                                    <Icon Name="bolt" />
+                                    <span class="chat-action-main">@ActionLabel(action)</span>
+                                    <StatusBadge Text="@action.State" Tone="@ActionTone(action.State)" Title="@action.ResultSummary" Pulse="@ActionPulses(action.State)" />
+                                    @if (action.State == "PendingConfirmation")
+                                    {
+                                        int actionIndex = i;
+                                        <button class="btn small primary" @onclick="() => ConfirmActionAsync(message, actionIndex)">Confirm</button>
+                                        <button class="btn small" @onclick="() => DismissActionAsync(message, actionIndex)">Dismiss</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </article>
+            previous = message;
+        }
+
+        @if (ThinkingActive)
+        {
+            <article class="chat-msg thinking">
+                <span class="chat-avatar-spacer"></span>
+                <div class="chat-bubble chat-typing">
+                    <span class="chat-typing-dots"><i></i><i></i><i></i></span>
+                </div>
+            </article>
+        }
+    }
+</div>
+
+@code {
+    private static readonly TimeSpan GroupWindow = TimeSpan.FromMinutes(5);
+
+    [Parameter, EditorRequired] public required IReadOnlyList<ChatMessageDto> Messages { get; set; }
+
+    [Parameter] public string? ChannelKind { get; set; }
+
+    [Parameter] public bool Loading { get; set; }
+
+    [Parameter] public bool LoadingOlder { get; set; }
+
+    [Parameter] public bool HasMore { get; set; }
+
+    /// <summary>An agent is composing in this channel — show the typing bubble.</summary>
+    [Parameter] public bool ThinkingActive { get; set; }
+
+    /// <summary>Increment to scroll the pane to the bottom after the next render.</summary>
+    [Parameter] public long ScrollStamp { get; set; }
+
+    [Parameter] public EventCallback OnLoadOlder { get; set; }
+
+    /// <summary>A confirm/dismiss returned an error (or null on success) — the parent shows it.</summary>
+    [Parameter] public EventCallback<string?> OnActionError { get; set; }
+
+    private ElementReference _messagePane;
+    private long _scrolledStamp;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (ScrollStamp != _scrolledStamp)
+        {
+            _scrolledStamp = ScrollStamp;
+            await JS.InvokeVoidAsync("whipChat.scrollToBottom", _messagePane, true);
+        }
+    }
+
+    private async Task ConfirmActionAsync(ChatMessageDto message, int actionIndex)
+    {
+        string? error = await Api.ConfirmChatActionAsync(message.Id, actionIndex);
+        await OnActionError.InvokeAsync(error);
+    }
+
+    private async Task DismissActionAsync(ChatMessageDto message, int actionIndex)
+    {
+        string? error = await Api.DismissChatActionAsync(message.Id, actionIndex);
+        await OnActionError.InvokeAsync(error);
+    }
+
+    private static string MessageClass(ChatMessageDto message, bool groupStart)
+    {
+        string baseClass = message.SenderKind switch
+        {
+            "Admin" => "chat-msg own",
+            "System" => "chat-msg system",
+            _ => "chat-msg",
+        };
+        return groupStart ? $"{baseClass} group-start" : baseClass;
+    }
+
+    private static IReadOnlyList<ChatActionDto> VisibleActions(ChatMessageDto message)
+        => message.Actions.Where(IsVisibleAction).ToList();
+
+    // Failed and auto-skipped actions live in the server log, not in the
+    // consumer-facing chat - the agent already answered in prose.
+    private static bool IsVisibleAction(ChatActionDto action)
+        => action.State is not ("Failed" or "Dismissed");
+
+    private static string ActionLabel(ChatActionDto action)
+    {
+        List<string> parts = action.Arguments
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
+            .Take(2)
+            .Select(pair => $"{pair.Key}: {pair.Value}")
+            .ToList();
+        return parts.Count == 0 ? action.Tool : $"{action.Tool} - {string.Join(", ", parts)}";
+    }
+
+    private static StatusBadgeTone ActionTone(string state)
+        => state switch
+        {
+            "Succeeded" => StatusBadgeTone.Green,
+            "Failed" => StatusBadgeTone.Red,
+            "Dismissed" => StatusBadgeTone.Default,
+            _ => StatusBadgeTone.Amber,
+        };
+
+    private static bool ActionPulses(string state)
+        => state is "Running" or "PendingConfirmation";
+
+    private static bool IsGroupStart(ChatMessageDto message, ChatMessageDto? previous)
+        => previous is null
+            || previous.SenderKind != message.SenderKind
+            || previous.SenderModeratorId != message.SenderModeratorId
+            || ChatFormat.AsUtc(message.CreatedAtUtc) - ChatFormat.AsUtc(previous.CreatedAtUtc) > GroupWindow
+            || StartsNewDay(message, previous);
+
+    private static bool StartsNewDay(ChatMessageDto message, ChatMessageDto? previous)
+        => previous is null
+            || ChatFormat.AsUtc(message.CreatedAtUtc).ToLocalTime().Date != ChatFormat.AsUtc(previous.CreatedAtUtc).ToLocalTime().Date;
+
+    private static string DayLabel(DateTime value)
+        => ChatFormat.AsUtc(value).ToLocalTime().ToString("dddd, MMM d", CultureInfo.InvariantCulture);
+
+    private static string TimeLabel(DateTime value)
+        => ChatFormat.AsUtc(value).ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+}

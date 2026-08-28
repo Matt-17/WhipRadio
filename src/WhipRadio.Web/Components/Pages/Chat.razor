@@ -1,9 +1,9 @@
 @page "/chat"
 @rendermode InteractiveServer
-@using System.Globalization
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.JSInterop
 @using WhipRadio.Core.Api
+@using WhipRadio.Web.Components.Chat
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject ChatApiClient Api
@@ -17,79 +17,13 @@
     <div class="stage-sub">the back office line</div>
 
     <div class="chat-layout reveal">
-        <aside class="panel chat-rail">
-            <div class="chat-rail-head">
-                <div class="panel-label">Channels</div>
-                @if (_loadingChannels)
-                {
-                    <StatusBadge Text="checking" />
-                }
-                <button class="btn small" title="start a group channel" @onclick="OpenCreateGroupAsync">+ Group</button>
-            </div>
-
-            <input class="chat-search"
-                   type="search"
-                   placeholder="Search"
-                   @bind="_channelFilter"
-                   @bind:event="oninput" />
-
-            @if (!string.IsNullOrWhiteSpace(_loadError))
-            {
-                <div class="chat-warning">@_loadError</div>
-            }
-
-            @if (Live.Channels.Count == 0 && _loadingChannels)
-            {
-                <div class="empty-state compact"><span class="blink">▮</span> opening lines...</div>
-            }
-            else if (Live.Channels.Count == 0)
-            {
-                <div class="empty-state compact">No chat channels yet.</div>
-            }
-            else
-            {
-                <div class="chat-channel-list">
-                    @foreach (ChatChannelDto channel in FilteredChannels)
-                    {
-                        <button class="@ChannelClass(channel)" @onclick="() => SelectChannelAsync(channel)" title="@channel.Name">
-                            @if (channel.Kind == "HostDm")
-                            {
-                                <PersonAvatar Name="@channel.Name" PhotoUrl="@channel.PhotoUrl" Size="thumb" />
-                            }
-                            else
-                            {
-                                <span class="@ChannelIconClass(channel)">
-                                    <Icon Name="@ChannelIcon(channel)" />
-                                </span>
-                            }
-                            <span class="chat-channel-copy">
-                                <span class="chat-channel-top">
-                                    <span class="chat-channel-name">@channel.Name</span>
-                                    @if (!string.IsNullOrWhiteSpace(channel.LastMessagePreview))
-                                    {
-                                        <span class="chat-channel-time">@RailTimeLabel(channel.LastMessageAtUtc)</span>
-                                    }
-                                </span>
-                                <span class="chat-channel-preview">
-                                    @if (_thinking.ContainsKey(channel.Id))
-                                    {
-                                        <span class="chat-preview-typing"><i></i><i></i><i></i></span>
-                                    }
-                                    else
-                                    {
-                                        @(channel.LastMessagePreview ?? string.Empty)
-                                    }
-                                </span>
-                            </span>
-                            @if (channel.UnreadCount > 0)
-                            {
-                                <span class="chat-unread">@UnreadLabel(channel.UnreadCount)</span>
-                            }
-                        </button>
-                    }
-                </div>
-            }
-        </aside>
+        <ChannelRail Channels="Live.Channels"
+                     ActiveChannelId="_activeChannel?.Id"
+                     Loading="_loadingChannels"
+                     LoadError="@_loadError"
+                     ThinkingChannels="_thinking.Keys"
+                     OnSelect="SelectChannelAsync"
+                     OnCreateGroup="() => _createGroupOpen = true" />
 
         <section class="panel chat-pane">
             @if (_activeChannel is null)
@@ -132,7 +66,7 @@
                                 <option value="">add member...</option>
                                 @foreach (ChatParticipantOptionDto option in AddableParticipants)
                                 {
-                                    <option value="@OptionKey(option)">@option.Name — @option.Subtitle</option>
+                                    <option value="@NewGroupModal.OptionKey(option)">@option.Name — @option.Subtitle</option>
                                 }
                             </select>
                             <button class="btn small" disabled="@(string.IsNullOrEmpty(_addMemberKey) || _addingMember)"
@@ -141,164 +75,33 @@
                     </div>
                 }
 
-                <div class="chat-messages" @ref="_messagePane">
-                    @if (_loadingMessages)
-                    {
-                        <div class="empty-state"><span class="blink">▮</span> loading history...</div>
-                    }
-                    else
-                    {
-                        @if (_hasMore && _messages.Count > 0)
-                        {
-                            <div class="chat-load-older">
-                                <button class="btn small" disabled="@_loadingOlder" @onclick="LoadOlderAsync">
-                                    @(_loadingOlder ? "loading..." : "load older")
-                                </button>
-                            </div>
-                        }
+                <MessageList Messages="_messages"
+                             ChannelKind="@_activeChannel.Kind"
+                             Loading="_loadingMessages"
+                             LoadingOlder="_loadingOlder"
+                             HasMore="_hasMore"
+                             ThinkingActive="_thinking.ContainsKey(_activeChannel.Id)"
+                             ScrollStamp="_scrollStamp"
+                             OnLoadOlder="LoadOlderAsync"
+                             OnActionError="error => _sendError = error" />
 
-                        ChatMessageDto? previous = null;
-                        @foreach (ChatMessageDto message in _messages)
-                        {
-                            bool groupStart = IsGroupStart(message, previous);
-                            IReadOnlyList<ChatActionDto> actions = VisibleActions(message);
-
-                            @if (StartsNewDay(message, previous))
-                            {
-                                <div class="chat-day">@DayLabel(message.CreatedAtUtc)</div>
-                            }
-
-                            <article class="@MessageClass(message, groupStart)">
-                                @if (message.SenderKind != "Admin" && message.SenderKind != "System")
-                                {
-                                    @if (groupStart)
-                                    {
-                                        <PersonAvatar Name="@message.SenderName" PhotoUrl="@message.SenderPhotoUrl" Size="thumb" />
-                                    }
-                                    else
-                                    {
-                                        <span class="chat-avatar-spacer"></span>
-                                    }
-                                }
-                                else if (message.SenderKind == "System")
-                                {
-                                    <span class="chat-system-icon"><Icon Name="bell" /></span>
-                                }
-                                <div class="chat-bubble" title="@TimeLabel(message.CreatedAtUtc)">
-                                    @if (groupStart && message.SenderKind != "Admin" && message.SenderKind != "System")
-                                    {
-                                        <div class="chat-msg-meta">
-                                            <span>@message.SenderName</span>
-                                            @if (message.HopCount > 0 && _activeChannel.Kind != "HostToHost")
-                                            {
-                                                <span class="chat-relay">relayed</span>
-                                            }
-                                            <span class="chat-msg-time">@TimeLabel(message.CreatedAtUtc)</span>
-                                        </div>
-                                    }
-                                    <div class="chat-msg-body">@message.Text</div>
-                                    @if (actions.Count > 0)
-                                    {
-                                        <div class="chat-actions">
-                                            @for (int i = 0; i < message.Actions.Count; i++)
-                                            {
-                                                ChatActionDto action = message.Actions[i];
-                                                if (!IsVisibleAction(action))
-                                                {
-                                                    continue;
-                                                }
-
-                                                <div class="chat-action-chip">
-                                                    <Icon Name="bolt" />
-                                                    <span class="chat-action-main">@ActionLabel(action)</span>
-                                                    <StatusBadge Text="@action.State" Tone="@ActionTone(action.State)" Title="@action.ResultSummary" Pulse="@ActionPulses(action.State)" />
-                                                    @if (action.State == "PendingConfirmation")
-                                                    {
-                                                        int actionIndex = i;
-                                                        <button class="btn small primary" @onclick="() => ConfirmActionAsync(message, actionIndex)">Confirm</button>
-                                                        <button class="btn small" @onclick="() => DismissActionAsync(message, actionIndex)">Dismiss</button>
-                                                    }
-                                                </div>
-                                            }
-                                        </div>
-                                    }
-                                </div>
-                            </article>
-                            previous = message;
-                        }
-
-                        @if (_thinking.ContainsKey(_activeChannel.Id))
-                        {
-                            <article class="chat-msg thinking">
-                                <span class="chat-avatar-spacer"></span>
-                                <div class="chat-bubble chat-typing">
-                                    <span class="chat-typing-dots"><i></i><i></i><i></i></span>
-                                </div>
-                            </article>
-                        }
-                    }
-                </div>
-
-                <form class="chat-composer" @onsubmit="SendAsync" @onsubmit:preventDefault>
-                    @if (!CanPost)
-                    {
-                        <div class="chat-composer-note">@ComposerDisabledLabel</div>
-                    }
-                    else if (!string.IsNullOrWhiteSpace(_sendError))
-                    {
-                        <div class="chat-composer-error">@_sendError</div>
-                    }
-                    <textarea @ref="_composer"
-                              @bind="_composerText"
-                              @bind:event="oninput"
-                              data-channel-id="@_activeChannel.Id"
-                              placeholder="@ComposerPlaceholder"
-                              disabled="@(!CanPost || _sending)"
-                              maxlength="4000"
-                              rows="2"></textarea>
-                    <button class="btn primary icon-only" type="submit" disabled="@(!CanPost || _sending || string.IsNullOrWhiteSpace(_composerText))" title="Send">
-                        <Icon Name="send" />
-                    </button>
-                </form>
+                <ChatComposer ChannelId="_activeChannel.Id"
+                              CanPost="CanPost"
+                              Sending="_sending"
+                              @bind-Text="_composerText"
+                              Placeholder="@ComposerPlaceholder"
+                              DisabledLabel="@ComposerDisabledLabel"
+                              Error="@_sendError"
+                              FocusStamp="_focusStamp"
+                              OnSend="SendAsync" />
             }
         </section>
     </div>
 </div>
 
-<Modal Visible="@_createGroupOpen" Title="New Group Channel" Class="modal-wide" OnClose="() => _createGroupOpen = false">
-    <ChildContent>
-        <div class="form-grid">
-            <div class="field full">
-                <label>Group name</label>
-                <input @bind="_groupName" placeholder="optional — defaults to the member names" />
-            </div>
-        </div>
-        <div class="chat-group-picker">
-            @foreach (ChatParticipantOptionDto option in _participantOptions)
-            {
-                string key = OptionKey(option);
-                <label class="chat-group-option">
-                    <input type="checkbox"
-                           checked="@_selectedParticipants.Contains(key)"
-                           @onchange="args => ToggleParticipant(key, args)" />
-                    <span>@option.Name</span>
-                    <span class="dim">@option.Subtitle</span>
-                </label>
-            }
-        </div>
-        @if (_createGroupError is not null)
-        {
-            <div class="vote-down-text" style="margin-top:10px">@_createGroupError</div>
-        }
-    </ChildContent>
-    <Footer>
-        <button class="btn" @onclick="() => _createGroupOpen = false">Cancel</button>
-        <button class="btn primary" disabled="@(_selectedParticipants.Count == 0 || _creatingGroup)"
-                @onclick="CreateGroupAsync">
-            Create Group
-        </button>
-    </Footer>
-</Modal>
+<NewGroupModal Visible="@_createGroupOpen"
+               OnClose="() => _createGroupOpen = false"
+               OnCreated="GroupCreatedAsync" />
 
 <ConfirmDialog Visible="@(_removeMemberTarget is not null)"
                Title="Remove member"
@@ -315,7 +118,6 @@
 
 @code {
     private const string SelectedChannelKey = "whipchat.channel";
-    private static readonly TimeSpan GroupWindow = TimeSpan.FromMinutes(5);
 
     private readonly List<ChatMessageDto> _messages = [];
     private readonly Dictionary<Guid, string> _thinking = [];
@@ -325,23 +127,16 @@
     private bool _loadingOlder;
     private bool _sending;
     private bool _hasMore;
-    private bool _scrollPending;
-    private bool _focusPending;
+    private long _scrollStamp;
+    private long _focusStamp;
     private string _composerText = string.Empty;
-    private string _channelFilter = string.Empty;
     private string? _loadError;
     private string? _sendError;
-    private ElementReference _messagePane;
-    private ElementReference _composer;
     private bool _createGroupOpen;
-    private bool _creatingGroup;
     private bool _showRoster;
     private bool _addingMember;
-    private string _groupName = string.Empty;
     private string _addMemberKey = string.Empty;
-    private string? _createGroupError;
     private List<ChatParticipantOptionDto> _participantOptions = [];
-    private readonly HashSet<string> _selectedParticipants = [];
     private ChatChannelMemberDto? _removeMemberTarget;
 
     private bool CanPost
@@ -361,13 +156,6 @@
                 : _activeChannel.Kind == "HostToHost"
                     ? "agents only - you are reading their exchange"
                     : "composer disabled";
-
-    private IEnumerable<ChatChannelDto> FilteredChannels
-        => string.IsNullOrWhiteSpace(_channelFilter)
-            ? Live.Channels
-            : Live.Channels.Where(channel =>
-                channel.Name.Contains(_channelFilter, StringComparison.OrdinalIgnoreCase)
-                || (channel.LastMessagePreview?.Contains(_channelFilter, StringComparison.OrdinalIgnoreCase) ?? false));
 
     protected override async Task OnInitializedAsync()
     {
@@ -400,22 +188,6 @@
         if (firstRender)
         {
             await RestoreStateAsync();
-        }
-
-        if (_activeChannel is not null && CanPost)
-        {
-            await JS.InvokeVoidAsync("whipChat.wireComposer", _composer);
-            if (_focusPending)
-            {
-                _focusPending = false;
-                await JS.InvokeVoidAsync("whipChat.focus", _composer);
-            }
-        }
-
-        if (_scrollPending)
-        {
-            _scrollPending = false;
-            await JS.InvokeVoidAsync("whipChat.scrollToBottom", _messagePane, true);
         }
     }
 
@@ -451,7 +223,7 @@
             // localStorage being unavailable must never break the chat page.
         }
 
-        _focusPending = true;
+        _focusStamp++;
         StateHasChanged();
     }
 
@@ -483,8 +255,8 @@
 
         await LoadMessagesAsync(replace: true);
         await Api.MarkChatReadAsync(channel.Id);
-        _scrollPending = true;
-        _focusPending = true;
+        _scrollStamp++;
+        _focusStamp++;
     }
 
     private async Task LoadMessagesAsync(bool replace)
@@ -506,7 +278,7 @@
             _messages.AddRange(page.Messages);
             _hasMore = page.HasMore;
             _loadError = null;
-            _scrollPending = true;
+            _scrollStamp++;
         }
         catch (Exception ex)
         {
@@ -568,25 +340,13 @@
             }
 
             UpsertMessage(message);
-            _scrollPending = true;
-            _focusPending = true;
+            _scrollStamp++;
+            _focusStamp++;
         }
         finally
         {
             _sending = false;
         }
-    }
-
-    private async Task ConfirmActionAsync(ChatMessageDto message, int actionIndex)
-    {
-        string? error = await Api.ConfirmChatActionAsync(message.Id, actionIndex);
-        _sendError = error;
-    }
-
-    private async Task DismissActionAsync(ChatMessageDto message, int actionIndex)
-    {
-        string? error = await Api.DismissChatActionAsync(message.Id, actionIndex);
-        _sendError = error;
     }
 
     private IEnumerable<ChatParticipantOptionDto> AddableParticipants
@@ -596,58 +356,10 @@
                 && member.ModeratorId == option.ModeratorId
                 && member.EntityId == option.EntityId));
 
-    private async Task OpenCreateGroupAsync()
+    private async Task GroupCreatedAsync(ChatChannelDto channel)
     {
-        _groupName = string.Empty;
-        _selectedParticipants.Clear();
-        _createGroupError = null;
-        _participantOptions = await Api.GetChatParticipantsAsync();
-        _createGroupOpen = true;
-    }
-
-    private void ToggleParticipant(string key, ChangeEventArgs args)
-    {
-        if (args.Value is bool selected && selected)
-        {
-            _selectedParticipants.Add(key);
-        }
-        else
-        {
-            _selectedParticipants.Remove(key);
-        }
-    }
-
-    private async Task CreateGroupAsync()
-    {
-        if (_selectedParticipants.Count == 0 || _creatingGroup)
-        {
-            return;
-        }
-
-        _creatingGroup = true;
-        _createGroupError = null;
-        try
-        {
-            List<ChatParticipantSelectionDto> selections = _participantOptions
-                .Where(option => _selectedParticipants.Contains(OptionKey(option)))
-                .Select(option => new ChatParticipantSelectionDto(option.Kind, option.ModeratorId, option.EntityId))
-                .ToList();
-            (ChatChannelDto? channel, string? error) = await Api.CreateGroupChatChannelAsync(
-                string.IsNullOrWhiteSpace(_groupName) ? null : _groupName.Trim(),
-                selections);
-            if (channel is null)
-            {
-                _createGroupError = string.IsNullOrWhiteSpace(error) ? "Group could not be created." : error;
-                return;
-            }
-
-            _createGroupOpen = false;
-            await SelectChannelAsync(channel);
-        }
-        finally
-        {
-            _creatingGroup = false;
-        }
+        _createGroupOpen = false;
+        await SelectChannelAsync(channel);
     }
 
     private async Task ToggleRosterAsync()
@@ -667,7 +379,7 @@
         }
 
         ChatParticipantOptionDto? option = _participantOptions
-            .FirstOrDefault(candidate => OptionKey(candidate) == _addMemberKey);
+            .FirstOrDefault(candidate => NewGroupModal.OptionKey(candidate) == _addMemberKey);
         if (option is null)
         {
             return;
@@ -698,9 +410,6 @@
         await Api.RemoveChatChannelMemberAsync(_activeChannel.Id, target.Id);
     }
 
-    private static string OptionKey(ChatParticipantOptionDto option)
-        => $"{option.Kind}:{option.ModeratorId?.ToString(CultureInfo.InvariantCulture) ?? option.EntityId?.ToString() ?? ""}";
-
     private void OnLiveChanged()
         => _ = InvokeAsync(() =>
         {
@@ -721,7 +430,7 @@
             }
 
             UpsertMessage(message);
-            _scrollPending = true;
+            _scrollStamp++;
             await Api.MarkChatReadAsync(message.ChannelId);
             StateHasChanged();
         });
@@ -734,7 +443,7 @@
                 _thinking[thinking.ChannelId] = thinking.SenderName;
                 if (_activeChannel?.Id == thinking.ChannelId)
                 {
-                    _scrollPending = true;
+                    _scrollStamp++;
                 }
             }
             else
@@ -759,40 +468,6 @@
         }
     }
 
-    private string ChannelClass(ChatChannelDto channel)
-    {
-        List<string> parts = ["chat-channel"];
-        if (_activeChannel?.Id == channel.Id)
-        {
-            parts.Add("active");
-        }
-
-        if (channel.IsArchived)
-        {
-            parts.Add("archived");
-        }
-
-        return string.Join(" ", parts);
-    }
-
-    private static string ChannelIcon(ChatChannelDto channel)
-        => channel.Kind switch
-        {
-            "DirectorDm" => "director",
-            "HostToHost" => "exchange",
-            "Group" => "chat",
-            _ => "antenna",
-        };
-
-    private static string ChannelIconClass(ChatChannelDto channel)
-        => channel.Kind switch
-        {
-            "DirectorDm" => "chat-avatar-icon director",
-            "HostToHost" => "chat-avatar-icon exchange",
-            "Group" => "chat-avatar-icon group",
-            _ => "chat-avatar-icon station",
-        };
-
     private static string ChannelKindLabel(ChatChannelDto channel)
         => channel.Kind switch
         {
@@ -810,92 +485,6 @@
             "Guest" => "guest",
             _ => kind.ToLowerInvariant(),
         };
-
-    private static string MessageClass(ChatMessageDto message, bool groupStart)
-    {
-        string baseClass = message.SenderKind switch
-        {
-            "Admin" => "chat-msg own",
-            "System" => "chat-msg system",
-            _ => "chat-msg",
-        };
-        return groupStart ? $"{baseClass} group-start" : baseClass;
-    }
-
-    private static IReadOnlyList<ChatActionDto> VisibleActions(ChatMessageDto message)
-        => message.Actions.Where(IsVisibleAction).ToList();
-
-    // Failed and auto-skipped actions live in the server log, not in the
-    // consumer-facing chat - the agent already answered in prose.
-    private static bool IsVisibleAction(ChatActionDto action)
-        => action.State is not ("Failed" or "Dismissed");
-
-    private static string ActionLabel(ChatActionDto action)
-    {
-        List<string> parts = action.Arguments
-            .Where(pair => !string.IsNullOrWhiteSpace(pair.Value))
-            .Take(2)
-            .Select(pair => $"{pair.Key}: {pair.Value}")
-            .ToList();
-        return parts.Count == 0 ? action.Tool : $"{action.Tool} - {string.Join(", ", parts)}";
-    }
-
-    private static StatusBadgeTone ActionTone(string state)
-        => state switch
-        {
-            "Succeeded" => StatusBadgeTone.Green,
-            "Failed" => StatusBadgeTone.Red,
-            "Dismissed" => StatusBadgeTone.Default,
-            _ => StatusBadgeTone.Amber,
-        };
-
-    private static bool ActionPulses(string state)
-        => state is "Running" or "PendingConfirmation";
-
-    private static string UnreadLabel(int count)
-        => count > 99 ? "99+" : count.ToString(CultureInfo.InvariantCulture);
-
-    private static bool IsGroupStart(ChatMessageDto message, ChatMessageDto? previous)
-        => previous is null
-            || previous.SenderKind != message.SenderKind
-            || previous.SenderModeratorId != message.SenderModeratorId
-            || AsUtc(message.CreatedAtUtc) - AsUtc(previous.CreatedAtUtc) > GroupWindow
-            || StartsNewDay(message, previous);
-
-    private static bool StartsNewDay(ChatMessageDto message, ChatMessageDto? previous)
-        => previous is null
-            || AsUtc(message.CreatedAtUtc).ToLocalTime().Date != AsUtc(previous.CreatedAtUtc).ToLocalTime().Date;
-
-    private static string DayLabel(DateTime value)
-        => AsUtc(value).ToLocalTime().ToString("dddd, MMM d", CultureInfo.InvariantCulture);
-
-    private static string TimeLabel(DateTime value)
-        => AsUtc(value).ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
-
-    private static string RailTimeLabel(DateTime value)
-    {
-        DateTime local = AsUtc(value).ToLocalTime();
-        DateTime today = DateTime.Now.Date;
-        if (local.Date == today)
-        {
-            return local.ToString("HH:mm", CultureInfo.InvariantCulture);
-        }
-
-        if (local.Date == today.AddDays(-1))
-        {
-            return "yesterday";
-        }
-
-        if (local.Date > today.AddDays(-7))
-        {
-            return local.ToString("ddd", CultureInfo.InvariantCulture);
-        }
-
-        return local.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
-    }
-
-    private static DateTime AsUtc(DateTime value)
-        => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 
     public void Dispose()
     {

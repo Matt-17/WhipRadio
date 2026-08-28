@@ -1,0 +1,65 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+<form class="chat-composer" @onsubmit="OnSend" @onsubmit:preventDefault>
+    @if (!CanPost)
+    {
+        <div class="chat-composer-note">@DisabledLabel</div>
+    }
+    else if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="chat-composer-error">@Error</div>
+    }
+    <textarea @ref="_composer"
+              value="@Text"
+              @oninput="args => TextChanged.InvokeAsync(args.Value?.ToString() ?? string.Empty)"
+              data-channel-id="@ChannelId"
+              placeholder="@Placeholder"
+              disabled="@(!CanPost || Sending)"
+              maxlength="4000"
+              rows="2"></textarea>
+    <button class="btn primary icon-only" type="submit" disabled="@(!CanPost || Sending || string.IsNullOrWhiteSpace(Text))" title="Send">
+        <Icon Name="send" />
+    </button>
+</form>
+
+@code {
+    [Parameter] public Guid ChannelId { get; set; }
+
+    [Parameter] public bool CanPost { get; set; }
+
+    [Parameter] public bool Sending { get; set; }
+
+    [Parameter] public string Text { get; set; } = string.Empty;
+
+    [Parameter] public EventCallback<string> TextChanged { get; set; }
+
+    [Parameter] public string Placeholder { get; set; } = string.Empty;
+
+    [Parameter] public string DisabledLabel { get; set; } = string.Empty;
+
+    [Parameter] public string? Error { get; set; }
+
+    /// <summary>Increment to focus the textarea after the next render.</summary>
+    [Parameter] public long FocusStamp { get; set; }
+
+    [Parameter] public EventCallback OnSend { get; set; }
+
+    private ElementReference _composer;
+    private long _focusedStamp;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!CanPost)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("whipChat.wireComposer", _composer);
+        if (FocusStamp != _focusedStamp)
+        {
+            _focusedStamp = FocusStamp;
+            await JS.InvokeVoidAsync("whipChat.focus", _composer);
+        }
+    }
+}

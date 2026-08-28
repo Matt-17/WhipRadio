@@ -1,0 +1,115 @@
+@using System.Globalization
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services.Api
+@inject ChatApiClient Api
+
+<Modal Visible="@Visible" Title="New Group Channel" Class="modal-wide" OnClose="OnClose">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field full">
+                <label>Group name</label>
+                <input @bind="_groupName" placeholder="optional — defaults to the member names" />
+            </div>
+        </div>
+        <div class="chat-group-picker">
+            @foreach (ChatParticipantOptionDto option in _participantOptions)
+            {
+                string key = OptionKey(option);
+                <label class="chat-group-option">
+                    <input type="checkbox"
+                           checked="@_selectedParticipants.Contains(key)"
+                           @onchange="args => ToggleParticipant(key, args)" />
+                    <span>@option.Name</span>
+                    <span class="dim">@option.Subtitle</span>
+                </label>
+            }
+        </div>
+        @if (_createGroupError is not null)
+        {
+            <div class="vote-down-text" style="margin-top:10px">@_createGroupError</div>
+        }
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="OnClose">Cancel</button>
+        <button class="btn primary" disabled="@(_selectedParticipants.Count == 0 || _creatingGroup)"
+                @onclick="CreateGroupAsync">
+            Create Group
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>The group exists — the parent selects the new channel.</summary>
+    [Parameter] public EventCallback<ChatChannelDto> OnCreated { get; set; }
+
+    private bool _wasVisible;
+    private bool _creatingGroup;
+    private string _groupName = string.Empty;
+    private string? _createGroupError;
+    private List<ChatParticipantOptionDto> _participantOptions = [];
+    private readonly HashSet<string> _selectedParticipants = [];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Visible && !_wasVisible)
+        {
+            _groupName = string.Empty;
+            _selectedParticipants.Clear();
+            _createGroupError = null;
+            _participantOptions = await Api.GetChatParticipantsAsync();
+        }
+
+        _wasVisible = Visible;
+    }
+
+    private void ToggleParticipant(string key, ChangeEventArgs args)
+    {
+        if (args.Value is bool selected && selected)
+        {
+            _selectedParticipants.Add(key);
+        }
+        else
+        {
+            _selectedParticipants.Remove(key);
+        }
+    }
+
+    private async Task CreateGroupAsync()
+    {
+        if (_selectedParticipants.Count == 0 || _creatingGroup)
+        {
+            return;
+        }
+
+        _creatingGroup = true;
+        _createGroupError = null;
+        try
+        {
+            List<ChatParticipantSelectionDto> selections = _participantOptions
+                .Where(option => _selectedParticipants.Contains(OptionKey(option)))
+                .Select(option => new ChatParticipantSelectionDto(option.Kind, option.ModeratorId, option.EntityId))
+                .ToList();
+            (ChatChannelDto? channel, string? error) = await Api.CreateGroupChatChannelAsync(
+                string.IsNullOrWhiteSpace(_groupName) ? null : _groupName.Trim(),
+                selections);
+            if (channel is null)
+            {
+                _createGroupError = string.IsNullOrWhiteSpace(error) ? "Group could not be created." : error;
+                return;
+            }
+
+            await OnCreated.InvokeAsync(channel);
+        }
+        finally
+        {
+            _creatingGroup = false;
+        }
+    }
+
+    internal static string OptionKey(ChatParticipantOptionDto option)
+        => $"{option.Kind}:{option.ModeratorId?.ToString(CultureInfo.InvariantCulture) ?? option.EntityId?.ToString() ?? ""}";
+}
