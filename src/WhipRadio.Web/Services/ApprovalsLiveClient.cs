@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using WhipRadio.Core.Api;
 
+using WhipRadio.Web.Services.Api;
+
 namespace WhipRadio.Web.Services;
 
 /// <summary>
@@ -9,7 +11,7 @@ namespace WhipRadio.Web.Services;
 /// the current list. Shared by the Verbs page and the chat approvals strip.
 /// </summary>
 public class ApprovalsLiveClient(
-    RadioApiClient api,
+    ChatApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<ApprovalsLiveClient> logger) : LiveClientBase(configuration, environment, logger)

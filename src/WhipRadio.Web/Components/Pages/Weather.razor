@@ -2,7 +2,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IAsyncDisposable
-@inject RadioApiClient Api
+@inject ProductionApiClient Api
+@inject ModeratorsApiClient Moderators
 @inject ProductionLiveClient Live
 
 <PageTitle>WhipRadio - Weather</PageTitle>
@@ -112,7 +113,7 @@ else
     {
         Live.WeatherChanged += OnWeatherChanged;
         await Live.EnsureStartedAsync();
-        _moderators = await Api.GetModeratorsAsync();
+        _moderators = await Moderators.GetModeratorsAsync();
         await LoadAsync();
     }
 
@@ -188,7 +189,7 @@ else
 
         try
         {
-            var (host, error) = await Api.CreateSpecialistHostAsync(
+            var (host, error) = await Moderators.CreateSpecialistHostAsync(
                 new CreateSpecialistHostRequestDto("Weather", hint));
 
             if (host is null)
@@ -198,7 +199,7 @@ else
                 return;
             }
 
-            _moderators = await Api.GetModeratorsAsync();
+            _moderators = await Moderators.GetModeratorsAsync();
             _hostId = host.Id.ToString();
             await SaveAsync();
             _specialistModalOpen = false;
@@ -221,7 +222,7 @@ else
     private void OnWeatherChanged()
         => _ = InvokeAsync(async () =>
         {
-            _moderators = await Api.GetModeratorsAsync();
+            _moderators = await Moderators.GetModeratorsAsync();
             await LoadAsync();
             StateHasChanged();
         });

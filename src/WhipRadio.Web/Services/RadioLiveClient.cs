@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using WhipRadio.Core.Api;
 
+using WhipRadio.Web.Services.Api;
+
 namespace WhipRadio.Web.Services;
 
 /// <summary>
@@ -9,7 +11,7 @@ namespace WhipRadio.Web.Services;
 /// <see cref="Changed"/> for instant updates.
 /// </summary>
 public class RadioLiveClient(
-    RadioApiClient api,
+    StationApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<RadioLiveClient> logger) : LiveClientBase(configuration, environment, logger)

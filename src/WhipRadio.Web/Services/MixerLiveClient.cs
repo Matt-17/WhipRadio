@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using WhipRadio.Core.Api;
 
+using WhipRadio.Web.Services.Api;
+
 namespace WhipRadio.Web.Services;
 
 /// <summary>Per-circuit mixer snapshot: HTTP once on connect, SignalR payloads after that.</summary>
 public class MixerLiveClient(
-    RadioApiClient api,
+    SettingsApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<MixerLiveClient> logger) : LiveClientBase(configuration, environment, logger)

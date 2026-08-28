@@ -2,7 +2,7 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IAsyncDisposable
-@inject RadioApiClient Api
+@inject ProductionApiClient Api
 @inject ProductionLiveClient Live
 @inject PlayerState Player
 
@@ -527,7 +527,7 @@ else
         => Player.PlayAnnouncement(
             announcementId,
             segment.Title ?? segment.Topic,
-            Api.AnnouncementAudioUrl(announcementId),
+            MediaUrls.Announcement(announcementId),
             segment.DurationSeconds,
             segment.Transcript);
 

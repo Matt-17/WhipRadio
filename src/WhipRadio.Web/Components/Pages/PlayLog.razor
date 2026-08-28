@@ -2,7 +2,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IDisposable
-@inject RadioApiClient Api
+@inject StationApiClient Api
+@inject LibraryApiClient Library
 @inject RadioLiveClient Live
 @inject PlayerState Player
 
@@ -235,18 +236,18 @@
     {
         if (entry.ItemType == "Track")
         {
-            if (await Api.GetTrackAsync(entry.ItemId) is { } track)
+            if (await Library.GetTrackAsync(entry.ItemId) is { } track)
             {
                 Player.PlayTrack(track);
             }
         }
         else if (entry.ItemType == "Jingle")
         {
-            Player.PlayVoice(entry.Title, Api.JingleAudioUrl(entry.ItemId), entry.DurationSeconds);
+            Player.PlayVoice(entry.Title, MediaUrls.Jingle(entry.ItemId), entry.DurationSeconds);
         }
         else
         {
-            Player.PlayAnnouncement(entry.ItemId, entry.Title, Api.AnnouncementAudioUrl(entry.ItemId), entry.DurationSeconds, entry.Transcript);
+            Player.PlayAnnouncement(entry.ItemId, entry.Title, MediaUrls.Announcement(entry.ItemId), entry.DurationSeconds, entry.Transcript);
         }
     }
 

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR.Client;
+using WhipRadio.Web.Services.Api;
 using WhipRadio.Core.Api;
 
 namespace WhipRadio.Web.Services;
@@ -8,7 +9,8 @@ namespace WhipRadio.Web.Services;
 /// an HTTP snapshot on connect/reconnect.
 /// </summary>
 public class ConsoleLiveClient(
-    RadioApiClient api,
+    StationApiClient api,
+    StudiosApiClient studiosApi,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<ConsoleLiveClient> logger) : LiveClientBase(configuration, environment, logger)
@@ -59,7 +61,7 @@ public class ConsoleLiveClient(
         try
         {
             snapshot = await api.GetConsoleAsync();
-            studios = await api.GetStudiosAsync();
+            studios = await studiosApi.GetStudiosAsync();
         }
         catch (Exception ex)
         {
@@ -105,7 +107,7 @@ public class ConsoleLiveClient(
         List<StudioDto> studios = [];
         try
         {
-            studios = await api.GetStudiosAsync();
+            studios = await studiosApi.GetStudiosAsync();
         }
         catch (Exception ex)
         {

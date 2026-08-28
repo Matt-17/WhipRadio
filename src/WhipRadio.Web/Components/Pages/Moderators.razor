@@ -3,7 +3,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Core.Entities
 @using WhipRadio.Web.Services
-@inject RadioApiClient Api
+@inject ModeratorsApiClient Api
+@inject SettingsApiClient Settings
 @inject PlayerState Player
 @inject IJSRuntime Js
 @inject NavigationManager Navigation
@@ -403,7 +404,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         _moderators = SortHosts(await Api.GetModeratorsAsync());
-        _stationLanguage = (await Api.GetSettingsAsync())?.DefaultLanguage ?? "en";
+        _stationLanguage = (await Settings.GetSettingsAsync())?.DefaultLanguage ?? "en";
         _loaded = true;
         ApplyHostRoute(HostSlug);
     }
@@ -685,7 +686,7 @@ else
 
     /// <summary>Voice previews play in the footer player like song previews.</summary>
     private void PlayPreview(string name, DesignedVoiceDto voice)
-        => Player.PlayVoice($"{name} — designed voice", Api.VoicePreviewUrl(voice.Handle), voice.DurationSeconds);
+        => Player.PlayVoice($"{name} — designed voice", MediaUrls.VoicePreview(voice.Handle), voice.DurationSeconds);
 
     private void PlayNewPreview()
     {
@@ -708,7 +709,7 @@ else
     }
 
     private async Task PlayTalkAsync(Guid id)
-        => await Js.InvokeVoidAsync("whipRadio.playClip", Api.AnnouncementAudioUrl(id));
+        => await Js.InvokeVoidAsync("whipRadio.playClip", MediaUrls.Announcement(id));
 
     private static string TalkLabel(double talkativeness) => talkativeness switch
     {

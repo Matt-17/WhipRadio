@@ -2,7 +2,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IAsyncDisposable
-@inject RadioApiClient Api
+@inject ProductionApiClient Api
+@inject ModeratorsApiClient Moderators
 @inject ProductionLiveClient Live
 
 <PageTitle>WhipRadio - News</PageTitle>
@@ -255,7 +256,7 @@ else
     {
         Live.NewsChanged += OnNewsChanged;
         await Live.EnsureStartedAsync();
-        _moderators = await Api.GetModeratorsAsync();
+        _moderators = await Moderators.GetModeratorsAsync();
         await LoadAsync();
     }
 
@@ -436,10 +437,10 @@ else
 
         try
         {
-            var (host, error) = await Api.CreateSpecialistHostAsync(new CreateSpecialistHostRequestDto("News", hint));
+            var (host, error) = await Moderators.CreateSpecialistHostAsync(new CreateSpecialistHostRequestDto("News", hint));
             if (host is not null)
             {
-                _moderators = await Api.GetModeratorsAsync();
+                _moderators = await Moderators.GetModeratorsAsync();
                 _presenterId = host.Id.ToString();
                 await SaveSettingsAsync();
                 _specialistModalOpen = false;
@@ -460,7 +461,7 @@ else
     private void OnNewsChanged()
         => _ = InvokeAsync(async () =>
         {
-            _moderators = await Api.GetModeratorsAsync();
+            _moderators = await Moderators.GetModeratorsAsync();
             await LoadAsync();
             StateHasChanged();
         });

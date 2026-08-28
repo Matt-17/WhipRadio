@@ -2,7 +2,7 @@
 @using WhipRadio.Web.Services
 @implements IAsyncDisposable
 @inject RadioLiveClient Live
-@inject RadioApiClient Api
+@inject StationApiClient Api
 @inject PlayerState Player
 @inject IJSRuntime Js
 
@@ -509,7 +509,7 @@
 
         if (Player.CurrentTrack is { } track)
         {
-            await StartPreviewAsync(Api.TrackAudioUrl(track.Id), track.DurationSeconds);
+            await StartPreviewAsync(MediaUrls.Track(track.Id), track.DurationSeconds);
         }
         else if (Player.CurrentVoice is { } voice)
         {

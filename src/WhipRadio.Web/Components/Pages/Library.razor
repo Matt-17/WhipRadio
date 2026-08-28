@@ -4,7 +4,9 @@
 @using WhipRadio.Core.Helpers
 @using WhipRadio.Web.Services
 @implements IDisposable
-@inject RadioApiClient Api
+@inject LibraryApiClient Api
+@inject ProductionApiClient Production
+@inject ChatApiClient Chat
 @inject PlayerState Player
 @inject NavigationManager Navigation
 @inject IJSRuntime Js
@@ -461,7 +463,7 @@
     protected override async Task OnInitializedAsync()
     {
         _artists = await Api.GetArtistsAsync();
-        _status = await Api.GetMusicProductionStatusAsync();
+        _status = await Production.GetMusicProductionStatusAsync();
         _loaded = true;
         await ApplyArtistRouteAsync(ArtistSlug);
 
@@ -520,7 +522,7 @@
     {
         var previous = _status?.ArtistId;
         var hadPendingDelete = _tracks?.Any(t => t.DeletionPending) == true;
-        _status = await Api.GetMusicProductionStatusAsync();
+        _status = await Production.GetMusicProductionStatusAsync();
 
         // A generation just finished → fresh track exists; refresh the shelves.
         if ((previous is not null && _status?.ArtistId is null) || hadPendingDelete)
@@ -652,13 +654,13 @@
     }
 
     private void PlayMemberVoice(ArtistMemberDto member)
-        => Player.PlayVoice($"{member.Name} — voice reference", Api.ArtistMemberVoiceUrl(member.Id), 0);
+        => Player.PlayVoice($"{member.Name} — voice reference", MediaUrls.ArtistMemberVoice(member.Id), 0);
 
     // Starts (or reuses via server dedupe) a group channel with this member and
     // jumps to the chat page with that channel preselected.
     private async Task InviteMemberToChatAsync(ArtistMemberDto member)
     {
-        var (channel, _) = await Api.CreateGroupChatChannelAsync(
+        var (channel, _) = await Chat.CreateGroupChatChannelAsync(
             null,
             [new ChatParticipantSelectionDto("ArtistMember", null, member.Id)]);
         if (channel is null)
@@ -780,7 +782,7 @@
     {
         if (_selectedArtistId is { } id && await Api.ProduceTrackForArtistAsync(id))
         {
-            _status = await Api.GetMusicProductionStatusAsync();
+            _status = await Production.GetMusicProductionStatusAsync();
         }
     }
 
@@ -1001,9 +1003,9 @@
         _cancelingGeneration = true;
         try
         {
-            if (await Api.CancelMusicProductionAsync())
+            if (await Production.CancelMusicProductionAsync())
             {
-                _status = await Api.GetMusicProductionStatusAsync();
+                _status = await Production.GetMusicProductionStatusAsync();
             }
         }
         finally

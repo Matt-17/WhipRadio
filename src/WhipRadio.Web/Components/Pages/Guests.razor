@@ -1,7 +1,7 @@
 @page "/guests"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
-@inject RadioApiClient Api
+@inject LibraryApiClient Api
 @inject PlayerState Player
 
 <PageTitle>WhipRadio — Guests</PageTitle>
@@ -304,7 +304,7 @@ else
     }
 
     private void PlayVoice(GuestDto guest)
-        => Player.PlayVoice($"{guest.Name} — voice reference", Api.GuestVoiceUrl(guest.Id), 0);
+        => Player.PlayVoice($"{guest.Name} — voice reference", MediaUrls.GuestVoice(guest.Id), 0);
 
     private async Task SetVoiceFxAsync(GuestDto guest, string? voiceFx)
     {

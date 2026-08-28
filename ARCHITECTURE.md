@@ -100,8 +100,9 @@ Startup responsibilities also live here:
 ### `src/WhipRadio.Web`
 
 The web project is a Blazor Server operator and listener console. It should stay
-thin: it calls Orchestrator APIs through `RadioApiClient`, subscribes to SignalR
-through live clients, and renders state.
+thin: it calls Orchestrator APIs through the typed feature API clients in
+`Services/Api/` (all extending `ApiClientBase`), subscribes to SignalR through
+live clients, and renders state.
 
 The web app also owns same-origin media proxy routes:
 

@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using WhipRadio.Core.Api;
 
+using WhipRadio.Web.Services.Api;
+
 namespace WhipRadio.Web.Services;
 
 /// <summary>Per-circuit live studio overview: SignalR invalidation with HTTP snapshots.</summary>
 public class StudioLiveClient(
-    RadioApiClient api,
+    StudiosApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<StudioLiveClient> logger) : LiveClientBase(configuration, environment, logger)

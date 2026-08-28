@@ -1,5 +1,6 @@
 using WhipRadio.Web.Components;
 using WhipRadio.Web.Services;
+using WhipRadio.Web.Services.Api;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,12 +9,24 @@ builder.AddServiceDefaults();
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddHttpClient<RadioApiClient>(client =>
-{
-    client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
-    client.Timeout = TimeSpan.FromSeconds(10);
-})
-    .RemoveAllResilienceHandlers();
+// One typed client per API feature area, all sharing the orchestrator base
+// address and the short interactive timeout.
+AddOrchestratorApiClient<StationApiClient>();
+AddOrchestratorApiClient<LibraryApiClient>();
+AddOrchestratorApiClient<ChatApiClient>();
+AddOrchestratorApiClient<ModeratorsApiClient>();
+AddOrchestratorApiClient<StudiosApiClient>();
+AddOrchestratorApiClient<ProductionApiClient>();
+AddOrchestratorApiClient<ArchiveApiClient>();
+AddOrchestratorApiClient<SettingsApiClient>();
+
+void AddOrchestratorApiClient<TClient>() where TClient : class
+    => builder.Services.AddHttpClient<TClient>(client =>
+    {
+        client.BaseAddress = new Uri(GetOrchestratorEndpoint(builder.Configuration, builder.Environment));
+        client.Timeout = TimeSpan.FromSeconds(10);
+    })
+        .RemoveAllResilienceHandlers();
 
 // Voice design runs for minutes (transient 1.7B model; first call downloads
 // weights), and manual news package production can run close to 20 minutes.

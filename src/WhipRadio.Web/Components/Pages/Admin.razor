@@ -1,7 +1,8 @@
 @page "/admin"
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
-@inject RadioApiClient Api
+@inject SettingsApiClient Api
+@inject StationApiClient Station
 @inject RadioLiveClient Live
 @implements IDisposable
 
@@ -223,7 +224,7 @@ else
     {
         try
         {
-            await Api.RunDirectorAsync();
+            await Station.RunDirectorAsync();
             _directorKicked = true;
         }
         catch

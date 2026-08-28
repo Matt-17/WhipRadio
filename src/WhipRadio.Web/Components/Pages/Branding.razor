@@ -2,7 +2,8 @@
 @using WhipRadio.Core.Api
 @using WhipRadio.Web.Services
 @implements IAsyncDisposable
-@inject RadioApiClient Api
+@inject SettingsApiClient Api
+@inject LibraryApiClient Library
 @inject RadioLiveClient Live
 @inject PlayerState Player
 
@@ -138,7 +139,7 @@ else
                     <div class="library-song-grid jingle-song-grid library-song-item jingle-song-item">
                         <div class="library-action-cell">
                             <button class="btn small library-preview-btn" title="play in the footer player"
-                                    @onclick="() => Player.PlayJingle(jingle, Api.JingleAudioUrl(jingle.Id))"><Icon Name="play" /></button>
+                                    @onclick="() => Player.PlayJingle(jingle, MediaUrls.Jingle(jingle.Id))"><Icon Name="play" /></button>
                         </div>
                         <div class="library-title-line" title="@jingle.Label">
                             <span class="track-title">@jingle.Label</span>
@@ -245,7 +246,7 @@ else
 
     private async Task RefreshJinglesAsync()
     {
-        var jingles = await Api.GetJinglesAsync();
+        var jingles = await Library.GetJinglesAsync();
         if (_branding is null)
         {
             await LoadAsync();
@@ -302,7 +303,7 @@ else
                 next.State = JingleQueueState.Recording;
                 await InvokeStateChangedAsync();
 
-                var (jingle, error) = await Api.CreateJingleAsync(new CreateJingleDto(
+                var (jingle, error) = await Library.CreateJingleAsync(new CreateJingleDto(
                     next.Label,
                     next.Style,
                     next.DurationSeconds,
@@ -347,7 +348,7 @@ else
     private async Task ToggleJingleAsync(Guid id)
     {
         _jingleError = null;
-        var updated = await Api.ToggleJingleAsync(id);
+        var updated = await Library.ToggleJingleAsync(id);
         if (updated is null)
         {
             _jingleError = "Could not update jingle status.";
@@ -363,7 +364,7 @@ else
             return;
         }
 
-        _jingleError = await Api.DeleteJingleAsync(target.Id);
+        _jingleError = await Library.DeleteJingleAsync(target.Id);
         if (_jingleError is null && Player.CurrentJingle?.Jingle.Id == target.Id)
         {
             Player.BackToLive();

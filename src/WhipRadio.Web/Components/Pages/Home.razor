@@ -3,7 +3,8 @@
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject RadioLiveClient Live
-@inject RadioApiClient Api
+@inject StationApiClient Api
+@inject SettingsApiClient Settings
 @inject IConfiguration Configuration
 @inject IJSRuntime Js
 
@@ -169,7 +170,7 @@ else
     }
 
     protected override async Task OnInitializedAsync()
-        => _greetingsEnabled = (await Api.GetSettingsAsync())?.GreetingsEnabled ?? false;
+        => _greetingsEnabled = (await Settings.GetSettingsAsync())?.GreetingsEnabled ?? false;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

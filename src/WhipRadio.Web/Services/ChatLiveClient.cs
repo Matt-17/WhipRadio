@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.SignalR.Client;
 using WhipRadio.Core.Api;
 
+using WhipRadio.Web.Services.Api;
+
 namespace WhipRadio.Web.Services;
 
 public class ChatLiveClient(
-    RadioApiClient api,
+    ChatApiClient api,
     IConfiguration configuration,
     IHostEnvironment environment,
     ILogger<ChatLiveClient> logger) : LiveClientBase(configuration, environment, logger)
