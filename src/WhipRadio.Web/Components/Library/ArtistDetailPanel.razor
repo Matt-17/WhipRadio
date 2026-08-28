@@ -1,0 +1,289 @@
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@using WhipRadio.Web.Services.Api
+@inject PlayerState Player
+@inject ChatApiClient Chat
+@inject NavigationManager Navigation
+@inject IJSRuntime Js
+
+<div class="panel reveal">
+    <div class="artist-header">
+        <div>
+            <div class="artist-title">@Artist.Name
+                @if (Artist.IsRetired)
+                {
+                    <StatusBadge Text="retired" />
+                }
+            </div>
+            <div class="artist-kicker">
+                @Artist.Genre@(string.IsNullOrEmpty(Artist.Subgenre) ? "" : $" / {Artist.Subgenre}")
+                <span class="library-meta-dot">&bull;</span>
+                @Artist.TrackCount songs
+                <span class="artist-vote-summary">
+                    <span class="library-vote-pill artist-vote-pill @LibraryFormat.VoteTone(Artist.UpVotes - Artist.DownVotes)" title="@($"{Artist.UpVotes} up / {Artist.DownVotes} down")">
+                        <span>score @LibraryFormat.FormatVoteNet(Artist.UpVotes - Artist.DownVotes)</span>
+                    </span>
+                    <span class="artist-vote-detail">@Artist.UpVotes up / @Artist.DownVotes down</span>
+                </span>
+            </div>
+            <div class="artist-style">@Artist.StyleDescriptor</div>
+            @if (!string.IsNullOrWhiteSpace(Artist.PromotionText))
+            {
+                <div class="artist-promo">@Artist.PromotionText</div>
+            }
+            <div class="artist-bio">
+                @if (Detail is null)
+                {
+                    <span class="dim"><span class="blink">▮</span> pulling the press file...</span>
+                }
+                else
+                {
+                    @(Detail.Biography ?? "No backstory on record.")
+                }
+            </div>
+            @if (!string.IsNullOrWhiteSpace(Detail?.DeepBackground))
+            {
+                <button class="btn small artist-backstory-toggle" @onclick="() => _showBackstory = !_showBackstory">
+                    <Icon Name="@(_showBackstory ? "chevron-up" : "chevron-down")" /> Deep background
+                </button>
+                @if (_showBackstory)
+                {
+                    <div class="artist-bio dim artist-backstory">@Detail.DeepBackground</div>
+                }
+            }
+            @if (Detail?.Members is { Count: > 0 } members)
+            {
+                @if (members.Count == 1)
+                {
+                    <div class="artist-member-roster">
+                        <div class="artist-member">
+                            <div class="host-photo skeleton artist-member-portrait"></div>
+                            <div class="artist-member-panel-body">
+                                <div class="artist-member-head">
+                                    <span class="artist-member-name">
+                                        @members[0].Name
+                                        @MemberVoiceControls(members[0])
+                                        <button type="button" class="member-voice-btn" title="invite to chat"
+                                                @onclick="() => InviteMemberToChatAsync(members[0])">
+                                            <Icon Name="chat" Size="14" />
+                                        </button>
+                                    </span>
+                                    <span class="tag">@members[0].Role</span>
+                                </div>
+                                @MemberPersonaLine(members[0])
+                                <div class="dim">@members[0].Biography</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    var activeMember = members.FirstOrDefault(m => m.Id == _selectedMemberId) ?? members[0];
+                    <div class="artist-member-tabs">
+                        <div class="artist-member-tablist" role="tablist">
+                            @foreach (var member in members)
+                            {
+                                <button class="artist-member-tab @(member.Id == activeMember.Id ? "active" : null)"
+                                        role="tab"
+                                        @onclick="() => _selectedMemberId = member.Id">
+                                    <div class="host-photo skeleton artist-member-thumb"></div>
+                                    <span class="artist-member-tab-text">
+                                        <span class="artist-member-tab-name">@member.Name</span>
+                                        <span class="artist-member-tab-role">@member.Role</span>
+                                    </span>
+                                </button>
+                            }
+                        </div>
+                        <div class="artist-member-panel" role="tabpanel">
+                            <div class="host-photo skeleton artist-member-portrait"></div>
+                            <div class="artist-member-panel-body">
+                                <div class="artist-member-head">
+                                    <span class="artist-member-name">
+                                        @activeMember.Name
+                                        @MemberVoiceControls(activeMember)
+                                        <button type="button" class="member-voice-btn" title="invite to chat"
+                                                @onclick="() => InviteMemberToChatAsync(activeMember)">
+                                            <Icon Name="chat" Size="14" />
+                                        </button>
+                                    </span>
+                                    <span class="tag">@activeMember.Role</span>
+                                </div>
+                                @MemberPersonaLine(activeMember)
+                                <div class="dim">@activeMember.Biography</div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+        <div class="artist-actions">
+            @if (!Artist.IsRetired)
+            {
+                <button class="btn small primary" @onclick="OnCreateSong">+ Record new song</button>
+            }
+            @if (QueuedCount > 0)
+            {
+                <div class="queue-box">Queue • @QueuedCount song@(QueuedCount == 1 ? "" : "s")</div>
+            }
+            <button class="btn small"
+                    disabled="@RedefineDisabled"
+                    title="@RedefineTitle"
+                    @onclick="() => OnRedefineRequested.InvokeAsync(Artist)"><Icon Name="refresh" /> Redefine Artist</button>
+            <button class="btn small vote-down"
+                    disabled="@DeleteDisabled"
+                    title="@DeleteTitle"
+                    @onclick="() => OnDeleteRequested.InvokeAsync(Artist)"><Icon Name="trash" /> Delete Artist</button>
+            @if (RedefineError is not null)
+            {
+                <div class="vote-down-text artist-action-error">@RedefineError</div>
+            }
+            @if (DeleteError is not null)
+            {
+                <div class="vote-down-text artist-action-error">@DeleteError</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>The artist to show — the fetched detail when available, else the list row.</summary>
+    [Parameter, EditorRequired] public required ArtistDto Artist { get; set; }
+
+    /// <summary>The full detail record (biography, members); null while it loads.</summary>
+    [Parameter] public ArtistDto? Detail { get; set; }
+
+    [Parameter] public int QueuedCount { get; set; }
+
+    [Parameter] public bool RedefineDisabled { get; set; }
+
+    [Parameter] public string RedefineTitle { get; set; } = "";
+
+    [Parameter] public bool DeleteDisabled { get; set; }
+
+    [Parameter] public string DeleteTitle { get; set; } = "";
+
+    [Parameter] public string? RedefineError { get; set; }
+
+    [Parameter] public string? DeleteError { get; set; }
+
+    /// <summary>Members whose spoken voice design is currently queued.</summary>
+    [Parameter] public IReadOnlyCollection<Guid> VoicePending { get; set; } = [];
+
+    [Parameter] public EventCallback OnCreateSong { get; set; }
+
+    [Parameter] public EventCallback<ArtistDto> OnRedefineRequested { get; set; }
+
+    [Parameter] public EventCallback<ArtistDto> OnDeleteRequested { get; set; }
+
+    [Parameter] public EventCallback<ArtistMemberDto> OnRecreateVoice { get; set; }
+
+    private Guid _artistId;
+    private Guid? _selectedMemberId;
+    private bool _showBackstory;
+
+    protected override void OnParametersSet()
+    {
+        if (Artist.Id == _artistId)
+        {
+            return;
+        }
+
+        _artistId = Artist.Id;
+        _selectedMemberId = null;
+        _showBackstory = false;
+    }
+
+    private void PlayMemberVoice(ArtistMemberDto member)
+        => Player.PlayVoice($"{member.Name} — voice reference", MediaUrls.ArtistMemberVoice(member.Id), 0);
+
+    // Starts (or reuses via server dedupe) a group channel with this member and
+    // jumps to the chat page with that channel preselected.
+    private async Task InviteMemberToChatAsync(ArtistMemberDto member)
+    {
+        var (channel, _) = await Chat.CreateGroupChatChannelAsync(
+            null,
+            [new ChatParticipantSelectionDto("ArtistMember", null, member.Id)]);
+        if (channel is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await Js.InvokeVoidAsync("whipChat.storageSet", "whipchat.channel", channel.Id.ToString());
+        }
+        catch
+        {
+            // localStorage being unavailable must never block the invite.
+        }
+
+        Navigation.NavigateTo("/chat");
+    }
+
+    // Gender · age · personality plus interests, shown under the member name.
+    // Legacy members created before Phase 5 may have none of these — render nothing.
+    private RenderFragment? MemberPersonaLine(ArtistMemberDto member)
+    {
+        var facts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(member.Gender))
+        {
+            facts.Add(member.Gender);
+        }
+
+        if (member.Age is { } age)
+        {
+            facts.Add($"{age}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(member.Personality))
+        {
+            facts.Add(member.Personality);
+        }
+
+        if (facts.Count == 0 && string.IsNullOrWhiteSpace(member.Interests))
+        {
+            return null;
+        }
+
+        return __builder =>
+        {
+            <div class="artist-member-persona dim">
+                @string.Join(" · ", facts)
+                @if (!string.IsNullOrWhiteSpace(member.Interests))
+                {
+                    <span class="artist-member-interests">@(facts.Count > 0 ? " — " : "")@member.Interests</span>
+                }
+            </div>
+        };
+    }
+
+    // Mouth (play) icon plus a create/recreate button for the member's spoken
+    // voice. While a design is queued we show a status note instead of the button.
+    private RenderFragment MemberVoiceControls(ArtistMemberDto member) => __builder =>
+    {
+        var pending = VoicePending.Contains(member.Id);
+        <span class="member-voice-controls">
+            @if (member.HasVoiceReference)
+            {
+                <button type="button" class="member-voice-btn" title="play voice reference"
+                        aria-label="play voice reference"
+                        @onclick="() => PlayMemberVoice(member)"><Icon Name="soundwave" /></button>
+            }
+            @if (pending)
+            {
+                <StatusBadge Text="designing voice" Tone="StatusBadgeTone.Amber" />
+            }
+            else
+            {
+                <button type="button" class="member-voice-btn"
+                        title="@(member.HasVoiceReference ? "recreate the spoken voice" : "create a spoken voice")"
+                        aria-label="@(member.HasVoiceReference ? "recreate voice" : "create voice")"
+                        @onclick="() => OnRecreateVoice.InvokeAsync(member)"><Icon Name="refresh" /></button>
+                @if (!string.IsNullOrWhiteSpace(member.VoiceError))
+                {
+                    <span class="member-voice-error vote-down-text" title="@member.VoiceError">voice failed</span>
+                }
+            }
+        </span>
+    };
+}

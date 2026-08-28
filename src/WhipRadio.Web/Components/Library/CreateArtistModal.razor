@@ -1,0 +1,52 @@
+<Modal Visible="@Visible" Title="Create Artist" Class="modal-wide" OnClose="OnClose">
+    <ChildContent>
+        <div class="form-grid">
+            <div class="field full">
+                <label>Creation hint</label>
+                <textarea rows="3" @bind="_artistHint" @bind:event="oninput"
+                          placeholder="Describe the artist seed: genre, mood, origin, language, member count, or story angle."></textarea>
+            </div>
+        </div>
+    </ChildContent>
+    <Footer>
+        <button class="btn" @onclick="OnClose">Cancel</button>
+        <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(_artistHint)"
+                @onclick="QueueAsync">
+            Queue Artist
+        </button>
+    </Footer>
+</Modal>
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    /// <summary>Fired with the trimmed hint; the parent queues the creation.</summary>
+    [Parameter] public EventCallback<string> OnQueued { get; set; }
+
+    private bool _wasVisible;
+    private string _artistHint = "";
+
+    protected override void OnParametersSet()
+    {
+        if (Visible && !_wasVisible)
+        {
+            _artistHint = "";
+        }
+
+        _wasVisible = Visible;
+    }
+
+    private async Task QueueAsync()
+    {
+        var hint = _artistHint.Trim();
+        if (string.IsNullOrWhiteSpace(hint))
+        {
+            return;
+        }
+
+        _artistHint = "";
+        await OnQueued.InvokeAsync(hint);
+    }
+}

@@ -1,0 +1,244 @@
+@using WhipRadio.Core.Api
+@using WhipRadio.Web.Services
+@using WhipRadio.Web.Services.Api
+@inject LibraryApiClient Api
+@inject ProductionApiClient Production
+@inject PlayerState Player
+
+<div class="panel reveal">
+    @if (Tracks is null)
+    {
+        <div class="empty-state"><span class="blink">▮</span> loading the shelves...</div>
+    }
+    else
+    {
+        var filtered = FilteredTracks();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)PageSize));
+        var currentPage = Math.Min(_page, totalPages);
+        var showRecRow = Status?.ArtistId is { } genArtist
+            && (SelectedArtistId is null || SelectedArtistId == genArtist);
+
+        if (_deleteError is not null)
+        {
+            <div class="vote-down-text" style="margin-bottom:10px">@_deleteError</div>
+        }
+        if (filtered.Count == 0 && !showRecRow)
+        {
+            <div class="empty-state">
+                @(string.IsNullOrWhiteSpace(Search)
+                    ? $"No records yet{(SelectedArtistId is not null ? " — record the first one!" : ".")}"
+                    : "No records match your search.")
+            </div>
+        }
+        else
+        {
+            <div class="library-song-list">
+                <div class="library-song-grid library-song-head">
+                    <span class="library-action-cell"></span>
+                    <div class="library-head-title">
+                        <button class="@Sorted("title")" @onclick="@(() => SortAsync("title"))">Title</button>
+                        @if (SelectedArtistId is null)
+                        {
+                            <button class="@Sorted("artist")" @onclick="@(() => SortAsync("artist"))">Artist</button>
+                        }
+                    </div>
+                    <span class="library-length-cell num">Length</span>
+                    <button class="library-plays-cell num @Sorted("plays")" @onclick="@(() => SortAsync("plays"))">Plays</button>
+                    <button class="library-votes-cell @Sorted("votes")" @onclick="@(() => SortAsync("votes"))">Votes</button>
+                    <button class="library-created-cell @Sorted("created")" @onclick="@(() => SortAsync("created"))">Created</button>
+                    <span class="library-delete-cell"></span>
+                </div>
+
+                @if (showRecRow)
+                {
+                    <div class="library-song-grid library-song-item generating-row">
+                        <div class="library-action-cell">
+                            <span class="rec-cell" title="recording" aria-label="recording">
+                                <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
+                            </span>
+                        </div>
+                        <div class="library-title-line" title="@(Status?.TrackTitle ?? "Recording a new song...")">
+                            <span class="track-title">@(Status?.TrackTitle is { } wip ? wip : "Recording a new song...")</span>
+                        </div>
+                        <div class="library-recording-status">
+                            @if (SelectedArtistId is null && Status?.ArtistName is { } genName)
+                            {
+                                <span>@genName</span>
+                                <span class="library-meta-dot">•</span>
+                            }
+                            <span><StudioJobStatus StartedAtUtc="@Status?.StartedAtUtc" /></span>
+                        </div>
+                        <div class="library-delete-cell">
+                            <button class="btn small vote-down" title="cancel recording"
+                                    disabled="@_cancelingGeneration"
+                                    @onclick="CancelGenerationAsync"><Icon Name="stop" /></button>
+                        </div>
+                    </div>
+                }
+
+                @foreach (var track in filtered.Skip((currentPage - 1) * PageSize).Take(PageSize))
+                {
+                    var createdLocal = track.CreatedAt.ToLocalTime();
+                    var styleName = string.IsNullOrEmpty(track.Subgenre) ? track.Genre : track.Subgenre;
+                    var voteNet = track.UpVotes - track.DownVotes;
+
+                    <div class="library-song-grid library-song-item">
+                        <div class="library-action-cell">
+                            <button class="btn small library-preview-btn" title="listen in the footer player (does not count as play)"
+                                    @onclick="() => Player.PlayTrack(track)">▶</button>
+                        </div>
+                        <div class="library-title-line" title="@track.Title">
+                            <span class="track-title">@track.Title</span>
+                            @if (track.IsRetired)
+                            {
+                                <StatusBadge Text="retired" />
+                            }
+                            @if (track.DeletionPending)
+                            {
+                                <StatusBadge Text="delete queued" />
+                            }
+                            @if (track.HasVocals)
+                            {
+                                <span class="tag amber">vocal</span>
+                            }
+                        </div>
+                        <div class="library-song-meta">
+                            @if (SelectedArtistId is null)
+                            {
+                                <span>@track.ArtistName</span>
+                                <span class="library-meta-dot">•</span>
+                            }
+                            <span>@styleName</span>
+                        </div>
+                        <div class="library-length-cell num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</div>
+                        <div class="library-plays-cell num">@track.PlayCount</div>
+                        <div class="library-votes-cell">
+                            <span class="library-vote-pill @LibraryFormat.VoteTone(voteNet)" title="@($"{track.UpVotes} up / {track.DownVotes} down")">
+                                <span>@LibraryFormat.FormatVoteNet(voteNet)</span>
+                            </span>
+                        </div>
+                        <div class="library-created-cell dim" title="@createdLocal.ToString("dd.MM.yyyy HH:mm")">@createdLocal.ToString("dd.MM.")</div>
+                        <div class="library-delete-cell">
+                            <button class="btn small vote-down"
+                                    disabled="@track.DeletionPending"
+                                    title="@(track.DeletionPending ? "delete queued after playback" : "delete this song")"
+                                    @onclick="() => _deleteTarget = track"><Icon Name="trash" /></button>
+                        </div>
+                    </div>
+                }
+            </div>
+
+            if (totalPages > 1)
+            {
+                <div class="btn-row" style="margin-top:14px">
+                    <button class="btn small" disabled="@(currentPage <= 1)" @onclick="() => _page = currentPage - 1">‹ prev</button>
+                    <span class="dim">page @currentPage of @totalPages (@filtered.Count songs)</span>
+                    <button class="btn small" disabled="@(currentPage >= totalPages)" @onclick="() => _page = currentPage + 1">next ›</button>
+                </div>
+            }
+        }
+    }
+</div>
+
+<ConfirmDialog Visible="@(_deleteTarget is not null)"
+               Title="Delete song"
+               ConfirmText="Delete"
+               CancelText="Keep it"
+               Danger="true"
+               OnConfirm="DeleteConfirmedAsync"
+               OnCancel="() => _deleteTarget = null">
+    @if (_deleteTarget is { } doomed)
+    {
+        <text>Delete <strong>"@doomed.Title"</strong> by @doomed.ArtistName?
+        The recording, its votes and the audio file are gone for good.</text>
+    }
+</ConfirmDialog>
+
+@code {
+    private const int PageSize = 25;
+
+    [Parameter] public List<TrackDto>? Tracks { get; set; }
+
+    [Parameter] public MusicProductionStatusDto? Status { get; set; }
+
+    [Parameter] public Guid? SelectedArtistId { get; set; }
+
+    [Parameter] public string Search { get; set; } = "";
+
+    [Parameter] public string Sort { get; set; } = "title";
+
+    /// <summary>Sort column clicked — the parent reloads the tracks in that order.</summary>
+    [Parameter] public EventCallback<string> OnSortChanged { get; set; }
+
+    /// <summary>A delete went through (immediately or deferred) — the parent refreshes.</summary>
+    [Parameter] public EventCallback<DeleteTrackResult> OnDeleted { get; set; }
+
+    /// <summary>The running generation was cancelled and the status re-fetched.</summary>
+    [Parameter] public EventCallback<MusicProductionStatusDto?> OnStatusChanged { get; set; }
+
+    private int _page = 1;
+    private string _lastResetKey = "";
+    private TrackDto? _deleteTarget;
+    private string? _deleteError;
+    private bool _cancelingGeneration;
+
+    protected override void OnParametersSet()
+    {
+        // New artist selection or search resets to page 1 (as the old page-level state did).
+        var resetKey = $"{SelectedArtistId}|{Search}";
+        if (resetKey != _lastResetKey)
+        {
+            _lastResetKey = resetKey;
+            _page = 1;
+        }
+    }
+
+    private List<TrackDto> FilteredTracks()
+        => string.IsNullOrWhiteSpace(Search)
+            ? Tracks ?? []
+            : (Tracks ?? []).Where(t =>
+                    t.Title.Contains(Search, StringComparison.OrdinalIgnoreCase)
+                    || t.ArtistName.Contains(Search, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+    private string Sorted(string column) => Sort == column ? "sorted" : "";
+
+    private async Task SortAsync(string column)
+    {
+        _page = 1;
+        await OnSortChanged.InvokeAsync(column);
+    }
+
+    private async Task CancelGenerationAsync()
+    {
+        _cancelingGeneration = true;
+        try
+        {
+            if (await Production.CancelMusicProductionAsync())
+            {
+                var status = await Production.GetMusicProductionStatusAsync();
+                await OnStatusChanged.InvokeAsync(status);
+            }
+        }
+        finally
+        {
+            _cancelingGeneration = false;
+        }
+    }
+
+    private async Task DeleteConfirmedAsync()
+    {
+        if (_deleteTarget is not { } track)
+        {
+            return;
+        }
+
+        _deleteTarget = null;
+        DeleteTrackResult result = await Api.DeleteTrackAsync(track.Id);
+        _deleteError = result.Error?.Trim('"');
+        if (result.Deferred || _deleteError is null)
+        {
+            await OnDeleted.InvokeAsync(result);
+        }
+    }
+}

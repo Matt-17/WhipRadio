@@ -2,14 +2,12 @@
 @page "/library/artists/{ArtistSlug}"
 @using WhipRadio.Core.Api
 @using WhipRadio.Core.Helpers
+@using WhipRadio.Web.Components.Library
 @using WhipRadio.Web.Services
 @implements IDisposable
 @inject LibraryApiClient Api
 @inject ProductionApiClient Production
-@inject ChatApiClient Chat
-@inject PlayerState Player
 @inject NavigationManager Navigation
-@inject IJSRuntime Js
 
 <PageTitle>WhipRadio — Library</PageTitle>
 
@@ -17,62 +15,16 @@
 <div class="stage-sub">every track composed in-house • by fictional artists</div>
 
 <div class="library-split">
-    <div class="panel reveal library-artists">
-        <div class="artist-panel-top">
-            <div class="panel-label">Artists</div>
-            <button class="btn small" title="create an artist from a one-line hint" @onclick="OpenCreateArtist">
-                <Icon Name="inbox" /> Create Artist
-            </button>
-        </div>
-        <input class="library-search" type="text" placeholder="search artist or song..."
-               value="@_search" @oninput="OnSearchChangedAsync" />
-        <div class="artist-list">
-            <button class="artist-item @(_selectedArtistId is null ? "active" : null)" @onclick="() => SelectArtistAsync(null)">
-                <span class="artist-name">All tracks</span>
-                <span class="artist-meta dim">@(_artists.Sum(a => a.TrackCount)) songs</span>
-            </button>
-            @foreach (var pending in _artistCreationQueue)
-            {
-                <div class="artist-item artist-item-pending @(pending.Status == PendingArtistCreationStatus.Failed ? "failed" : null)" aria-live="polite">
-                    <span class="artist-name-line">
-                        <span class="artist-name">@PendingArtistTitle(pending)</span>
-                        <StatusBadge Text="@PendingArtistStatusText(pending)" />
-                    </span>
-                    <span class="artist-meta-row">
-                        <span class="artist-meta dim">@(pending.Error ?? pending.Hint)</span>
-                    </span>
-                </div>
-            }
-            @foreach (var artist in _artists.Where(ArtistMatchesSearch))
-            {
-                <button class="artist-item @(_selectedArtistId == artist.Id ? "active" : null)"
-                        @onclick="() => SelectArtistAsync(artist)">
-                    <span class="artist-name-line">
-                        <span class="artist-name">@artist.Name</span>
-                        @if (artist.IsRetired)
-                        {
-                            <StatusBadge Text="retired" />
-                        }
-                    </span>
-                    <span class="artist-meta-row">
-                        <span class="artist-meta dim">@artist.Subgenre • @artist.TrackCount songs</span>
-                        @if (IsGenerating(artist.Id))
-                        {
-                            <StatusBadge Text="REC" Pulse="true" />
-                        }
-                        else if (IsQueued(artist.Id))
-                        {
-                            <StatusBadge Text="queue" />
-                        }
-                        @if (RedefinitionFor(artist.Id) is { } redefine)
-                        {
-                            <StatusBadge Text="@PendingRedefinitionStatusText(redefine)" />
-                        }
-                    </span>
-                </button>
-            }
-        </div>
-    </div>
+    <ArtistRail Artists="_artists"
+                Search="@_search"
+                SelectedArtistId="_selectedArtistId"
+                Status="_status"
+                PendingCreations="_artistCreationQueue"
+                Redefinitions="_artistRedefinitionQueue"
+                ArtistFilter="ArtistMatchesSearch"
+                OnSearchChanged="OnSearchChangedAsync"
+                OnSelectArtist="SelectArtistAsync"
+                OnCreateArtist="OpenCreateArtist" />
 
     <div class="library-main">
         @if (_selectedArtistId is { } selectedId)
@@ -80,322 +32,37 @@
             var artist = _artistDetail ?? _artists.FirstOrDefault(a => a.Id == selectedId);
             if (artist is not null)
             {
-                var artistVoteNet = artist.UpVotes - artist.DownVotes;
-                <div class="panel reveal">
-                    <div class="artist-header">
-                        <div>
-                            <div class="artist-title">@artist.Name
-                                @if (artist.IsRetired)
-                                {
-                                    <StatusBadge Text="retired" />
-                                }
-                            </div>
-                            <div class="artist-kicker">
-                                @artist.Genre@(string.IsNullOrEmpty(artist.Subgenre) ? "" : $" / {artist.Subgenre}")
-                                <span class="library-meta-dot">&bull;</span>
-                                @artist.TrackCount songs
-                                <span class="artist-vote-summary">
-                                    <span class="library-vote-pill artist-vote-pill @VoteTone(artistVoteNet)" title="@($"{artist.UpVotes} up / {artist.DownVotes} down")">
-                                        <span>score @FormatVoteNet(artistVoteNet)</span>
-                                    </span>
-                                    <span class="artist-vote-detail">@artist.UpVotes up / @artist.DownVotes down</span>
-                                </span>
-                            </div>
-                            <div class="artist-style">@artist.StyleDescriptor</div>
-                            @if (!string.IsNullOrWhiteSpace(artist.PromotionText))
-                            {
-                                <div class="artist-promo">@artist.PromotionText</div>
-                            }
-                            <div class="artist-bio">
-                                @if (_artistDetail is null)
-                                {
-                                    <span class="dim"><span class="blink">▮</span> pulling the press file...</span>
-                                }
-                                else
-                                {
-                                    @(_artistDetail.Biography ?? "No backstory on record.")
-                                }
-                            </div>
-                            @if (!string.IsNullOrWhiteSpace(_artistDetail?.DeepBackground))
-                            {
-                                <button class="btn small artist-backstory-toggle" @onclick="() => _showBackstory = !_showBackstory">
-                                    <Icon Name="@(_showBackstory ? "chevron-up" : "chevron-down")" /> Deep background
-                                </button>
-                                @if (_showBackstory)
-                                {
-                                    <div class="artist-bio dim artist-backstory">@_artistDetail.DeepBackground</div>
-                                }
-                            }
-                            @if (_artistDetail?.Members is { Count: > 0 } members)
-                            {
-                                @if (members.Count == 1)
-                                {
-                                    <div class="artist-member-roster">
-                                        <div class="artist-member">
-                                            <div class="host-photo skeleton artist-member-portrait"></div>
-                                            <div class="artist-member-panel-body">
-                                                <div class="artist-member-head">
-                                                    <span class="artist-member-name">
-                                                        @members[0].Name
-                                                        @MemberVoiceControls(members[0])
-                                                        <button type="button" class="member-voice-btn" title="invite to chat"
-                                                                @onclick="() => InviteMemberToChatAsync(members[0])">
-                                                            <Icon Name="chat" Size="14" />
-                                                        </button>
-                                                    </span>
-                                                    <span class="tag">@members[0].Role</span>
-                                                </div>
-                                                @MemberPersonaLine(members[0])
-                                                <div class="dim">@members[0].Biography</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                                else
-                                {
-                                    var activeMember = members.FirstOrDefault(m => m.Id == _selectedMemberId) ?? members[0];
-                                    <div class="artist-member-tabs">
-                                        <div class="artist-member-tablist" role="tablist">
-                                            @foreach (var member in members)
-                                            {
-                                                <button class="artist-member-tab @(member.Id == activeMember.Id ? "active" : null)"
-                                                        role="tab"
-                                                        @onclick="() => _selectedMemberId = member.Id">
-                                                    <div class="host-photo skeleton artist-member-thumb"></div>
-                                                    <span class="artist-member-tab-text">
-                                                        <span class="artist-member-tab-name">@member.Name</span>
-                                                        <span class="artist-member-tab-role">@member.Role</span>
-                                                    </span>
-                                                </button>
-                                            }
-                                        </div>
-                                        <div class="artist-member-panel" role="tabpanel">
-                                            <div class="host-photo skeleton artist-member-portrait"></div>
-                                            <div class="artist-member-panel-body">
-                                                <div class="artist-member-head">
-                                                    <span class="artist-member-name">
-                                                        @activeMember.Name
-                                                        @MemberVoiceControls(activeMember)
-                                                        <button type="button" class="member-voice-btn" title="invite to chat"
-                                                                @onclick="() => InviteMemberToChatAsync(activeMember)">
-                                                            <Icon Name="chat" Size="14" />
-                                                        </button>
-                                                    </span>
-                                                    <span class="tag">@activeMember.Role</span>
-                                                </div>
-                                                @MemberPersonaLine(activeMember)
-                                                <div class="dim">@activeMember.Biography</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                }
-                            }
-                        </div>
-                        <div class="artist-actions">
-                            @if (!artist.IsRetired)
-                            {
-                                <button class="btn small primary" @onclick="CreateSongAsync">+ Record new song</button>
-                            }
-                            @{ var queuedCount = QueuedCount(selectedId); }
-                            @if (queuedCount > 0)
-                            {
-                                <div class="queue-box">Queue • @queuedCount song@(queuedCount == 1 ? "" : "s")</div>
-                            }
-                            <button class="btn small"
-                                    disabled="@(ActiveRedefinitionFor(artist.Id) is not null)"
-                                    title="@ArtistRedefineTitle(artist)"
-                                    @onclick="() => OpenRedefineArtist(artist)"><Icon Name="refresh" /> Redefine Artist</button>
-                            <button class="btn small vote-down"
-                                    disabled="@(_deletingArtist || !CanDeleteArtist(artist))"
-                                    title="@ArtistDeleteTitle(artist)"
-                                    @onclick="() => _deleteArtistTarget = artist"><Icon Name="trash" /> Delete Artist</button>
-                            @if (RedefinitionFor(artist.Id) is { Status: PendingArtistRedefinitionStatus.Failed } failedRedefinition)
-                            {
-                                <div class="vote-down-text artist-action-error">@failedRedefinition.Error</div>
-                            }
-                            @if (_artistDeleteError is not null)
-                            {
-                                <div class="vote-down-text artist-action-error">@_artistDeleteError</div>
-                            }
-                        </div>
-                    </div>
-                </div>
+                <ArtistDetailPanel Artist="artist"
+                                   Detail="_artistDetail"
+                                   QueuedCount="QueuedCount(selectedId)"
+                                   RedefineDisabled="@(ActiveRedefinitionFor(artist.Id) is not null)"
+                                   RedefineTitle="@ArtistRedefineTitle(artist)"
+                                   DeleteDisabled="@(_deletingArtist || !CanDeleteArtist(artist))"
+                                   DeleteTitle="@ArtistDeleteTitle(artist)"
+                                   RedefineError="@(RedefinitionFor(artist.Id) is { Status: PendingArtistRedefinitionStatus.Failed } failedRedefinition ? failedRedefinition.Error : null)"
+                                   DeleteError="@_artistDeleteError"
+                                   VoicePending="_voicePending"
+                                   OnCreateSong="CreateSongAsync"
+                                   OnRedefineRequested="OpenRedefineArtist"
+                                   OnDeleteRequested="artistToDelete => _deleteArtistTarget = artistToDelete"
+                                   OnRecreateVoice="RecreateMemberVoiceAsync" />
             }
         }
 
-        <div class="panel reveal">
-            @if (_tracks is null)
-            {
-                <div class="empty-state"><span class="blink">▮</span> loading the shelves...</div>
-            }
-            else
-            {
-                var filtered = FilteredTracks();
-                var totalPages = Math.Max(1, (int)Math.Ceiling(filtered.Count / (double)PageSize));
-                var currentPage = Math.Min(_page, totalPages);
-                var showRecRow = _status?.ArtistId is { } genArtist
-                    && (_selectedArtistId is null || _selectedArtistId == genArtist);
-
-                if (_deleteError is not null)
-                {
-                    <div class="vote-down-text" style="margin-bottom:10px">@_deleteError</div>
-                }
-                if (filtered.Count == 0 && !showRecRow)
-                {
-                    <div class="empty-state">
-                        @(string.IsNullOrWhiteSpace(_search)
-                            ? $"No records yet{(_selectedArtistId is not null ? " — record the first one!" : ".")}"
-                            : "No records match your search.")
-                    </div>
-                }
-                else
-                {
-                    <div class="library-song-list">
-                        <div class="library-song-grid library-song-head">
-                            <span class="library-action-cell"></span>
-                            <div class="library-head-title">
-                                <button class="@Sorted("title")" @onclick="@(() => SortAsync("title"))">Title</button>
-                                @if (_selectedArtistId is null)
-                                {
-                                    <button class="@Sorted("artist")" @onclick="@(() => SortAsync("artist"))">Artist</button>
-                                }
-                            </div>
-                            <span class="library-length-cell num">Length</span>
-                            <button class="library-plays-cell num @Sorted("plays")" @onclick="@(() => SortAsync("plays"))">Plays</button>
-                            <button class="library-votes-cell @Sorted("votes")" @onclick="@(() => SortAsync("votes"))">Votes</button>
-                            <button class="library-created-cell @Sorted("created")" @onclick="@(() => SortAsync("created"))">Created</button>
-                            <span class="library-delete-cell"></span>
-                        </div>
-
-                        @if (showRecRow)
-                        {
-                            <div class="library-song-grid library-song-item generating-row">
-                                <div class="library-action-cell">
-                                    <span class="rec-cell" title="recording" aria-label="recording">
-                                        <span class="blink rec-dot rec-dot-lg" aria-hidden="true"></span>
-                                    </span>
-                                </div>
-                                <div class="library-title-line" title="@(_status?.TrackTitle ?? "Recording a new song...")">
-                                    <span class="track-title">@(_status?.TrackTitle is { } wip ? wip : "Recording a new song...")</span>
-                                </div>
-                                <div class="library-recording-status">
-                                    @if (_selectedArtistId is null && _status?.ArtistName is { } genName)
-                                    {
-                                        <span>@genName</span>
-                                        <span class="library-meta-dot">•</span>
-                                    }
-                                    <span><StudioJobStatus StartedAtUtc="@_status?.StartedAtUtc" /></span>
-                                </div>
-                                <div class="library-delete-cell">
-                                    <button class="btn small vote-down" title="cancel recording"
-                                            disabled="@_cancelingGeneration"
-                                            @onclick="CancelGenerationAsync"><Icon Name="stop" /></button>
-                                </div>
-                            </div>
-                        }
-
-                        @foreach (var track in filtered.Skip((currentPage - 1) * PageSize).Take(PageSize))
-                        {
-                            var createdLocal = track.CreatedAt.ToLocalTime();
-                            var styleName = string.IsNullOrEmpty(track.Subgenre) ? track.Genre : track.Subgenre;
-                            var voteNet = track.UpVotes - track.DownVotes;
-
-                            <div class="library-song-grid library-song-item">
-                                <div class="library-action-cell">
-                                    <button class="btn small library-preview-btn" title="listen in the footer player (does not count as play)"
-                                            @onclick="() => Player.PlayTrack(track)">▶</button>
-                                </div>
-                                <div class="library-title-line" title="@track.Title">
-                                    <span class="track-title">@track.Title</span>
-                                    @if (track.IsRetired)
-                                    {
-                                        <StatusBadge Text="retired" />
-                                    }
-                                    @if (track.DeletionPending)
-                                    {
-                                        <StatusBadge Text="delete queued" />
-                                    }
-                                    @if (track.HasVocals)
-                                    {
-                                        <span class="tag amber">vocal</span>
-                                    }
-                                </div>
-                                <div class="library-song-meta">
-                                    @if (_selectedArtistId is null)
-                                    {
-                                        <span>@track.ArtistName</span>
-                                        <span class="library-meta-dot">•</span>
-                                    }
-                                    <span>@styleName</span>
-                                </div>
-                                <div class="library-length-cell num">@FormatClock(TimeSpan.FromSeconds(track.DurationSeconds))</div>
-                                <div class="library-plays-cell num">@track.PlayCount</div>
-                                <div class="library-votes-cell">
-                                    <span class="library-vote-pill @VoteTone(voteNet)" title="@($"{track.UpVotes} up / {track.DownVotes} down")">
-                                        <span>@FormatVoteNet(voteNet)</span>
-                                    </span>
-                                </div>
-                                <div class="library-created-cell dim" title="@createdLocal.ToString("dd.MM.yyyy HH:mm")">@createdLocal.ToString("dd.MM.")</div>
-                                <div class="library-delete-cell">
-                                    <button class="btn small vote-down"
-                                            disabled="@track.DeletionPending"
-                                            title="@(track.DeletionPending ? "delete queued after playback" : "delete this song")"
-                                            @onclick="() => _deleteTarget = track"><Icon Name="trash" /></button>
-                                </div>
-                            </div>
-                        }
-                    </div>
-
-                    if (totalPages > 1)
-                    {
-                        <div class="btn-row" style="margin-top:14px">
-                            <button class="btn small" disabled="@(currentPage <= 1)" @onclick="() => GoToPage(currentPage - 1)">‹ prev</button>
-                            <span class="dim">page @currentPage of @totalPages (@filtered.Count songs)</span>
-                            <button class="btn small" disabled="@(currentPage >= totalPages)" @onclick="() => GoToPage(currentPage + 1)">next ›</button>
-                        </div>
-                    }
-                }
-            }
-        </div>
+        <TrackTable Tracks="_tracks"
+                    Status="_status"
+                    SelectedArtistId="_selectedArtistId"
+                    Search="@_search"
+                    Sort="@_sort"
+                    OnSortChanged="SortAsync"
+                    OnDeleted="TrackDeletedAsync"
+                    OnStatusChanged="status => _status = status" />
     </div>
 </div>
 
-<Modal Visible="@_createArtistOpen" Title="Create Artist" Class="modal-wide" OnClose="CloseCreateArtist">
-    <ChildContent>
-        <div class="form-grid">
-            <div class="field full">
-                <label>Creation hint</label>
-                <textarea rows="3" @bind="_artistHint" @bind:event="oninput"
-                          placeholder="Describe the artist seed: genre, mood, origin, language, member count, or story angle."></textarea>
-            </div>
-        </div>
-        @if (_createArtistError is not null)
-        {
-            <div class="vote-down-text" style="margin-top:12px">@_createArtistError</div>
-        }
-    </ChildContent>
-    <Footer>
-        <button class="btn" @onclick="CloseCreateArtist">Cancel</button>
-        <button class="btn primary" disabled="@string.IsNullOrWhiteSpace(_artistHint)"
-                @onclick="CreateArtistAsync">
-            Queue Artist
-        </button>
-    </Footer>
-</Modal>
-
-<ConfirmDialog Visible="@(_deleteTarget is not null)"
-               Title="Delete song"
-               ConfirmText="Delete"
-               CancelText="Keep it"
-               Danger="true"
-               OnConfirm="DeleteConfirmedAsync"
-               OnCancel="() => _deleteTarget = null">
-    @if (_deleteTarget is { } doomed)
-    {
-        <text>Delete <strong>"@doomed.Title"</strong> by @doomed.ArtistName?
-        The recording, its votes and the audio file are gone for good.</text>
-    }
-</ConfirmDialog>
+<CreateArtistModal Visible="@_createArtistOpen"
+                   OnClose="CloseCreateArtist"
+                   OnQueued="QueueArtistCreation" />
 
 <ConfirmDialog Visible="@(_redefineArtistTarget is not null)"
                Title="Redefine artist"
@@ -425,8 +92,6 @@
 </ConfirmDialog>
 
 @code {
-    private const int PageSize = 25;
-
     [Parameter] public string? ArtistSlug { get; set; }
 
     private List<TrackDto>? _tracks;
@@ -436,21 +101,13 @@
     private MusicProductionStatusDto? _status;
     private string _sort = "title";
     private string _search = "";
-    private int _page = 1;
     private Guid? _selectedArtistId;
-    private Guid? _selectedMemberId;
-    private bool _showBackstory;
     private readonly HashSet<Guid> _voicePending = [];
-    private TrackDto? _deleteTarget;
     private ArtistDto? _deleteArtistTarget;
-    private string? _deleteError;
     private string? _artistDeleteError;
-    private bool _cancelingGeneration;
     private bool _createArtistOpen;
     private bool _artistCreationPumpRunning;
     private bool _deletingArtist;
-    private string _artistHint = "";
-    private string? _createArtistError;
     private ArtistDto? _redefineArtistTarget;
     private readonly List<PendingArtistCreation> _artistCreationQueue = [];
     private readonly List<PendingArtistRedefinition> _artistRedefinitionQueue = [];
@@ -553,14 +210,6 @@
         }
     }
 
-    private List<TrackDto> FilteredTracks()
-        => string.IsNullOrWhiteSpace(_search)
-            ? _tracks ?? []
-            : (_tracks ?? []).Where(t =>
-                    t.Title.Contains(_search, StringComparison.OrdinalIgnoreCase)
-                    || t.ArtistName.Contains(_search, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-
     private bool ArtistMatchesSearch(ArtistDto artist)
         => string.IsNullOrWhiteSpace(_search)
             || artist.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)
@@ -570,7 +219,6 @@
     private async Task OnSearchChangedAsync(ChangeEventArgs e)
     {
         _search = e.Value?.ToString() ?? "";
-        _page = 1;
 
         // The selected artist fell out of the filter → fall back to all tracks.
         if (_selectedArtistId is { } id
@@ -581,25 +229,11 @@
         }
     }
 
-    private string Sorted(string column) => _sort == column ? "sorted" : "";
-
-    private static string VoteTone(int net) => net switch
-    {
-        > 0 => "positive",
-        < 0 => "negative",
-        _ => "neutral",
-    };
-
-    private static string FormatVoteNet(int net) => net > 0 ? $"+{net}" : net.ToString();
-
     private async Task SortAsync(string column)
     {
         _sort = column;
-        _page = 1;
         await LoadTracksAsync();
     }
-
-    private void GoToPage(int page) => _page = page;
 
     private async Task SelectArtistAsync(ArtistDto? artist)
     {
@@ -621,12 +255,7 @@
             ? null
             : _artists.FirstOrDefault(a => string.Equals(a.Slug, normalizedSlug, StringComparison.Ordinal));
         _selectedArtistId = artist?.Id;
-        _selectedMemberId = null;
         _artistDetail = null;
-        _showBackstory = false;
-        _page = 1;
-        _deleteTarget = null;
-        _deleteError = null;
         _artistDeleteError = null;
         await LoadTracksAsync();
 
@@ -652,100 +281,6 @@
             await InvokeAsync(StateHasChanged);
         }
     }
-
-    private void PlayMemberVoice(ArtistMemberDto member)
-        => Player.PlayVoice($"{member.Name} — voice reference", MediaUrls.ArtistMemberVoice(member.Id), 0);
-
-    // Starts (or reuses via server dedupe) a group channel with this member and
-    // jumps to the chat page with that channel preselected.
-    private async Task InviteMemberToChatAsync(ArtistMemberDto member)
-    {
-        var (channel, _) = await Chat.CreateGroupChatChannelAsync(
-            null,
-            [new ChatParticipantSelectionDto("ArtistMember", null, member.Id)]);
-        if (channel is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await Js.InvokeVoidAsync("whipChat.storageSet", "whipchat.channel", channel.Id.ToString());
-        }
-        catch
-        {
-            // localStorage being unavailable must never block the invite.
-        }
-
-        Navigation.NavigateTo("/chat");
-    }
-
-    // Gender · age · personality plus interests, shown under the member name.
-    // Legacy members created before Phase 5 may have none of these — render nothing.
-    private RenderFragment? MemberPersonaLine(ArtistMemberDto member)
-    {
-        var facts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(member.Gender))
-        {
-            facts.Add(member.Gender);
-        }
-
-        if (member.Age is { } age)
-        {
-            facts.Add($"{age}");
-        }
-
-        if (!string.IsNullOrWhiteSpace(member.Personality))
-        {
-            facts.Add(member.Personality);
-        }
-
-        if (facts.Count == 0 && string.IsNullOrWhiteSpace(member.Interests))
-        {
-            return null;
-        }
-
-        return __builder =>
-        {
-            <div class="artist-member-persona dim">
-                @string.Join(" · ", facts)
-                @if (!string.IsNullOrWhiteSpace(member.Interests))
-                {
-                    <span class="artist-member-interests">@(facts.Count > 0 ? " — " : "")@member.Interests</span>
-                }
-            </div>
-        };
-    }
-
-    // Mouth (play) icon plus a create/recreate button for the member's spoken
-    // voice. While a design is queued we show a status note instead of the button.
-    private RenderFragment MemberVoiceControls(ArtistMemberDto member) => __builder =>
-    {
-        var pending = _voicePending.Contains(member.Id);
-        <span class="member-voice-controls">
-            @if (member.HasVoiceReference)
-            {
-                <button type="button" class="member-voice-btn" title="play voice reference"
-                        aria-label="play voice reference"
-                        @onclick="() => PlayMemberVoice(member)"><Icon Name="soundwave" /></button>
-            }
-            @if (pending)
-            {
-                <StatusBadge Text="designing voice" Tone="StatusBadgeTone.Amber" />
-            }
-            else
-            {
-                <button type="button" class="member-voice-btn"
-                        title="@(member.HasVoiceReference ? "recreate the spoken voice" : "create a spoken voice")"
-                        aria-label="@(member.HasVoiceReference ? "recreate voice" : "create voice")"
-                        @onclick="() => RecreateMemberVoiceAsync(member)"><Icon Name="refresh" /></button>
-                @if (!string.IsNullOrWhiteSpace(member.VoiceError))
-                {
-                    <span class="member-voice-error vote-down-text" title="@member.VoiceError">voice failed</span>
-                }
-            }
-        </span>
-    };
 
     private async Task RecreateMemberVoiceAsync(ArtistMemberDto member)
     {
@@ -784,6 +319,18 @@
         {
             _status = await Production.GetMusicProductionStatusAsync();
         }
+    }
+
+    private async Task TrackDeletedAsync(DeleteTrackResult result)
+    {
+        if (result.Deferred)
+        {
+            await LoadTracksAsync();
+            return;
+        }
+
+        _artists = await Api.GetArtistsAsync();
+        await LoadTracksAsync();
     }
 
     private bool CanDeleteArtist(ArtistDto artist)
@@ -829,18 +376,9 @@
         return "rebuild this artist profile and member roster";
     }
 
-    private void OpenCreateArtist()
-    {
-        _artistHint = "";
-        _createArtistError = null;
-        _createArtistOpen = true;
-    }
+    private void OpenCreateArtist() => _createArtistOpen = true;
 
-    private void CloseCreateArtist()
-    {
-        _createArtistOpen = false;
-        _createArtistError = null;
-    }
+    private void CloseCreateArtist() => _createArtistOpen = false;
 
     private void OpenRedefineArtist(ArtistDto artist)
     {
@@ -869,18 +407,10 @@
         return Task.CompletedTask;
     }
 
-    private Task CreateArtistAsync()
+    private Task QueueArtistCreation(string hint)
     {
-        var hint = _artistHint.Trim();
-        if (string.IsNullOrWhiteSpace(hint))
-        {
-            return Task.CompletedTask;
-        }
-
-        _createArtistError = null;
         _artistCreationQueue.Add(new PendingArtistCreation(hint));
         _createArtistOpen = false;
-        _artistHint = "";
         _search = "";
         _ = ProcessArtistCreationQueueAsync();
         return Task.CompletedTask;
@@ -971,7 +501,6 @@
                     if (_selectedArtistId == artist.Id)
                     {
                         _artistDetail = artist;
-                        _selectedMemberId = null;
                     }
                     if (_selectedArtistId is not null)
                     {
@@ -995,43 +524,6 @@
             {
                 _ = ProcessArtistRedefinitionQueueAsync();
             }
-        }
-    }
-
-    private async Task CancelGenerationAsync()
-    {
-        _cancelingGeneration = true;
-        try
-        {
-            if (await Production.CancelMusicProductionAsync())
-            {
-                _status = await Production.GetMusicProductionStatusAsync();
-            }
-        }
-        finally
-        {
-            _cancelingGeneration = false;
-        }
-    }
-
-    private async Task DeleteConfirmedAsync()
-    {
-        if (_deleteTarget is not { } track)
-        {
-            return;
-        }
-
-        _deleteTarget = null;
-        DeleteTrackResult result = await Api.DeleteTrackAsync(track.Id);
-        _deleteError = result.Error?.Trim('"');
-        if (result.Deferred)
-        {
-            await LoadTracksAsync();
-        }
-        else if (_deleteError is null)
-        {
-            _artists = await Api.GetArtistsAsync();
-            await LoadTracksAsync();
         }
     }
 
@@ -1068,30 +560,6 @@
 
     public void Dispose() => _statusTimer?.Dispose();
 
-    private static string PendingArtistTitle(PendingArtistCreation pending)
-        => pending.Status switch
-        {
-            PendingArtistCreationStatus.Creating => "Creating artist...",
-            PendingArtistCreationStatus.Failed => "Artist creation failed",
-            _ => "Artist queued",
-        };
-
-    private static string PendingArtistStatusText(PendingArtistCreation pending)
-        => pending.Status switch
-        {
-            PendingArtistCreationStatus.Creating => "creating",
-            PendingArtistCreationStatus.Failed => "failed",
-            _ => "queued",
-        };
-
-    private static string PendingRedefinitionStatusText(PendingArtistRedefinition pending)
-        => pending.Status switch
-        {
-            PendingArtistRedefinitionStatus.Redefining => "redefining",
-            PendingArtistRedefinitionStatus.Failed => "failed",
-            _ => "redefine queue",
-        };
-
     private static string CleanApiError(string? error)
     {
         if (string.IsNullOrWhiteSpace(error))
@@ -1124,37 +592,5 @@
         }
 
         return trimmed;
-    }
-
-    private sealed class PendingArtistCreation(string hint)
-    {
-        public string Hint { get; } = hint;
-
-        public PendingArtistCreationStatus Status { get; set; } = PendingArtistCreationStatus.Queued;
-
-        public string? Error { get; set; }
-    }
-
-    private sealed class PendingArtistRedefinition(Guid artistId)
-    {
-        public Guid ArtistId { get; } = artistId;
-
-        public PendingArtistRedefinitionStatus Status { get; set; } = PendingArtistRedefinitionStatus.Queued;
-
-        public string? Error { get; set; }
-    }
-
-    private enum PendingArtistCreationStatus
-    {
-        Queued,
-        Creating,
-        Failed,
-    }
-
-    private enum PendingArtistRedefinitionStatus
-    {
-        Queued,
-        Redefining,
-        Failed,
     }
 }

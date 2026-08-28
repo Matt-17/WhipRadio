@@ -1,0 +1,105 @@
+@using WhipRadio.Core.Api
+
+<div class="panel reveal library-artists">
+    <div class="artist-panel-top">
+        <div class="panel-label">Artists</div>
+        <button class="btn small" title="create an artist from a one-line hint" @onclick="OnCreateArtist">
+            <Icon Name="inbox" /> Create Artist
+        </button>
+    </div>
+    <input class="library-search" type="text" placeholder="search artist or song..."
+           value="@Search" @oninput="OnSearchChanged" />
+    <div class="artist-list">
+        <button class="artist-item @(SelectedArtistId is null ? "active" : null)" @onclick="() => OnSelectArtist.InvokeAsync(null)">
+            <span class="artist-name">All tracks</span>
+            <span class="artist-meta dim">@(Artists.Sum(a => a.TrackCount)) songs</span>
+        </button>
+        @foreach (var pending in PendingCreations)
+        {
+            <div class="artist-item artist-item-pending @(pending.Status == PendingArtistCreationStatus.Failed ? "failed" : null)" aria-live="polite">
+                <span class="artist-name-line">
+                    <span class="artist-name">@PendingArtistTitle(pending)</span>
+                    <StatusBadge Text="@PendingArtistStatusText(pending)" />
+                </span>
+                <span class="artist-meta-row">
+                    <span class="artist-meta dim">@(pending.Error ?? pending.Hint)</span>
+                </span>
+            </div>
+        }
+        @foreach (var artist in Artists.Where(a => ArtistFilter(a)))
+        {
+            <button class="artist-item @(SelectedArtistId == artist.Id ? "active" : null)"
+                    @onclick="() => OnSelectArtist.InvokeAsync(artist)">
+                <span class="artist-name-line">
+                    <span class="artist-name">@artist.Name</span>
+                    @if (artist.IsRetired)
+                    {
+                        <StatusBadge Text="retired" />
+                    }
+                </span>
+                <span class="artist-meta-row">
+                    <span class="artist-meta dim">@artist.Subgenre • @artist.TrackCount songs</span>
+                    @if (Status?.ArtistId == artist.Id)
+                    {
+                        <StatusBadge Text="REC" Pulse="true" />
+                    }
+                    else if (Status?.QueuedArtistIds.Contains(artist.Id) == true)
+                    {
+                        <StatusBadge Text="queue" />
+                    }
+                    @if (Redefinitions.FirstOrDefault(p => p.ArtistId == artist.Id) is { } redefine)
+                    {
+                        <StatusBadge Text="@PendingRedefinitionStatusText(redefine)" />
+                    }
+                </span>
+            </button>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public required List<ArtistDto> Artists { get; set; }
+
+    [Parameter] public string Search { get; set; } = "";
+
+    [Parameter] public Guid? SelectedArtistId { get; set; }
+
+    [Parameter] public MusicProductionStatusDto? Status { get; set; }
+
+    [Parameter] public IReadOnlyList<PendingArtistCreation> PendingCreations { get; set; } = [];
+
+    [Parameter] public IReadOnlyList<PendingArtistRedefinition> Redefinitions { get; set; } = [];
+
+    /// <summary>Search match including "any of the artist's tracks match" (page-owned data).</summary>
+    [Parameter, EditorRequired] public required Func<ArtistDto, bool> ArtistFilter { get; set; }
+
+    [Parameter] public EventCallback<ChangeEventArgs> OnSearchChanged { get; set; }
+
+    [Parameter] public EventCallback<ArtistDto?> OnSelectArtist { get; set; }
+
+    [Parameter] public EventCallback OnCreateArtist { get; set; }
+
+    private static string PendingArtistTitle(PendingArtistCreation pending)
+        => pending.Status switch
+        {
+            PendingArtistCreationStatus.Creating => "Creating artist...",
+            PendingArtistCreationStatus.Failed => "Artist creation failed",
+            _ => "Artist queued",
+        };
+
+    private static string PendingArtistStatusText(PendingArtistCreation pending)
+        => pending.Status switch
+        {
+            PendingArtistCreationStatus.Creating => "creating",
+            PendingArtistCreationStatus.Failed => "failed",
+            _ => "queued",
+        };
+
+    private static string PendingRedefinitionStatusText(PendingArtistRedefinition pending)
+        => pending.Status switch
+        {
+            PendingArtistRedefinitionStatus.Redefining => "redefining",
+            PendingArtistRedefinitionStatus.Failed => "failed",
+            _ => "redefine queue",
+        };
+}
