@@ -7,6 +7,22 @@ locally generated music, AI moderators with distinct personas, Kokoro/Piper TTS,
 Open-Meteo weather reports, and a continuous MP3 stream via Icecast. It plays in
 Winamp/VLC and in the built-in Blazor web app.
 
+## AMD Ryzen AI / ROCm
+
+WhipRadio is currently developed and tested primarily on NVIDIA CUDA hardware.
+
+A planned evaluation target is AMD Ryzen AI Halo / Ryzen AI Max+:
+
+- Port ACE-Step 1.5 workloads to ROCm
+- Evaluate local LLM inference
+- Run LLM, TTS and music generation concurrently
+- Explore workloads benefiting from large unified memory
+- Compare performance, power consumption and deployment complexity
+- Document compatibility issues and required changes
+
+The goal is to evaluate whether a compact Ryzen AI Halo system can run
+the complete WhipRadio AI pipeline locally.
+
 ## Architecture
 
 ```text
